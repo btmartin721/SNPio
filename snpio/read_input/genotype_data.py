@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Optional, Union, List, Dict, Tuple, Any, Callable
 
 # Make sure python version is >= 3.7
-if sys.version_info < (3, 8):
-    raise ImportError("Python < 3.8 is not supported!")
+if sys.version_info < (3, 7):
+    raise ImportError("Python < 3.7 is not supported!")
 
 import numpy as np
 import pandas as pd
