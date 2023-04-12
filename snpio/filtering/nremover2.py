@@ -14,7 +14,7 @@ from collections import Counter, defaultdict
 from ..plotting import Plotting
 
 
-class NRemover:
+class NRemover2:
     """
     A class for filtering alignments based on the proportion of missing data in a genetic alignment. The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold. The loci can be filtered by global missing data proportions or if any given population exceeds the missing data threshold. A number of informative plots are also generated.
 
