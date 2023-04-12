@@ -5,7 +5,7 @@ from pathlib import Path
 
 from typing import Optional, Union, List, Dict, Tuple, Any, Callable
 
-# Make sure python version is >= 3.7
+# Make sure python version is >= 3.8
 if sys.version_info < (3, 8):
     raise ImportError("Python < 3.8 is not supported!")
 
