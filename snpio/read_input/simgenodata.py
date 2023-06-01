@@ -15,7 +15,7 @@ import scipy as sp
 from sklearn.base import BaseEstimator, TransformerMixin
 
 try:
-    from .read_input import GenotypeData
+    from .genotype_data import GenotypeData
 except (ModuleNotFoundError, ValueError):
     from read_input.read_input import GenotypeData
 

@@ -1,10 +1,7 @@
 import numpy as np
-import itertools
 import pandas as pd
-from Bio import AlignIO
 from scipy.stats import norm
 import multiprocessing
-import random
 from scipy.stats import chi2
 from sklearn.decomposition import PCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
@@ -17,14 +14,13 @@ from xgboost import XGBClassifier
 from sklearn.preprocessing import LabelEncoder
 import allel
 from functools import partial
-import matplotlib.pyplot as plt
 import sys
-from collections import defaultdict, Counter
+from collections import Counter
 
 from .plotting import Plotting
 from .filtering.nremover import NRemover
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder, MultiLabelBinarizer
+from sklearn.preprocessing import OneHotEncoder
 
 
 class PopGenStatistics:

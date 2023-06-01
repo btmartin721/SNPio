@@ -30,6 +30,8 @@ import panel as pn
 
 hv.extension("bokeh")
 
+from ..utils import misc
+
 
 class Plotting:
     def __init__(self, popgenio):
@@ -626,3 +628,34 @@ class Plotting:
 
         # Save the plot to an HTML file
         combined.save(outfile_final)
+
+    @staticmethod
+    def plot_gt_distribution(df, plot_path):
+        df = misc.validate_input_type(df, return_type="df")
+        df_melt = pd.melt(df, value_name="Count")
+        cnts = df_melt["Count"].value_counts()
+        cnts.index.names = ["Genotype"]
+        cnts = pd.DataFrame(cnts).reset_index()
+        cnts.sort_values(by="Genotype", inplace=True)
+        cnts["Genotype"] = cnts["Genotype"].astype(str)
+
+        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax)
+        g.set_xlabel("Integer-encoded Genotype")
+        g.set_ylabel("Count")
+        g.set_title("Genotype Counts")
+        for p in g.patches:
+            g.annotate(
+                f"{p.get_height():.1f}",
+                (p.get_x() + 0.25, p.get_height() + 0.01),
+                xytext=(0, 1),
+                textcoords="offset points",
+                va="bottom",
+            )
+
+        fig.savefig(
+            os.path.join(plot_path, "genotype_distributions.png"),
+            bbox_inches="tight",
+            facecolor="white",
+        )
+        plt.close()
