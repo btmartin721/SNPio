@@ -26,6 +26,7 @@ except (ModuleNotFoundError, ValueError):
     from utils.plotting import Plotting
     from utils import sequence_tools
 
+
 class GenotypeData:
     """Read genotype and tree data and encode genotypes.
 
@@ -121,7 +122,7 @@ class GenotypeData:
             prefix (str, default='imputer'): Prefix to use for output directory.
             verbose (bool, default=True): Verbosity level.
         """
-    
+
         self.filename = filename
         self.filetype = filetype
         self.popmapfile = popmapfile
@@ -478,7 +479,6 @@ class GenotypeData:
         fin.close()
         return s
 
-
     def read_structure(
         self, onerow: bool = False, popids: bool = True
     ) -> None:
@@ -692,7 +692,7 @@ class GenotypeData:
 
         self.ref = None
         self.alt = None
-                
+
     def convert_012(
         self,
         snps: List[List[str]],
@@ -743,7 +743,6 @@ class GenotypeData:
 
             num_alleles = sequence_tools.count_alleles(loc, vcf=vcf)
             if num_alleles != 2:
-
                 # If monomorphic
                 if num_alleles < 2:
                     warnings.warn(
@@ -1120,9 +1119,7 @@ class GenotypeData:
             if sample in my_popmap:
                 self.pops.append(my_popmap[sample])
 
-    def decode_012(
-        self, X, write_output=True, prefix="imputer", is_nuc=False
-    ):
+    def decode_012(self, X, write_output=True, prefix="imputer", is_nuc=False):
         """Decode 012-encoded or 0-9 integer-encoded imputed data to STRUCTURE or PHYLIP format.
 
         Args:
@@ -1229,11 +1226,9 @@ class GenotypeData:
             )
 
         if ft.startswith("structure"):
-
             of = f"{outfile}.str"
 
             if ft.startswith("structure2row"):
-
                 for col in df_decoded.columns:
                     df_decoded[col] = (
                         df_decoded[col]
@@ -1263,11 +1258,10 @@ class GenotypeData:
                     axis=1,
                 )
 
-
             if write_output:
                 df_decoded.insert(0, "sampleID", self.samples)
                 df_decoded.insert(1, "popID", self.pops)
-                
+
                 df_decoded.to_csv(
                     of,
                     sep="\t",
@@ -1396,7 +1390,7 @@ class GenotypeData:
         plotting = Plotting()
         plotting.plot_gt_distribution(int_iupac, plot_path)
 
-    def calc_missing(self, df: pd.DataFrame, use_pops: bool=True):
+    def calc_missing(self, df: pd.DataFrame, use_pops: bool = True):
         # Get missing value counts per-locus.
         loc = df.isna().sum(axis=0) / self._num_inds
         loc = loc.round(2)
@@ -1425,26 +1419,30 @@ class GenotypeData:
             self.instance = instance
             self.is_structure = is_structure
 
-        def __call__(self, format='list'):
-            if format == 'list':
-                return self.instance.convert_012(self.instance.snp_data, vcf=self.is_structure)
-            
-            elif format == 'numpy':
+        def __call__(self, format="list"):
+            if format == "list":
+                return self.instance.convert_012(
+                    self.instance.snp_data, vcf=self.is_structure
+                )
+
+            elif format == "numpy":
                 return np.array(
                     self.instance.convert_012(
                         self.instance.snp_data, vcf=self.is_structure
                     )
                 )
-            
-            elif format == 'pandas':
-                   df = pd.DataFrame.from_records(
+
+            elif format == "pandas":
+                df = pd.DataFrame.from_records(
                     self.instance.convert_012(
-                       self.instance.snp_data, vcf=self.is_structure
+                        self.instance.snp_data, vcf=self.is_structure
                     )
                 )
-                   
+
             else:
-                raise ValueError("Invalid format. Supported formats: 'list', 'numpy', 'pandas'")
+                raise ValueError(
+                    "Invalid format. Supported formats: 'list', 'numpy', 'pandas'"
+                )
 
     @property
     def num_snps(self) -> int:
@@ -1454,7 +1452,7 @@ class GenotypeData:
             int: Number of SNPs per individual.
         """
         return self._num_snps
-    
+
     @num_snps.setter
     def num_snps(self, value) -> None:
         self._num_snps = value
@@ -1467,7 +1465,7 @@ class GenotypeData:
             int: Number of individuals in input data.
         """
         return self._num_inds
-    
+
     @num_inds.setter
     def num_inds(self, value) -> None:
         self._num_inds = value
@@ -1489,7 +1487,7 @@ class GenotypeData:
             List[str]: Sample IDs in input order.
         """
         return self.samples
-    
+
     @individuals.setter
     def individuals(self, value) -> None:
         self.samples = value
@@ -1502,7 +1500,9 @@ class GenotypeData:
         return self._make_snpsdict()
 
     @property
-    def genotypes_012(self) -> Union[List[List[int]], np.ndarray, pd.DataFrame]:
+    def genotypes_012(
+        self,
+    ) -> Union[List[List[int]], np.ndarray, pd.DataFrame]:
         """Encoded 012 genotypes as a 2D list, numpy array, or pandas DataFrame.
 
         The examples below show how to return the different format types.
@@ -1522,11 +1522,11 @@ class GenotypeData:
         """
         is_str = True if self.filetype.startswith("structure") else False
         return self._DataFormat012(self, is_structure=is_str)
-    
+
     @genotypes_012.setter
     def genotypes_012(self, value) -> List[List[int]]:
         self._snp_data = self.decode_012(value, write_output=False)
-        
+
     @property
     def genotypes_onehot(self) -> Union[np.ndarray, List[List[List[float]]]]:
         """One-hot encoded snps format.
@@ -1553,7 +1553,8 @@ class GenotypeData:
 
         if is_str:
             snp_data = [
-                [self._genotype_to_iupac(g) for g in row] for row in self._snp_data
+                [self._genotype_to_iupac(g) for g in row]
+                for row in self._snp_data
             ]
         else:
             snp_data = self._snp_data
@@ -1564,7 +1565,7 @@ class GenotypeData:
                 for sample, row in zip(self.samples, snp_data)
             ]
         )
-    
+
     @alignment.setter
     def alignment(self, value: MultipleSeqAlignment) -> None:
         """
@@ -1579,11 +1580,9 @@ class GenotypeData:
         if not isinstance(value, MultipleSeqAlignment):
             raise TypeError(
                 "alignment must be a MultipleSequenceAlignment object."
-        )
+            )
 
-        alignment_array = np.array(
-            [list(str(record.seq)) for record in value]
-        )
+        alignment_array = np.array([list(str(record.seq)) for record in value])
 
         self._snp_data = alignment_array.tolist()
         self.num_inds = len(self._snp_data)
