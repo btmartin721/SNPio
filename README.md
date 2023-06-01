@@ -1,4 +1,4 @@
-<img src="(https://github.com/btmartin721/SNPio/blob/master/img/snpio_logo.png" width="50%" height="50%" alt="SNPio logo">
+<img src="https://github.com/btmartin721/SNPio/blob/master/img/snpio_logo.png" width="50%" alt="SNPio logo">
 
 # SNPio
 API to read and write DNA sequence alignment files into a GenotypeData object.
