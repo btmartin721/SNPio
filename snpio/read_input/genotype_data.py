@@ -147,6 +147,8 @@ class GenotypeData:
         self.site_rates = None
         self.tree = None
         self.int_iupac = None
+        self._popmap = None
+        self._popmap_inverse = None
 
         if self.qmatrix_iqtree is not None and self.qmatrix is not None:
             raise TypeError(
@@ -270,6 +272,11 @@ class GenotypeData:
             elif filetype == "012":
                 self.filetype = filetype
                 self.read_012()
+
+            elif filetype is None:
+                raise TypeError(
+                    "filetype argument must be provided, but got NoneType."
+                )
 
             else:
                 raise OSError(f"Unsupported filetype provided: {filetype}\n")
@@ -1119,6 +1126,9 @@ class GenotypeData:
             if sample in my_popmap:
                 self.pops.append(my_popmap[sample])
 
+        self._popmap = my_popmap.popmap
+        self._popmap_inverse = my_popmap.popmap_flipped
+
     def decode_012(self, X, write_output=True, prefix="imputer", is_nuc=False):
         """Decode 012-encoded or 0-9 integer-encoded imputed data to STRUCTURE or PHYLIP format.
 
@@ -1419,20 +1429,20 @@ class GenotypeData:
             self.instance = instance
             self.is_structure = is_structure
 
-        def __call__(self, format="list"):
-            if format == "list":
+        def __call__(self, fmt="list"):
+            if fmt == "list":
                 return self.instance.convert_012(
                     self.instance.snp_data, vcf=self.is_structure
                 )
 
-            elif format == "numpy":
+            elif fmt == "numpy":
                 return np.array(
                     self.instance.convert_012(
                         self.instance.snp_data, vcf=self.is_structure
                     )
                 )
 
-            elif format == "pandas":
+            elif fmt == "pandas":
                 df = pd.DataFrame.from_records(
                     self.instance.convert_012(
                         self.instance.snp_data, vcf=self.is_structure
@@ -1480,6 +1490,24 @@ class GenotypeData:
         return self.pops
 
     @property
+    def popmap(self) -> Dict[str, str]:
+        """Dictionary object with SampleIDs as keys and popIDs as values."""
+        return self._popmap
+
+    @popmap.setter
+    def popmap(self, value):
+        """Dictionary with SampleIDs as keys and popIDs as values."""
+        self._popmap = value
+
+    @property
+    def popmap_inverse(self) -> None:
+        return self._popmap_inverse
+
+    @popmap_inverse.setter
+    def popmap_inverse(self, value) -> Dict[str, str]:
+        self._popmap_inverse = value
+
+    @property
     def individuals(self) -> List[str]:
         """Sample IDs in input order.
 
@@ -1515,10 +1543,10 @@ class GenotypeData:
             >>>gt_list = GenotypeData.genotypes_012
             >>>
             >>># Get a numpy array.
-            >>>gt_array = GenotypeData.genotypes_012(format="numpy")
+            >>>gt_array = GenotypeData.genotypes_012(fmt="numpy")
             >>>
             >>># Get a pandas DataFrame.
-            >>>gt_df = GenotypeData.genotypes_012(format="pandas")
+            >>>gt_df = GenotypeData.genotypes_012(fmt="pandas")
         """
         is_str = True if self.filetype.startswith("structure") else False
         return self._DataFormat012(self, is_structure=is_str)

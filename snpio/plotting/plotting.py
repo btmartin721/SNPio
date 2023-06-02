@@ -15,6 +15,7 @@ import pandas as pd
 from sklearn.metrics import mean_squared_error
 import math
 import itertools
+import warnings
 
 from typing import Tuple
 
@@ -36,7 +37,7 @@ from ..utils import misc
 class Plotting:
     def __init__(self, popgenio):
         self.alignment = popgenio.alignment
-        self.popmap = popgenio.popmap
+        self.popmap = popgenio.populations
         self.populations = popgenio.populations
 
     @staticmethod
@@ -457,205 +458,223 @@ class Plotting:
         plot_dir="plots",
         included_steps=None,
     ):
-
-        if included_steps is None:
-            included_steps = list(range(6))
-
-        steps = [
-            ["Unfiltered", "Monomorphic", loci_removed_per_step[0][1]]
-            if 0 in included_steps
-            else None,
-            [
-                "Unfiltered",
-                "Filter Singletons",
-                loci_before - loci_removed_per_step[0][1],
-            ]
-            if 1 in included_steps
-            else None,
-            ["Filter Singletons", "Singletons", loci_removed_per_step[1][1]]
-            if 2 in included_steps
-            else None,
-            [
-                "Filter Singletons",
-                "Filter Non-Biallelic",
-                loci_before - sum([x[1] for x in loci_removed_per_step[0:2]]),
-            ]
-            if 3 in included_steps
-            else None,
-            [
-                "Filter Non-Biallelic",
-                "Non-Biallelic",
-                loci_removed_per_step[2][1],
-            ]
-            if 4 in included_steps
-            else None,
-            [
-                "Filter Non-Biallelic",
-                "Filter Missing (Global)",
-                loci_before - sum([x[1] for x in loci_removed_per_step[0:3]]),
-            ]
-            if 5 in included_steps
-            else None,
-            [
-                "Filter Missing (Global)",
-                "Missing (Global)",
-                loci_removed_per_step[3][1],
-            ]
-            if 6 in included_steps
-            else None,
-            [
-                "Filter Missing (Global)",
-                "Filter Missing (Populations)",
-                loci_before - sum([x[1] for x in loci_removed_per_step[0:4]]),
-            ]
-            if 7 in included_steps
-            else None,
-            [
-                "Filter Missing (Populations)",
-                "Missing (Populations)",
-                loci_removed_per_step[4][1],
-            ]
-            if 8 in included_steps
-            else None,
-            [
-                "Filter Missing (Populations)",
-                "Filter MAF",
-                loci_before - sum([x[1] for x in loci_removed_per_step[0:5]]),
-            ]
-            if 9 in included_steps
-            else None,
-            ["Filter MAF", "MAF", loci_removed_per_step[5][1]]
-            if 10 in included_steps
-            else None,
-            ["Filter MAF", "Filtered", loci_after]
-            if 11 in included_steps
-            else None,
-        ]
-
-        steps = [step for step in steps if step is not None]
-
-        l = []
-        zeros = []
-        node_labels = ["Unfiltered"]
-        for step in steps:
-            if step[2] > 0:
-                l.append(step)
-            else:
-                zeros.append(step[2])
-
-        df = pd.DataFrame(l, columns=["Source", "Target", "Count"])
-        # Convert integer labels to strings
-        df["Source"] = df["Source"].astype(str)
-        df["Target"] = df["Target"].astype(str)
-
-        node_labels = [
-            "Unfiltered",
-            "Monomorphic",
-            "Filter Singletons",
-            "Singletons",
-            "Filter Non-Biallelic",
-            "Non-Biallelic",
-            "Filter Missing (Global)",
-            "MAF",
-            "Filter Missing (Populations)",
-            "Missing (Global)",
-            "Filter MAF",
-            "Missing (Populations)",
-            "Filtered",
-        ]
-
-        node_labels = [x for x in node_labels if x not in zeros]
-
-        cmap = {
-            "Unfiltered": "#66c2a5",
-            "Filter Singletons": "#66c2a5",
-            "Filter Non-Biallelic": "#66c2a5",
-            "Filter Missing (Global)": "#66c2a5",
-            "Filter Missing (Populations)": "#66c2a5",
-            "Filter MAF": "#66c2a5",
-            "Filtered": "#66c2a5",
-            "Non-Biallelic": "#fc8d62",
-            "Monomorphic": "#fc8d62",
-            "Singletons": "#fc8d62",
-            "Missing (Global)": "#fc8d62",
-            "Missing (Populations)": "#fc8d62",
-            "Missing (Sample)": "#fc8d62",
-            "MAF": "#fc8d62",
-        }
-
-        # Add a new column 'LinkColor' to the dataframe
-        df["LinkColor"] = df["Target"].apply(lambda x: cmap.get(x, "red"))
-
-        sankey_plot = hv.Sankey(df, label="Sankey Filtering Report").options(
-            node_color="blue",
-            cmap=cmap,
-            width=1000,
-            height=500,
-            edge_color="LinkColor",
-            node_padding=40,
-        )
-
-        # Apply custom node labels
-        label_array = np.array(node_labels)
-        sankey_plot = sankey_plot.redim.values(Node=label_array)
-
-        # Create custom legend
-        legend = """
-        <div style="position:absolute;right:20px;top:20px;border:1px solid black;padding:10px;background-color:white">
-            <div style="display:flex;align-items:center;">
-                <div style="width:20px;height:20px;background-color:#66c2a5;margin-right:5px;"></div>
-                <div>Loci Remaining</div>
-            </div>
-            <div style="display:flex;align-items:center;">
-                <div style="width:20px;height:20px;background-color:#fc8d62;margin-right:5px;"></div>
-                <div>Loci Removed</div>
-            </div>
-        </div>
-        """
-
-        # Create the custom legend using hv.Div
-        legend_plot = hv.Div(legend)
-
-        # Convert the HoloViews objects to Bokeh models
-        bokeh_sankey_plot = hv.render(sankey_plot)
-        bokeh_legend_plot = hv.render(legend_plot)
-
-        # Combine the Bokeh plots using Panel
-        combined = pn.Row(bokeh_sankey_plot, bokeh_legend_plot)
-
-        outfile_final = os.path.join(plot_dir, outfile)
-        Path(plot_dir).mkdir(parents=True, exist_ok=True)
-
-        # Save the plot to an HTML file
-        combined.save(outfile_final)
-
-    @staticmethod
-    def plot_gt_distribution(df, plot_path):
-        df = misc.validate_input_type(df, return_type="df")
-        df_melt = pd.melt(df, value_name="Count")
-        cnts = df_melt["Count"].value_counts()
-        cnts.index.names = ["Genotype"]
-        cnts = pd.DataFrame(cnts).reset_index()
-        cnts.sort_values(by="Genotype", inplace=True)
-        cnts["Genotype"] = cnts["Genotype"].astype(str)
-
-        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax)
-        g.set_xlabel("Integer-encoded Genotype")
-        g.set_ylabel("Count")
-        g.set_title("Genotype Counts")
-        for p in g.patches:
-            g.annotate(
-                f"{p.get_height():.1f}",
-                (p.get_x() + 0.25, p.get_height() + 0.01),
-                xytext=(0, 1),
-                textcoords="offset points",
-                va="bottom",
+        if loci_before == loci_after:
+            warnings.warn(
+                "No loci were removed. Please ensure that at least one of the "
+                "filtering options is changed from default."
             )
 
-        fig.savefig(
-            os.path.join(plot_path, "genotype_distributions.png"),
-            bbox_inches="tight",
-            facecolor="white",
-        )
-        plt.close()
+        else:
+            included_steps = range(12)
+
+            if included_steps is None:
+                included_steps = list(range(6))
+
+            steps = [
+                ["Unfiltered", "Monomorphic", loci_removed_per_step[0][1]]
+                if 0 in included_steps
+                else None,
+                [
+                    "Unfiltered",
+                    "Filter Singletons",
+                    loci_before - loci_removed_per_step[0][1],
+                ]
+                if 1 in included_steps
+                else None,
+                [
+                    "Filter Singletons",
+                    "Singletons",
+                    loci_removed_per_step[1][1],
+                ]
+                if 2 in included_steps
+                else None,
+                [
+                    "Filter Singletons",
+                    "Filter Non-Biallelic",
+                    loci_before
+                    - sum([x[1] for x in loci_removed_per_step[0:2]]),
+                ]
+                if 3 in included_steps
+                else None,
+                [
+                    "Filter Non-Biallelic",
+                    "Non-Biallelic",
+                    loci_removed_per_step[2][1],
+                ]
+                if 4 in included_steps
+                else None,
+                [
+                    "Filter Non-Biallelic",
+                    "Filter Missing (Global)",
+                    loci_before
+                    - sum([x[1] for x in loci_removed_per_step[0:3]]),
+                ]
+                if 5 in included_steps
+                else None,
+                [
+                    "Filter Missing (Global)",
+                    "Missing (Global)",
+                    loci_removed_per_step[3][1],
+                ]
+                if 6 in included_steps
+                else None,
+                [
+                    "Filter Missing (Global)",
+                    "Filter Missing (Populations)",
+                    loci_before
+                    - sum([x[1] for x in loci_removed_per_step[0:4]]),
+                ]
+                if 7 in included_steps
+                else None,
+                [
+                    "Filter Missing (Populations)",
+                    "Missing (Populations)",
+                    loci_removed_per_step[4][1],
+                ]
+                if 8 in included_steps
+                else None,
+                [
+                    "Filter Missing (Populations)",
+                    "Filter MAF",
+                    loci_before
+                    - sum([x[1] for x in loci_removed_per_step[0:5]]),
+                ]
+                if 9 in included_steps
+                else None,
+                ["Filter MAF", "MAF", loci_removed_per_step[5][1]]
+                if 10 in included_steps
+                else None,
+                ["Filter MAF", "Filtered", loci_after]
+                if 11 in included_steps
+                else None,
+            ]
+
+            steps = [step for step in steps if step is not None]
+
+            l = []
+            zeros = []
+            node_labels = ["Unfiltered"]
+            for step in steps:
+                if step[2] > 0:
+                    l.append(step)
+                else:
+                    zeros.append(step[2])
+
+            df = pd.DataFrame(l, columns=["Source", "Target", "Count"])
+            # Convert integer labels to strings
+            df["Source"] = df["Source"].astype(str)
+            df["Target"] = df["Target"].astype(str)
+
+            node_labels = [
+                "Unfiltered",
+                "Monomorphic",
+                "Filter Singletons",
+                "Singletons",
+                "Filter Non-Biallelic",
+                "Non-Biallelic",
+                "Filter Missing (Global)",
+                "MAF",
+                "Filter Missing (Populations)",
+                "Missing (Global)",
+                "Filter MAF",
+                "Missing (Populations)",
+                "Filtered",
+            ]
+
+            node_labels = [x for x in node_labels if x not in zeros]
+
+            cmap = {
+                "Unfiltered": "#66c2a5",
+                "Filter Singletons": "#66c2a5",
+                "Filter Non-Biallelic": "#66c2a5",
+                "Filter Missing (Global)": "#66c2a5",
+                "Filter Missing (Populations)": "#66c2a5",
+                "Filter MAF": "#66c2a5",
+                "Filtered": "#66c2a5",
+                "Non-Biallelic": "#fc8d62",
+                "Monomorphic": "#fc8d62",
+                "Singletons": "#fc8d62",
+                "Missing (Global)": "#fc8d62",
+                "Missing (Populations)": "#fc8d62",
+                "Missing (Sample)": "#fc8d62",
+                "MAF": "#fc8d62",
+            }
+
+            # Add a new column 'LinkColor' to the dataframe
+            df["LinkColor"] = df["Target"].apply(lambda x: cmap.get(x, "red"))
+
+            sankey_plot = hv.Sankey(
+                df, label="Sankey Filtering Report"
+            ).options(
+                node_color="blue",
+                cmap=cmap,
+                width=1000,
+                height=500,
+                edge_color="LinkColor",
+                node_padding=40,
+            )
+
+            # Apply custom node labels
+            label_array = np.array(node_labels)
+            sankey_plot = sankey_plot.redim.values(Node=label_array)
+
+            # Create custom legend
+            legend = """
+            <div style="position:absolute;right:20px;top:20px;border:1px solid black;padding:10px;background-color:white">
+                <div style="display:flex;align-items:center;">
+                    <div style="width:20px;height:20px;background-color:#66c2a5;margin-right:5px;"></div>
+                    <div>Loci Remaining</div>
+                </div>
+                <div style="display:flex;align-items:center;">
+                    <div style="width:20px;height:20px;background-color:#fc8d62;margin-right:5px;"></div>
+                    <div>Loci Removed</div>
+                </div>
+            </div>
+            """
+
+            # Create the custom legend using hv.Div
+            legend_plot = hv.Div(legend)
+
+            # Convert the HoloViews objects to Bokeh models
+            bokeh_sankey_plot = hv.render(sankey_plot)
+            bokeh_legend_plot = hv.render(legend_plot)
+
+            # Combine the Bokeh plots using Panel
+            combined = pn.Row(bokeh_sankey_plot, bokeh_legend_plot)
+
+            outfile_final = os.path.join(plot_dir, outfile)
+            Path(plot_dir).mkdir(parents=True, exist_ok=True)
+
+            # Save the plot to an HTML file
+            combined.save(outfile_final)
+
+        @staticmethod
+        def plot_gt_distribution(df, plot_path):
+            df = misc.validate_input_type(df, return_type="df")
+            df_melt = pd.melt(df, value_name="Count")
+            cnts = df_melt["Count"].value_counts()
+            cnts.index.names = ["Genotype"]
+            cnts = pd.DataFrame(cnts).reset_index()
+            cnts.sort_values(by="Genotype", inplace=True)
+            cnts["Genotype"] = cnts["Genotype"].astype(str)
+
+            fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+            g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax)
+            g.set_xlabel("Integer-encoded Genotype")
+            g.set_ylabel("Count")
+            g.set_title("Genotype Counts")
+            for p in g.patches:
+                g.annotate(
+                    f"{p.get_height():.1f}",
+                    (p.get_x() + 0.25, p.get_height() + 0.01),
+                    xytext=(0, 1),
+                    textcoords="offset points",
+                    va="bottom",
+                )
+
+            fig.savefig(
+                os.path.join(plot_path, "genotype_distributions.png"),
+                bbox_inches="tight",
+                facecolor="white",
+            )
+            plt.close()

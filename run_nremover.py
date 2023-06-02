@@ -1,19 +1,20 @@
 # nremover.py
 import argparse
-from popgenstats.read_files import popgenio as pgio
-from popgenstats.filtering import nremover
-from popgenstats.pop_gen_statistics import PopGenStatistics
-from popgenstats.plotting import Plotting
+from snpio.read_input.genotype_data import GenotypeData
+from snpio.filtering import nremover2
+from snpio.popgenstats.pop_gen_statistics import PopGenStatistics
+from snpio.plotting.plotting import Plotting
 
 
 def main(args):
     # Read the alignment and popmap files
-    pg = pgio.PopGenIO(args.alignment, args.popmap)
-    pg.read_files()
+    gd = GenotypeData(
+        filename=args.alignment, popmapfile=args.popmap, filetype=args.filetype
+    )
 
     # Run the NRemover class
-    nrm = nremover.NRemover(pg)
-    pg = nrm.nremover(
+    nrm = nremover2.NRemover2(gd)
+    gd = nrm.nremover(
         max_missing_global=args.max_missing_global,
         max_missing_pop=args.max_missing_pop,
         max_missing_sample=args.max_missing_sample,
@@ -25,7 +26,7 @@ def main(args):
         plot_dir=args.plot_dir,
     )
 
-    pgs = PopGenStatistics(pg)
+    pgs = PopGenStatistics(gd)
     Plotting.plot_sfs(pgs, "ON", "EA")
 
 
@@ -40,6 +41,12 @@ def get_args():
     )
     required_args.add_argument(
         "--popmap", required=True, help="Path to the popmap file."
+    )
+
+    required_args.add_argument(
+        "--filetype",
+        required=True,
+        help="Supported file types: 'phylip', 'structure1row', 'structure1rowPopID', 'structure2row', 'structure2rowPopID'",
     )
 
     parser.add_argument(

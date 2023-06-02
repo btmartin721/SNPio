@@ -17,20 +17,19 @@ from functools import partial
 import sys
 from collections import Counter
 
-from .plotting import Plotting
-from .filtering.nremover import NRemover
+from ..plotting.plotting import Plotting
+from ..filtering.nremover2 import NRemover2 as NRemover
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
 
 
 class PopGenStatistics:
     def __init__(self, popgenio):
-
         if popgenio.filtered_alignment is not None:
             self.alignment = popgenio.filtered_alignment
         else:
             self.alignment = popgenio.alignment
-        self.popmap = popgenio.popmap
+        self.popmap = popgenio.populations
         self.populations = popgenio.populations
         self.plotting = Plotting(popgenio)
         self.nremover = NRemover(popgenio)
@@ -355,29 +354,28 @@ class PopGenStatistics:
 
         return results_df
 
-    def get_population_sequences(self, population_name):
-        """
-        Retrieve sequences of the samples belonging to a given population.
+    # def get_population_sequences(self, population_name):
+    #     """
+    #     Retrieve sequences of the samples belonging to a given population.
 
-        Args:
-            population_name (str): The name of the population to retrieve sequences for.
+    #     Args:
+    #         population_name (str): The name of the population to retrieve sequences for.
 
-        Returns:
-            list: A list of sequences for the samples in the specified population.
-        """
-        # Assuming you have a dictionary that maps population names to sample names
-        sample_names = self.populations[population_name]
-        population_sequences = []
-        for record in self.alignment:
-            if record.id in sample_names:
-                population_sequences.append(record)
+    #     Returns:
+    #         list: A list of sequences for the samples in the specified population.
+    #     """
+    #     # Assuming you have a dictionary that maps population names to sample names
 
-        return population_sequences
+    #     sample_names = self.populations[population_name]
+    #     population_sequences = []
+    #     for record in self.alignment:
+    #         if record.id in sample_names:
+    #             population_sequences.append(record)
 
-    def calculate_1d_sfs(
-        self, population, filter_singletons=False
-    ):
-        pop_seqs = self.get_population_sequences(population)
+    #     return population_sequences
+
+    def calculate_1d_sfs(self, population, filter_singletons=False):
+        pop_seqs = self.nremover.get_population_sequences(population)
         num_samples = len(pop_seqs)
 
         allele_counts = [
@@ -405,8 +403,8 @@ class PopGenStatistics:
     def calculate_2d_sfs(
         self, population1, population2, filter_singletons=False
     ):
-        pop1_seqs = self.get_population_sequences(population1)
-        pop2_seqs = self.get_population_sequences(population2)
+        pop1_seqs = self.nremover.get_population_sequences(population1)
+        pop2_seqs = self.nremover.get_population_sequences(population2)
         num_samples1 = len(pop1_seqs)
         num_samples2 = len(pop2_seqs)
 

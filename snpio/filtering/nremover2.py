@@ -11,7 +11,7 @@ from Bio import SeqUtils
 from copy import deepcopy
 from collections import Counter, defaultdict
 
-from ..plotting import Plotting
+from ..plotting.plotting import Plotting
 
 
 class NRemover2:
@@ -44,9 +44,11 @@ class NRemover2:
         Args:
             popgenio (PopGenIO): An instance of the PopGenIO class containing the genetic data alignment, population map, and populations.
         """
+        self._msa = popgenio.alignment
+        self._alignment = deepcopy(self._msa)
         self.popgenio = popgenio
-        self.alignment = popgenio.alignment
         self.popmap = popgenio.popmap
+        self.popmap_inverse = popgenio.popmap_inverse
         self.populations = popgenio.populations
 
     def nremover(
@@ -67,7 +69,7 @@ class NRemover2:
         if not suppress_cletus:
             self.print_cletus()
 
-        self.alignment = self.alignment[:]
+        self.alignment = self.msa[:]
         aln_before = deepcopy(self.alignment)
 
         if plot_missingness_report:
@@ -139,15 +141,9 @@ class NRemover2:
                 if name != "Filter missing data (sample)":
                     loci_removed_per_step.append((name, loci_removed))
                     self.alignment = filtered_alignment
+            else:
+                loci_removed_per_step.append((name, 0))
 
-        self.alignment = [
-            SeqRecord(
-                Seq("".join(seq)), id=record.id, description=record.description
-            )
-            for seq, record in zip(self.alignment, aln_before)
-        ]
-
-        self.alignment = MultipleSeqAlignment(self.alignment)
         aln_after = deepcopy(self.alignment)
 
         self.print_filtering_report(
@@ -190,9 +186,11 @@ class NRemover2:
         if alignment is None:
             alignment = self.alignment
 
-        alignment_array = np.array(
-            [list(str(record.seq)) for record in alignment]
-        )
+        alignment_array = alignment
+
+        # alignment_array = np.array(
+        #     [list(str(record.seq)) for record in alignment]
+        # )
         missing_counts = np.sum(alignment_array == "N", axis=0)
         mask = missing_counts / alignment_array.shape[0] <= threshold
 
@@ -207,33 +205,34 @@ class NRemover2:
         )
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
-        filtered_alignment = [
-            SeqRecord(
-                Seq("".join(filtered_alignment_array[i, :])),
-                id=record.id,
-                description=record.description,
-            )
-            for i, record in enumerate(alignment)
-        ]
+        # filtered_alignment = [
+        #     SeqRecord(
+        #         Seq("".join(filtered_alignment_array[i, :])),
+        #         id=record.id,
+        #         description=record.description,
+        #     )
+        #     for i, record in enumerate(alignment)
+        # ]
 
         if return_props:
-            return filtered_alignment, mean_missing_prop
+            return filtered_alignment_array, mean_missing_prop
         else:
-            return filtered_alignment
+            return filtered_alignment_array
 
     def filter_missing_pop(
         self, max_missing, alignment, populations=None, return_props=False
     ):
-
         if populations is None:
-            populations = self.populations
+            populations = self.popmap_inverse
 
-        alignment_array = np.array(
-            [list(str(record.seq)) for record in alignment]
-        )
+        alignment_array = alignment
+
+        # alignment_array = np.array(
+        #     [list(str(record.seq)) for record in alignment]
+        # )
 
         sample_id_to_index = {
-            record.id: i for i, record in enumerate(alignment)
+            record.id: i for i, record in enumerate(self.msa)
         }
 
         def missing_data_proportion(column, indices):
@@ -263,19 +262,19 @@ class NRemover2:
 
         filtered_alignment_array = alignment_array[:, ~mask]
 
-        filtered_alignment = [
-            SeqRecord(
-                Seq("".join(filtered_alignment_array[i, :])),
-                id=original_record.id,
-                description=original_record.description,
-            )
-            for i, original_record in enumerate(alignment)
-        ]
+        # filtered_alignment = [
+        #     SeqRecord(
+        #         Seq("".join(filtered_alignment_array[i, :])),
+        #         id=original_record.id,
+        #         description=original_record.description,
+        #     )
+        #     for i, original_record in enumerate(alignment)
+        # ]
 
         if return_props:
-            return filtered_alignment, mean_missing_props
+            return filtered_alignment_array, mean_missing_props
         else:
-            return filtered_alignment
+            return filtered_alignment_array
 
     def filter_missing_sample(
         self, threshold, alignment=None, return_props=False
@@ -299,9 +298,11 @@ class NRemover2:
         if alignment is None:
             alignment = self.alignment
 
-        alignment_array = np.array(
-            [list(str(record.seq)) for record in alignment]
-        )
+        alignment_array = alignment
+
+        # alignment_array = np.array(
+        #     [list(str(record.seq)) for record in alignment]
+        # )
         missing_counts = np.sum(alignment_array == "N", axis=1)
         mask = missing_counts / alignment_array.shape[1] <= threshold
 
@@ -320,12 +321,7 @@ class NRemover2:
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
         filtered_alignment = [
-            SeqRecord(
-                Seq("".join(filtered_alignment_array[i, :])),
-                id=alignment[index].id,
-                description=alignment[index].description,
-            )
-            for i, index in enumerate(mask_indices)
+            filtered_alignment_array[index, :] for index in mask_indices
         ]
 
         if return_props:
@@ -333,10 +329,11 @@ class NRemover2:
         else:
             return filtered_alignment
 
-    def filter_minor_allele_frequency(self, min_maf, alignment):
-        alignment_array = np.array(
-            [list(str(record.seq)) for record in alignment]
-        )
+    def filter_minor_allele_frequency(self, min_maf, alignment=None):
+        if alignment is None:
+            alignment = self.alignment
+
+        alignment_array = alignment
 
         def count_bases(column):
             base_count = {
@@ -389,16 +386,16 @@ class NRemover2:
 
         filtered_alignment_array = alignment_array[:, mask]
 
-        filtered_alignment = [
-            SeqRecord(
-                Seq("".join(filtered_alignment_array[i, :])),
-                id=original_record.id,
-                description=original_record.description,
-            )
-            for i, original_record in enumerate(alignment)
-        ]
+        # filtered_alignment = [
+        #     SeqRecord(
+        #         Seq("".join(filtered_alignment_array[i, :])),
+        #         id=original_record.id,
+        #         description=original_record.description,
+        #     )
+        #     for i, original_record in enumerate(alignment)
+        # ]
 
-        return filtered_alignment
+        return filtered_alignment_array
 
     def filter_non_biallelic(self, threshold=None, alignment=None):
         """
@@ -411,10 +408,12 @@ class NRemover2:
         Returns:
             MultipleSeqAlignment: The filtered alignment.
         """
+
+        if alignment is None:
+            alignment = self.alignment
+
         # Convert the input alignment to a numpy array of sequences
-        alignment_array = np.array(
-            [list(str(record.seq)) for record in alignment]
-        )
+        alignment_array = alignment
 
         iupac = {
             "R": ("A", "G"),
@@ -461,16 +460,16 @@ class NRemover2:
         filtered_alignment_array = alignment_array[:, mask]
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
-        filtered_alignment = [
-            SeqRecord(
-                Seq("".join(filtered_alignment_array[i, :])),
-                id=original_record.id,
-                description=original_record.description,
-            )
-            for i, original_record in enumerate(alignment)
-        ]
+        # filtered_alignment = [
+        #     SeqRecord(
+        #         Seq("".join(filtered_alignment_array[i, :])),
+        #         id=original_record.id,
+        #         description=original_record.description,
+        #     )
+        #     for i, original_record in enumerate(alignment)
+        # ]
 
-        return filtered_alignment
+        return filtered_alignment_array
 
     def count_iupac_alleles(self, column):
         """
@@ -521,6 +520,9 @@ class NRemover2:
             filtered_alignment (Bio.Align.MultipleSeqAlignment): The filtered alignment.
         """
 
+        if alignment is None:
+            alignment = self.alignment
+
         def is_monomorphic(column):
             """
             Determines if a column in an alignment is monomorphic.
@@ -542,18 +544,21 @@ class NRemover2:
 
             return len(valid_alleles) <= 1
 
-        alignment_array = np.array([list(rec) for rec in alignment], dtype=str)
+        alignment_array = alignment.astype(str)
+
         if alignment_array.shape[1] > 0:
             mask = np.apply_along_axis(is_monomorphic, 0, alignment_array)
             filtered_alignment_array = alignment_array[:, ~mask]
         else:
             filtered_alignment_array = alignment_array
 
-        filtered_records = [
-            SeqRecord(Seq("".join(seq_list)), id=rec.id)
-            for rec, seq_list in zip(alignment, filtered_alignment_array)
-        ]
-        return MultipleSeqAlignment(filtered_records)
+        return filtered_alignment_array
+
+        # filtered_records = [
+        #     SeqRecord(Seq("".join(seq_list)), id=rec.id)
+        #     for rec, seq_list in zip(alignment, filtered_alignment_array)
+        # ]
+        # return MultipleSeqAlignment(filtered_records)
 
     @staticmethod
     def resolve_ambiguity(base):
@@ -598,6 +603,9 @@ class NRemover2:
             filtered_alignment (Bio.Align.MultipleSeqAlignment): The filtered alignment.
         """
 
+        if alignment is None:
+            alignment = self.alignment
+
         def is_singleton(column):
             """
             Determines if a column in an alignment is a singleton.
@@ -622,18 +630,21 @@ class NRemover2:
                 return allele_count[min_allele] == 1
             return False
 
-        alignment_array = np.array([list(rec) for rec in alignment], dtype=str)
+        alignment_array = alignment.astype(str)
+
         if alignment_array.shape[1] > 0:
             mask = np.apply_along_axis(is_singleton, 0, alignment_array)
             filtered_alignment_array = alignment_array[:, ~mask]
         else:
             filtered_alignment_array = alignment_array
 
-        filtered_records = [
-            SeqRecord(Seq("".join(seq_list)), id=rec.id)
-            for rec, seq_list in zip(alignment, filtered_alignment_array)
-        ]
-        return MultipleSeqAlignment(filtered_records)
+        return filtered_alignment_array
+
+        # filtered_records = [
+        #     SeqRecord(Seq("".join(seq_list)), id=rec.id)
+        #     for rec, seq_list in zip(alignment, filtered_alignment_array)
+        # ]
+        # return MultipleSeqAlignment(filtered_records)
 
     def get_population_sequences(self, population):
         """
@@ -651,10 +662,8 @@ class NRemover2:
         population_indices = [
             i for i, pop in enumerate(self.populations) if pop == population
         ]
-        alignment_array = np.array(self.alignment)
-
+        alignment_array = self.alignment
         population_sequences = alignment_array[population_indices, :]
-
         return population_sequences.tolist()
 
     @staticmethod
@@ -685,12 +694,12 @@ class NRemover2:
         def missing_data_percent(msa):
             total = len(msa) * len(msa[0])
             if total == 0:
-                for name, loci_removed in loci_removed_per_step:
-                    print(f"  {name}: {loci_removed}")
+                # for name, loci_removed in loci_removed_per_step:
+                #     print(f"  {name}: {loci_removed}")
                 raise ValueError(
                     "There is no data left after filtering. This can indicate an issue with the filtering or with the provided filtering parameters."
                 )
-            missing = sum(seq.count("N") for seq in msa)
+            missing = np.sum(msa == "N")
             return (missing / total) * 100
 
         missing_data_before = missing_data_percent(before_alignment)
@@ -700,23 +709,22 @@ class NRemover2:
         print(f"  Loci before filtering: {num_loci_before}")
         print(f"  Samples before filtering: {num_samples_before}")
 
-        for name, loci_removed in loci_removed_per_step:
-            print(f"  {name}: {loci_removed}")
-
-        print(f"  Samples removed: {samples_removed}")
-        print(f"  Loci remaining: {num_loci_after}")
-        print(f"  Samples remaining: {num_samples_after}")
-        print(f"  Missing data before filtering: {missing_data_before:.2f}%")
-        print(f"  Missing data after filtering: {missing_data_after:.2f}%")
-
         if (
-            loci_removed == 0
+            all([x[1] == 0 for x in loci_removed_per_step])
             and samples_removed == 0
             and missing_data_before == missing_data_after
         ):
             warnings.warn(
                 "The alignment was unchanged. Note that if none of the filtering arguments were changed from defaults, the alignment will not be filtered."
             )
+
+        for name, loci_removed in loci_removed_per_step:
+            print(f"  {name}: {loci_removed}")
+        print(f"  Samples removed: {samples_removed}")
+        print(f"  Loci remaining: {num_loci_after}")
+        print(f"  Samples remaining: {num_samples_after}")
+        print(f"  Missing data before filtering: {missing_data_before:.2f}%")
+        print(f"  Missing data after filtering: {missing_data_after:.2f}%")
 
     def plot_missing_data_thresholds(
         self, output_file, show=False, plot_dir="plots"
@@ -807,6 +815,31 @@ class NRemover2:
 
         if show:
             plt.show()
+
+    @property
+    def alignment(self):
+        if isinstance(self._alignment, MultipleSeqAlignment):
+            a = np.array([list(str(record.seq)) for record in self._alignment])
+        else:
+            a = self._alignment
+        return a
+
+    @alignment.setter
+    def alignment(self, value):
+        if isinstance(value, MultipleSeqAlignment):
+            self._alignment = np.array(
+                [list(str(record.seq)) for record in value]
+            )
+        else:
+            self._alignment = value
+
+    @property
+    def msa(self):
+        return self._msa
+
+    @msa.setter
+    def msa(self, value):
+        self._msa = value
 
     @property
     def population_sequences(self):
