@@ -131,3 +131,4 @@ dmypy.json
 sfs_*
 plots/
 plots/*
+sankey_*
