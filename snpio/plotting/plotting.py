@@ -678,3 +678,79 @@ class Plotting:
                 facecolor="white",
             )
             plt.close()
+
+    @staticmethod
+    def lineplot_maf(df, fontsize=28):
+        sns.lineplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df,
+        )
+        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
+        plt.ylabel("Proportion of Missing Data", fontsize=fontsize)
+        plt.ylim(0.0, 1.0)
+        plt.title("MAF vs. Missing Data Proportion", fontsize=fontsize)
+
+    @staticmethod
+    def histogram_maf(maf, fontsize=28):
+        sns.histplot(maf, kde=False, bins=30)
+        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
+        plt.ylabel("Minor Allele Count", fontsize=fontsize)
+        plt.title("Minor Allele Frequency Histogram", fontsize=fontsize)
+
+    @staticmethod
+    def cdf_maf(
+        maf,
+        title="Cumulative Distribution of Minor Alleles",
+        ylab="Cumulative Distribution",
+        fontsize=28,
+    ):
+        sns.ecdfplot(maf)
+        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
+        plt.ylabel(ylab, fontsize=fontsize)
+        plt.title(
+            title,
+            fontsize=fontsize,
+        )
+
+    def boxplot_maf(data, fontsize=28):
+        sns.boxplot(x="Threshold", y="Proportion", data=data)
+        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
+        plt.ylabel("Proportion of Missing Data", fontsize=fontsize)
+        plt.ylim(0, 1)
+        plt.title("MAF vs. Missing Data", fontsize=fontsize)
+
+    @staticmethod
+    def scatterplot_maf(data, fontsize=28):
+        sns.scatterplot(x="Threshold", y="Proportion", data=data)
+        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
+        plt.ylabel("Proportion of Missing Data", fontsize=fontsize)
+        plt.ylim(0, 1)
+        plt.title(f"MAF vs. Missing Data", fontsize=fontsize)
+
+    @classmethod
+    def visualize_maf(
+        cls, min_maf, alignment_array, other_col=None, group_col=None
+    ):
+        # Calculate MAF using your function
+        maf = np.apply_along_axis(
+            cls.minor_allele_frequency, 0, alignment_array
+        )
+
+        # Plot histogram and CDF
+        cls.histogram_maf(maf, min_maf)
+        cls.cdf_maf(maf, min_maf)
+
+        # For boxplot and scatterplot, you need additional columns (group and other variable)
+        # You'll need to adjust this part based on how your data is structured
+        if group_col is not None and other_col is not None:
+            data = pd.DataFrame(
+                {
+                    group_col: alignment_array[group_col],
+                    "MAF": maf,
+                    other_col: alignment_array[other_col],
+                }
+            )
+            cls.boxplot_maf(data, group_col, "MAF")
+            cls.catterplot_maf(data, "MAF", other_col)
