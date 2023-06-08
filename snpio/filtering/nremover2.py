@@ -168,6 +168,35 @@ class NRemover2:
         self.popgenio.filtered_alignment = self.alignment
         return self.popgenio
 
+    def calc_missing_proportions(
+        self,
+        alignment_array,
+        missing_chars=["N", "-", ".", "?"],
+        calculate_stdev=False,
+        is_sample_filter=False,
+    ):
+        axis = 1 if is_sample_filter else 0
+
+        new_missing_counts = np.sum(
+            np.isin(alignment_array, missing_chars), axis=axis
+        )
+
+        # Calculate the mean missing data proportion among all the columns
+        missing_prop = new_missing_counts / alignment_array.shape[axis]
+
+        if calculate_stdev:
+            std_missing_prop = np.std(
+                new_missing_counts / alignment_array.shape[axis]
+            )
+
+        res = (
+            (missing_prop, std_missing_prop)
+            if calculate_stdev
+            else missing_prop
+        )
+
+        return res
+
     def filter_missing(self, threshold, alignment=None, return_props=False):
         """
         Filters out columns with missing data proportion greater than the given threshold.
@@ -189,29 +218,22 @@ class NRemover2:
 
         alignment_array = alignment
 
-        # alignment_array = np.array(
-        #     [list(str(record.seq)) for record in alignment]
-        # )
-        missing_counts = np.sum(alignment_array == "N", axis=0)
+        missing_counts = np.sum(
+            np.isin(alignment_array, ["N", "-", ".", "?"]), axis=0
+        )
         mask = missing_counts / alignment_array.shape[0] <= threshold
 
         # Apply the mask to filter out columns with a missing proportion greater than the threshold
         filtered_alignment_array = alignment_array[:, mask]
 
-        new_missing_counts = np.sum(filtered_alignment_array == "N", axis=0)
-
-        # Calculate the mean missing data proportion among all the columns
-        missing_prop = new_missing_counts / filtered_alignment_array.shape[0]
-
-        std_missing_prop = np.std(
-            new_missing_counts / filtered_alignment_array.shape[0]
-        )
-
         if return_props:
+            missing_prop = self.calc_missing_proportions(
+                filtered_alignment_array
+            )
             return (
                 filtered_alignment_array,
                 missing_prop,
-                std_missing_prop,
+                None,
             )
         else:
             return filtered_alignment_array
@@ -263,23 +285,22 @@ class NRemover2:
             axis=1,
         )
 
-        mean_missing_props = [mmp[1] for mmp in mask_and_missing_props]
-
-        key_values = {
-            key: [
-                d.get(key)
-                for d in mean_missing_props
-                if d.get(key) is not None
-            ]
-            for key in set().union(*mean_missing_props)
-        }
-
-        missing_props = {k: v for k, v in key_values.items()}
-        std_missing_props = {k: np.std(v) for k, v in key_values.items()}
-
         filtered_alignment_array = alignment_array[:, ~mask]
 
         if return_props:
+            mean_missing_props = [mmp[1] for mmp in mask_and_missing_props]
+
+            key_values = {
+                key: [
+                    d.get(key)
+                    for d in mean_missing_props
+                    if d.get(key) is not None
+                ]
+                for key in set().union(*mean_missing_props)
+            }
+
+            missing_props = {k: v for k, v in key_values.items()}
+            std_missing_props = {k: np.std(v) for k, v in key_values.items()}
             return (
                 filtered_alignment_array,
                 missing_props,
@@ -315,16 +336,14 @@ class NRemover2:
         # alignment_array = np.array(
         #     [list(str(record.seq)) for record in alignment]
         # )
-        missing_counts = np.sum(alignment_array == "N", axis=1)
+        missing_counts = np.sum(
+            np.isin(alignment_array, ["N", "-", ".", "?"]), axis=1
+        )
+
         mask = missing_counts / alignment_array.shape[1] <= threshold
 
         # Apply the mask to filter out sequences with a missing proportion greater than the threshold
         filtered_alignment_array = alignment_array[mask, :]
-
-        new_missing_counts = np.sum(filtered_alignment_array == "N", axis=1)
-
-        # Calculate the mean missing data proportion among all the sequences
-        missing_prop = new_missing_counts / filtered_alignment_array.shape[1]
 
         # Get the indices of the True values in the mask
         mask_indices = [i for i, val in enumerate(mask) if val]
@@ -336,6 +355,9 @@ class NRemover2:
         ]
 
         if return_props:
+            missing_prop = self.calc_missing_proportions(
+                filtered_alignment_array, is_sample_filter=True
+            )
             return filtered_alignment, missing_prop, mask_indices
         else:
             return filtered_alignment
@@ -374,7 +396,7 @@ class NRemover2:
             counts = {
                 base: count
                 for base, count in counts.items()
-                if base not in {"N", "-", "."}
+                if base not in {"N", "-", ".", "?"}
             }
 
             if not counts or all(v == 0 for v in counts.values()):
@@ -394,14 +416,10 @@ class NRemover2:
         mask = maf >= min_maf
         filtered_alignment_array = alignment_array[:, mask]
 
-        new_missing_counts = np.sum(
-            np.isin(filtered_alignment_array, ["N", "-", ".", "?"]), axis=0
-        )
-
-        # Calculate the mean missing data proportion among all the columns
-        missing_prop = new_missing_counts / filtered_alignment_array.shape[0]
-
         if return_props:
+            missing_prop = self.calc_missing_proportions(
+                filtered_alignment_array
+            )
             return (
                 filtered_alignment_array,
                 missing_prop,
@@ -410,7 +428,9 @@ class NRemover2:
         else:
             return filtered_alignment_array
 
-    def filter_non_biallelic(self, threshold=None, alignment=None):
+    def filter_non_biallelic(
+        self, threshold=None, alignment=None, return_props=False
+    ):
         """
         Filters out loci (columns) that are not biallelic.
 
@@ -472,17 +492,18 @@ class NRemover2:
         # Apply the mask to filter non-biallelic columns
         filtered_alignment_array = alignment_array[:, mask]
 
-        # Convert the filtered alignment array back to a list of SeqRecord objects
-        # filtered_alignment = [
-        #     SeqRecord(
-        #         Seq("".join(filtered_alignment_array[i, :])),
-        #         id=original_record.id,
-        #         description=original_record.description,
-        #     )
-        #     for i, original_record in enumerate(alignment)
-        # ]
-
-        return filtered_alignment_array
+        if return_props:
+            orig_missing_prop = self.calc_missing_proportions(alignment_array)
+            filt_missing_prop = self.calc_missing_proportions(
+                filtered_alignment_array
+            )
+            return (
+                orig_missing_prop,
+                filt_missing_prop,
+                mask,
+            )
+        else:
+            return filtered_alignment_array
 
     def count_iupac_alleles(self, column):
         """
@@ -522,7 +543,9 @@ class NRemover2:
 
         return counts
 
-    def filter_monomorphic(self, threshold=None, alignment=None):
+    def filter_monomorphic(
+        self, threshold=None, alignment=None, return_props=False
+    ):
         """
         Filters out monomorphic sites from an alignment.
 
@@ -553,7 +576,9 @@ class NRemover2:
             alleles.discard("N")
 
             # Count the number of valid alleles
-            valid_alleles = [allele for allele in alleles if allele != "-"]
+            valid_alleles = [
+                allele for allele in alleles if allele not in ["-", ".", "?"]
+            ]
 
             return len(valid_alleles) <= 1
 
@@ -565,13 +590,18 @@ class NRemover2:
         else:
             filtered_alignment_array = alignment_array
 
-        return filtered_alignment_array
-
-        # filtered_records = [
-        #     SeqRecord(Seq("".join(seq_list)), id=rec.id)
-        #     for rec, seq_list in zip(alignment, filtered_alignment_array)
-        # ]
-        # return MultipleSeqAlignment(filtered_records)
+        if return_props:
+            orig_missing_prop = self.calc_missing_proportions(alignment_array)
+            filt_missing_prop = self.calc_missing_proportions(
+                filtered_alignment_array
+            )
+            return (
+                orig_missing_prop,
+                filt_missing_prop,
+                mask,
+            )
+        else:
+            return filtered_alignment_array
 
     @staticmethod
     def resolve_ambiguity(base):
@@ -605,7 +635,9 @@ class NRemover2:
         }
         return iupac_dict.get(base.upper(), {"N"})
 
-    def filter_singletons(self, threshold=None, alignment=None):
+    def filter_singletons(
+        self, threshold=None, alignment=None, return_props=False
+    ):
         """
         Filters out singletons from an alignment.
 
@@ -632,7 +664,9 @@ class NRemover2:
             """
             column_list = column.tolist()
             alleles = {
-                allele for allele in column_list if allele not in ["N", "-"]
+                allele
+                for allele in column_list
+                if allele not in ["N", "-", ".", "?"]
             }
             allele_count = {
                 allele: column_list.count(allele) for allele in alleles
@@ -651,13 +685,18 @@ class NRemover2:
         else:
             filtered_alignment_array = alignment_array
 
-        return filtered_alignment_array
-
-        # filtered_records = [
-        #     SeqRecord(Seq("".join(seq_list)), id=rec.id)
-        #     for rec, seq_list in zip(alignment, filtered_alignment_array)
-        # ]
-        # return MultipleSeqAlignment(filtered_records)
+        if return_props:
+            orig_missing_prop = self.calc_missing_proportions(alignment_array)
+            filt_missing_prop = self.calc_missing_proportions(
+                filtered_alignment_array
+            )
+            return (
+                orig_missing_prop,
+                filt_missing_prop,
+                mask,
+            )
+        else:
+            return filtered_alignment_array
 
     def get_population_sequences(self, population):
         """
@@ -712,7 +751,7 @@ class NRemover2:
                 raise ValueError(
                     "There is no data left after filtering. This can indicate an issue with the filtering or with the provided filtering parameters."
                 )
-            missing = np.sum(msa == "N")
+            missing = np.count_nonzero(np.isin(msa, ["N", "-", ".", "?"]))
             return (missing / total) * 100
 
         missing_data_before = missing_data_percent(before_alignment)
@@ -742,7 +781,7 @@ class NRemover2:
     def plot_missing_data_thresholds(
         self,
         output_file,
-        num_thresholds=5,
+        num_thresholds=2,
         num_maf_thresholds=5,
         max_maf_threshold=0.1,
         show=False,
@@ -757,6 +796,8 @@ class NRemover2:
         population_missing_data_proportions = []
         maf_per_threshold = []
         maf_props_per_threshold = []
+        mono_filtered_props = []
+
         data = []
         mask_indices = []
 
@@ -798,23 +839,83 @@ class NRemover2:
             population_missing_data_proportions.append(pop_missing_props)
             maf_per_threshold.append(maf_freqs)
             maf_props_per_threshold.append(maf_props)
+
+            # For sample-level filtering.
             mask_indices.append(mask_idx)
 
-        def generate_df(props, thresholds, dftype):
+        (
+            mono_orig_props,
+            mono_filt_props,
+            mono_mask,
+        ) = self.filter_per_threshold(
+            self.filter_monomorphic,
+            self.alignment,
+            is_bool=True,
+            return_props=True,
+        )
+
+        (
+            bi_orig_props,
+            bi_filt_props,
+            biallelic_mask,
+        ) = self.filter_per_threshold(
+            self.filter_non_biallelic,
+            self.alignment,
+            is_bool=True,
+            return_props=True,
+        )
+
+        (
+            sing_orig_props,
+            sing_filt_props,
+            singleton_mask,
+        ) = self.filter_per_threshold(
+            self.filter_singletons,
+            self.alignment,
+            is_bool=True,
+            return_props=True,
+        )
+
+        def generate_df(props, thresholds, dftype, orig_props=None, mask=None):
             flattened_proportions = []
             flattened_thresholds = []
 
-            for threshold, array in zip(thresholds, props):
-                flattened_proportions.extend(array)
-                flattened_thresholds.extend([f"{threshold:.2f}"] * len(array))
+            if (orig_props is None and mask is not None) or (
+                orig_props is not None and mask is None
+            ):
+                raise TypeError(
+                    "orig_props and mask must both be either NoneType or not NoneType"
+                )
 
-            df = pd.DataFrame(
-                {
-                    "Threshold": flattened_thresholds,
-                    "Proportion": flattened_proportions,
-                    "Type": dftype,
-                }
-            )
+            if orig_props is None:
+                p = deepcopy(props)
+            else:
+                p = deepcopy(orig_props)
+
+            if mask is None:
+                for i, (threshold, array) in enumerate(zip(thresholds, p)):
+                    flattened_proportions.extend(array)
+                    flattened_thresholds.extend(
+                        [f"{threshold:.2f}"] * len(array)
+                    )
+
+                df = pd.DataFrame(
+                    {
+                        "Threshold": flattened_thresholds,
+                        "Proportion": flattened_proportions,
+                        "Type": dftype,
+                    }
+                )
+
+            else:
+                df = pd.DataFrame(
+                    {
+                        "Proportion": orig_props,
+                        "Filtered": mask,
+                        "Type": dftype,
+                    }
+                )
+
             return df
 
         def generate_population_df(props, thresholds):
@@ -834,13 +935,6 @@ class NRemover2:
             df = pd.concat(df_list, ignore_index=True)
             return df
 
-        pops = [
-            x
-            for indices in mask_indices
-            for i, x in enumerate(self.poplist)
-            if i in indices
-        ]
-
         df_sample = generate_df(
             sample_missing_data_proportions, thresholds, "Sample"
         )
@@ -855,10 +949,33 @@ class NRemover2:
 
         df_maf = generate_df(maf_props_per_threshold, maf_thresholds, "MAF")
 
-        df_mono = generate_df()
+        df_mono = generate_df(
+            mono_filt_props,
+            thresholds,
+            "Monomorphic",
+            mono_orig_props,
+            mono_mask,
+        )
+
+        df_biallelic = generate_df(
+            bi_filt_props,
+            thresholds,
+            "Biallelic",
+            bi_orig_props,
+            biallelic_mask,
+        )
+
+        df_singleton = generate_df(
+            sing_filt_props,
+            thresholds,
+            "Singleton",
+            sing_orig_props,
+            singleton_mask,
+        )
 
         # combine the two dataframes
         df = pd.concat([df_sample, df_global])
+        df2 = pd.concat([df_mono, df_biallelic, df_singleton])
 
         # plot the boxplots
         fig, axs = plt.subplots(3, 2, figsize=(48, 27))
@@ -935,7 +1052,7 @@ class NRemover2:
         plt.close()
 
         # Plot the MAF visualizations in a separate figure
-        fig_maf, axs_maf = plt.subplots(3, 2, figsize=(24, 24))
+        fig_maf, axs_maf = plt.subplots(4, 2, figsize=(24, 24))
 
         for i, (maf, props) in enumerate(
             zip(maf_per_threshold, maf_props_per_threshold)
@@ -964,15 +1081,43 @@ class NRemover2:
             ylab="Cumulative Missing Proportion",
         )
 
+        plt.sca(axs_maf[3, 0])
+        sns.violinplot(
+            x="Type", y="Proportion", hue="Filtered", data=df2, split=True
+        )
+        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        plt.tick_params(axis="both", labelsize=20)
+        plt.legend(fontsize=28, loc="upper left")
+
+        plt.sca(axs_maf[3, 1])
+        sns.boxplot(x="Type", y="Proportion", hue="Filtered", data=df2)
+        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        plt.tick_params(axis="both", labelsize=20)
+        plt.legend(fontsize=28, loc="upper left")
+
         plt.tight_layout()
 
         # Save the MAF figure
         outfile_maf = os.path.join(plot_dir, f"maf_{output_file}")
         fig_maf.savefig(outfile_maf, facecolor="white")
 
-    def filter_per_threshold(self, filter_func, *args, is_maf=False, **kwargs):
-        _, props, freqs = filter_func(*args, **kwargs)
-        res = (freqs, props) if is_maf else props
+    def filter_per_threshold(
+        self, filter_func, *args, is_maf=False, is_bool=False, **kwargs
+    ):
+        if is_bool:
+            orig_props, filt_props, mask = filter_func(*args, **kwargs)
+            res = (orig_props, filt_props, mask)
+        else:
+            _, props, freqs = filter_func(*args, **kwargs)
+            res = (freqs, props) if is_maf else props
         return res
 
     @property

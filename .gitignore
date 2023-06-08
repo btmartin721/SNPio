@@ -42,7 +42,73 @@ htmlcov/
 .tox/
 .nox/
 .coverage
-.coverage.*
+        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
+        plt.ylabel("Proportion of Missing Data", fontsize=28)
+        plt.title(
+            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
+        )
+        ax.tick_params(axis="both", labelsize=20)
+        ax.legend(fontsize=28, loc="upper left").coverage.*
 .cache
 nosetests.xml
 coverage.xml
@@ -132,3 +198,4 @@ sfs_*
 plots/
 plots/*
 sankey_*
+*.html
