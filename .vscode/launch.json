@@ -1,0 +1,35 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python: Debug run_nremover.py",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/run_nremover.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--alignment",
+                "example_data/phylip_files/phylogen_nomx.u.snps.phy",
+                "--popmap",
+                "example_data/popmaps/phylogen_nomx.popmap",
+                "--filetype",
+                "phylip",
+                "--max_missing_global",
+                "0.5",
+                "--max_missing_pop",
+                "0.5",
+                "--max_missing_sample",
+                "1.0",
+                "--singletons",
+                "--biallelic",
+                "--monomorphic",
+                "--min_maf",
+                "0.01",
+                "--plot_missingness_report",
+                "--plot_dir",
+                "plots"
+            ],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}
