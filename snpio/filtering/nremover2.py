@@ -2,14 +2,14 @@ import sys
 import os
 from pathlib import Path
 import warnings
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from Bio.Align import MultipleSeqAlignment
-from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from Bio import SeqUtils
 from copy import deepcopy
-from collections import Counter, defaultdict
 
 from ..plotting.plotting import Plotting
 
@@ -49,7 +49,8 @@ class NRemover2:
         self.popgenio = popgenio
         self.popmap = popgenio.popmap
         self.popmap_inverse = popgenio.popmap_inverse
-        self.populations = popgenio.populations
+        self.populations = list(set(popgenio.populations))
+        self.poplist = popgenio.populations
 
     def nremover(
         self,
@@ -200,22 +201,18 @@ class NRemover2:
         new_missing_counts = np.sum(filtered_alignment_array == "N", axis=0)
 
         # Calculate the mean missing data proportion among all the columns
-        mean_missing_prop = np.mean(
+        missing_prop = new_missing_counts / filtered_alignment_array.shape[0]
+
+        std_missing_prop = np.std(
             new_missing_counts / filtered_alignment_array.shape[0]
         )
 
-        # Convert the filtered alignment array back to a list of SeqRecord objects
-        # filtered_alignment = [
-        #     SeqRecord(
-        #         Seq("".join(filtered_alignment_array[i, :])),
-        #         id=record.id,
-        #         description=record.description,
-        #     )
-        #     for i, record in enumerate(alignment)
-        # ]
-
         if return_props:
-            return filtered_alignment_array, mean_missing_prop
+            return (
+                filtered_alignment_array,
+                missing_prop,
+                std_missing_prop,
+            )
         else:
             return filtered_alignment_array
 
@@ -236,43 +233,58 @@ class NRemover2:
         }
 
         def missing_data_proportion(column, indices):
-            missing_count = sum(column[i] in {"N", "-", "."} for i in indices)
+            missing_count = sum(
+                column[i] in {"N", "-", ".", "?"} for i in indices
+            )
             return missing_count / len(indices)
 
         def exceeds_threshold(column):
-            missing_props = []
+            missing_props = {}
+            flaglist = []
             for pop, sample_ids in populations.items():
                 indices = [
                     sample_id_to_index[sample_id] for sample_id in sample_ids
                 ]
                 missing_prop = missing_data_proportion(column, indices)
-                missing_props.append(missing_prop)
+
                 if missing_prop >= max_missing:
-                    return True, missing_props
-            return False, missing_props
+                    flagged = True
+                else:
+                    missing_props[pop] = missing_prop
+                    flagged = False
+                flaglist.append(flagged)
+            return flaglist, missing_props
 
         mask_and_missing_props = np.array(
             [exceeds_threshold(col) for col in alignment_array.T], dtype=object
         )
-        mask = np.array([mmp[0] for mmp in mask_and_missing_props], dtype=bool)
-        mean_missing_props = np.mean(
-            np.array([mmp[1] for mmp in mask_and_missing_props], dtype=object),
-            axis=0,
+        mask = np.all(
+            np.array([mmp[0] for mmp in mask_and_missing_props], dtype=bool),
+            axis=1,
         )
+
+        mean_missing_props = [mmp[1] for mmp in mask_and_missing_props]
+
+        key_values = {
+            key: [
+                d.get(key)
+                for d in mean_missing_props
+                if d.get(key) is not None
+            ]
+            for key in set().union(*mean_missing_props)
+        }
+
+        missing_props = {k: v for k, v in key_values.items()}
+        std_missing_props = {k: np.std(v) for k, v in key_values.items()}
 
         filtered_alignment_array = alignment_array[:, ~mask]
 
-        # filtered_alignment = [
-        #     SeqRecord(
-        #         Seq("".join(filtered_alignment_array[i, :])),
-        #         id=original_record.id,
-        #         description=original_record.description,
-        #     )
-        #     for i, original_record in enumerate(alignment)
-        # ]
-
         if return_props:
-            return filtered_alignment_array, mean_missing_props
+            return (
+                filtered_alignment_array,
+                missing_props,
+                std_missing_props,
+            )
         else:
             return filtered_alignment_array
 
@@ -312,27 +324,27 @@ class NRemover2:
         new_missing_counts = np.sum(filtered_alignment_array == "N", axis=1)
 
         # Calculate the mean missing data proportion among all the sequences
-        mean_missing_prop = np.mean(
-            new_missing_counts / filtered_alignment_array.shape[1]
-        )
+        missing_prop = new_missing_counts / filtered_alignment_array.shape[1]
 
         # Get the indices of the True values in the mask
         mask_indices = [i for i, val in enumerate(mask) if val]
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
         filtered_alignment = [
-            filtered_alignment_array[index, :] for index in mask_indices
+            filtered_alignment_array[i, :]
+            for i, index in enumerate(mask_indices)
         ]
 
         if return_props:
-            return filtered_alignment, mean_missing_prop
+            return filtered_alignment, missing_prop, mask_indices
         else:
             return filtered_alignment
 
-    def filter_minor_allele_frequency(self, min_maf, alignment=None):
+    def filter_minor_allele_frequency(
+        self, min_maf, alignment=None, return_props=False
+    ):
         if alignment is None:
             alignment = self.alignment
-
         alignment_array = alignment
 
         def count_bases(column):
@@ -354,12 +366,10 @@ class NRemover2:
                             base_count[ambig_base] += 1
                     except KeyError:
                         pass
-
             return base_count
 
         def minor_allele_frequency(column):
             counts = count_bases(column)
-
             # Remove counts of "N", "-", and "." characters from the counts dictionary
             counts = {
                 base: count
@@ -367,7 +377,7 @@ class NRemover2:
                 if base not in {"N", "-", "."}
             }
 
-            if not counts:
+            if not counts or all(v == 0 for v in counts.values()):
                 return 0
 
             # Sort the counts by their values
@@ -381,21 +391,24 @@ class NRemover2:
             return freqs[1] if len(freqs) > 1 else 0
 
         maf = np.apply_along_axis(minor_allele_frequency, 0, alignment_array)
-
         mask = maf >= min_maf
-
         filtered_alignment_array = alignment_array[:, mask]
 
-        # filtered_alignment = [
-        #     SeqRecord(
-        #         Seq("".join(filtered_alignment_array[i, :])),
-        #         id=original_record.id,
-        #         description=original_record.description,
-        #     )
-        #     for i, original_record in enumerate(alignment)
-        # ]
+        new_missing_counts = np.sum(
+            np.isin(filtered_alignment_array, ["N", "-", ".", "?"]), axis=0
+        )
 
-        return filtered_alignment_array
+        # Calculate the mean missing data proportion among all the columns
+        missing_prop = new_missing_counts / filtered_alignment_array.shape[0]
+
+        if return_props:
+            return (
+                filtered_alignment_array,
+                missing_prop,
+                maf,
+            )
+        else:
+            return filtered_alignment_array
 
     def filter_non_biallelic(self, threshold=None, alignment=None):
         """
@@ -727,94 +740,240 @@ class NRemover2:
         print(f"  Missing data after filtering: {missing_data_after:.2f}%")
 
     def plot_missing_data_thresholds(
-        self, output_file, show=False, plot_dir="plots"
+        self,
+        output_file,
+        num_thresholds=5,
+        num_maf_thresholds=5,
+        max_maf_threshold=0.1,
+        show=False,
+        plot_dir="plots",
     ):
-        """Plot the proportion of missing data as a function of the missing data threshold for each filtering method.
-
-        Args:
-            output_file (str): The name of the file to save the plot.
-            show (bool, optional): Whether to show the plot inline.
-            plot_dir (str, optional): Directory to save plots to. Defaults to "plots".
-
-        Returns:
-            None
-
-        Raises:
-            None
-
-        """
-        thresholds = np.linspace(0.1, 1, num=10)
+        thresholds = np.linspace(0.1, 1, num=num_thresholds)
+        maf_thresholds = np.linspace(
+            0.0, max_maf_threshold, num=num_maf_thresholds, endpoint=True
+        )
         sample_missing_data_proportions = []
         global_missing_data_proportions = []
         population_missing_data_proportions = []
+        maf_per_threshold = []
+        maf_props_per_threshold = []
+        data = []
+        mask_indices = []
 
-        for threshold in thresholds:
-            _, sample_missing_prop = self.filter_missing_sample(
-                threshold=threshold,
-                alignment=self.alignment,
+        for threshold, maf_threshold in zip(thresholds, maf_thresholds):
+            mask_idx, sample_missing_prop = self.filter_per_threshold(
+                self.filter_missing_sample,
+                threshold,
+                self.alignment,
+                return_props=True,
+                is_maf=True,
+            )
+
+            global_missing_prop = self.filter_per_threshold(
+                self.filter_missing,
+                threshold,
+                self.alignment,
                 return_props=True,
             )
-            _, global_missing_prop = self.filter_missing(
-                threshold=threshold,
-                alignment=self.alignment,
+
+            pop_missing_props = self.filter_per_threshold(
+                self.filter_missing_pop,
+                threshold,
+                self.alignment,
+                populations=self.popmap_inverse,
                 return_props=True,
             )
-            _, pop_missing_props = self.filter_missing_pop(
-                threshold=threshold,
-                alignment=self.alignment,
-                populations=self.populations,
+
+            # Get MAF for each threshold
+            maf_freqs, maf_props = self.filter_per_threshold(
+                self.filter_minor_allele_frequency,
+                maf_threshold,
+                self.alignment,
+                is_maf=True,
                 return_props=True,
             )
 
             sample_missing_data_proportions.append(sample_missing_prop)
             global_missing_data_proportions.append(global_missing_prop)
             population_missing_data_proportions.append(pop_missing_props)
+            maf_per_threshold.append(maf_freqs)
+            maf_props_per_threshold.append(maf_props)
+            mask_indices.append(mask_idx)
 
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+        def generate_df(props, thresholds, dftype):
+            flattened_proportions = []
+            flattened_thresholds = []
 
-        # Filter_missing_sample subplot
-        ax1.plot(thresholds, sample_missing_data_proportions)
-        ax1.set_xlabel("Max Missing Data Proportion", fontsize=12)
-        ax1.set_ylabel("Proportion of missing data (samples)", fontsize=12)
-        ax1.set_title(
-            "Missing data threshold vs Sample Filtering", fontsize=14
+            for threshold, array in zip(thresholds, props):
+                flattened_proportions.extend(array)
+                flattened_thresholds.extend([f"{threshold:.2f}"] * len(array))
+
+            df = pd.DataFrame(
+                {
+                    "Threshold": flattened_thresholds,
+                    "Proportion": flattened_proportions,
+                    "Type": dftype,
+                }
+            )
+            return df
+
+        def generate_population_df(props, thresholds):
+            df_list = []
+            for threshold, prop_dict in zip(thresholds, props):
+                for population, proportions in prop_dict.items():
+                    temp_df = pd.DataFrame(
+                        {
+                            "Threshold": [f"{threshold:.2f}"]
+                            * len(proportions),
+                            "Proportion": proportions,
+                            "Type": [population] * len(proportions),
+                        }
+                    )
+                    df_list.append(temp_df)
+
+            df = pd.concat(df_list, ignore_index=True)
+            return df
+
+        pops = [
+            x
+            for indices in mask_indices
+            for i, x in enumerate(self.poplist)
+            if i in indices
+        ]
+
+        df_sample = generate_df(
+            sample_missing_data_proportions, thresholds, "Sample"
         )
-        ax1.set_ylim(0, 1)
-        ax1.tick_params(axis="both", labelsize=10)
 
-        # Filter_missing subplot
-        ax2.plot(thresholds, global_missing_data_proportions)
-        ax2.set_xlabel("Max Missing Data Proportion", fontsize=12)
-        ax2.set_ylabel("Proportion of missing data (global)", fontsize=12)
-        ax2.set_title(
-            "Missing data threshold vs Global Filtering", fontsize=14
+        df_global = generate_df(
+            global_missing_data_proportions, thresholds, "Global"
         )
-        ax2.set_ylim(0, 1)
-        ax2.tick_params(axis="both", labelsize=10)
 
-        # Filter_missing_pop subplot
-        for population in self.populations:
-            y_data = [
-                pop_proportions.get(population, 0)
-                for pop_proportions in population_missing_data_proportions
-            ]
-            ax3.plot(thresholds, y_data, label=population)
-        ax3.set_xlabel("Max Missing Data Proportion", fontsize=12)
-        ax3.set_ylabel("Proportion of missing data (populations)", fontsize=12)
-        ax3.set_title("Missing data threshold vs Populations", fontsize=14)
-        ax3.legend(fontsize=10)
-        ax3.set_ylim(0, 1)
-        ax3.tick_params(axis="both", labelsize=10)
+        df_populations = generate_population_df(
+            population_missing_data_proportions, thresholds
+        )
+
+        df_maf = generate_df(maf_props_per_threshold, maf_thresholds, "MAF")
+
+        df_mono = generate_df()
+
+        # combine the two dataframes
+        df = pd.concat([df_sample, df_global])
+
+        # plot the boxplots
+        fig, axs = plt.subplots(3, 2, figsize=(48, 27))
+        ax1 = sns.boxplot(
+            x="Threshold", y="Proportion", hue="Type", data=df, ax=axs[0, 0]
+        )
+
+        ax2 = sns.boxplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df_populations,
+            ax=axs[0, 1],
+        )
+
+        ax3 = sns.lineplot(
+            x="Threshold", y="Proportion", hue="Type", data=df, ax=axs[1, 0]
+        )
+
+        ax4 = sns.lineplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df_populations,
+            ax=axs[1, 1],
+        )
+
+        ax5 = sns.violinplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df,
+            inner="box",
+            ax=axs[2, 0],
+        )
+
+        ax6 = sns.violinplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df_populations,
+            inner="quartile",
+            ax=axs[2, 1],
+        )
+
+        def make_labs(ax, title, fontsize=28, ticksize=20, loc="upper left"):
+            ax.set_title(title, fontsize=fontsize)
+            ax.set_xlabel("Missing Data Threshold", fontsize=fontsize)
+            ax.set_ylabel("Proportion of Missing Data", fontsize=fontsize)
+            ax.set_ylim(0, 1)
+            ax.tick_params(axis="both", labelsize=ticksize)
+            ax.legend(fontsize=fontsize, loc=loc)
+
+        titles = [
+            "Global and Sample Filtering",
+            "Per-population Filtering",
+        ]
+
+        titles.extend([""] * 4)
+
+        for title, ax in zip(titles, [ax1, ax2, ax3, ax4, ax5, ax6]):
+            make_labs(ax, title)
 
         plt.tight_layout()
 
         outfile = os.path.join(plot_dir, output_file)
-        Path(outfile).mkdir(parents=True, exist_ok=True)
+        Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
         fig.savefig(outfile, facecolor="white")
 
         if show:
             plt.show()
+
+        plt.close()
+
+        # Plot the MAF visualizations in a separate figure
+        fig_maf, axs_maf = plt.subplots(3, 2, figsize=(24, 24))
+
+        for i, (maf, props) in enumerate(
+            zip(maf_per_threshold, maf_props_per_threshold)
+        ):
+            threshold = maf_thresholds[i]
+
+            plt.sca(axs_maf[0, 0])
+            Plotting.histogram_maf(maf)
+
+            plt.sca(axs_maf[0, 1])
+            Plotting.cdf_maf(maf)
+
+            plt.sca(axs_maf[1, 0])
+            Plotting.boxplot_maf(df_maf)
+
+            plt.sca(axs_maf[1, 1])
+            Plotting.scatterplot_maf(df_maf)
+
+        plt.sca(axs_maf[2, 0])
+        Plotting.lineplot_maf(df_maf)
+
+        plt.sca(axs_maf[2, 1])
+        Plotting.cdf_maf(
+            props,
+            title="Cumulative Missing Data (MAF)",
+            ylab="Cumulative Missing Proportion",
+        )
+
+        plt.tight_layout()
+
+        # Save the MAF figure
+        outfile_maf = os.path.join(plot_dir, f"maf_{output_file}")
+        fig_maf.savefig(outfile_maf, facecolor="white")
+
+    def filter_per_threshold(self, filter_func, *args, is_maf=False, **kwargs):
+        _, props, freqs = filter_func(*args, **kwargs)
+        res = (freqs, props) if is_maf else props
+        return res
 
     @property
     def alignment(self):
