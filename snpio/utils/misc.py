@@ -367,6 +367,14 @@ def weighted_draw(d, num_samples=1):
     return np.random.choice(choices, num_samples, p=weights)
 
 
+def get_attributes(cls):
+    return {
+        k: v
+        for k, v in cls.__dict__.items()
+        if not k.startswith("__") and not callable(v)
+    }
+
+
 def timer(func):
     """print the runtime of the decorated function in the format HH:MM:SS."""
 
@@ -401,26 +409,26 @@ def progressbar(it, prefix="", size=60, file=sys.stdout):
     file.flush()
 
 
-def isnotebook():
-    """Checks whether in Jupyter notebook.
+# def isnotebook():
+#     """Checks whether in Jupyter notebook.
 
-    Returns:
-        bool: True if in Jupyter notebook, False otherwise.
-    """
-    try:
-        shell = get_ipython().__class__.__name__
-        if shell == "ZMQInteractiveShell":
-            # Jupyter notebook or qtconsole
-            return True
-        elif shell == "TerminalInteractiveShell":
-            # Terminal running IPython
-            return False
-        else:
-            # Other type (?)
-            return False
-    except NameError:
-        # Probably standard Python interpreter
-        return False
+#     Returns:
+#         bool: True if in Jupyter notebook, False otherwise.
+#     """
+#     try:
+#         shell = get_ipython().__class__.__name__
+#         if shell == "ZMQInteractiveShell":
+#             # Jupyter notebook or qtconsole
+#             return True
+#         elif shell == "TerminalInteractiveShell":
+#             # Terminal running IPython
+#             return False
+#         else:
+#             # Other type (?)
+#             return False
+#     except NameError:
+#         # Probably standard Python interpreter
+#         return False
 
 
 def get_processor_name():

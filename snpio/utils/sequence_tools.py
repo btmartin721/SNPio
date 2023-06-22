@@ -373,14 +373,14 @@ def n_lower_chars(string):
     return sum(1 for c in string if c.islower())
 
 
-def countSlidingWindow(seq, shift, width):
-    """Simplify a sequence to SNP, gaps, and Ns; get counts of sliding windows."""
-    seq_temp = re.sub("[ACGT]", "", seq.upper())
-    seq_norm = seq_temp.translate(str.maketrans("RYSWKMBDHV", "**********"))
-    for i in windowSub(seq_norm, shift, width):
-        # print(i)
-        window_seq = "".join(i)
-        seqCounterSimple(window_seq)
+# def countSlidingWindow(seq, shift, width):
+#     """Simplify a sequence to SNP, gaps, and Ns; get counts of sliding windows."""
+#     seq_temp = re.sub("[ACGT]", "", seq.upper())
+#     seq_norm = seq_temp.translate(str.maketrans("RYSWKMBDHV", "**********"))
+#     for i in windowSub(seq_norm, shift, width):
+#         # print(i)
+#         window_seq = "".join(i)
+#         seqCounterSimple(window_seq)
 
 
 class slidingWindowGenerator:

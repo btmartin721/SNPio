@@ -1,17 +1,16 @@
 import sys
 import os
-from pathlib import Path
+import tempfile
 import warnings
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
 from Bio.Align import MultipleSeqAlignment
-from Bio.Seq import Seq
 from Bio import SeqUtils
 from copy import deepcopy
 
 from ..plotting.plotting import Plotting
+from ..read_input.genotype_data import GenotypeData
+from ..utils.misc import get_attributes
 
 
 class NRemover2:
@@ -52,6 +51,9 @@ class NRemover2:
         self.populations = list(set(popgenio.populations))
         self.poplist = popgenio.populations
 
+        self.loci_indices = None
+        self.sample_indices = None
+
     def nremover(
         self,
         max_missing_global=1.0,
@@ -72,6 +74,11 @@ class NRemover2:
 
         self.alignment = self.msa[:]
         aln_before = deepcopy(self.alignment)
+        indices_loci_before = range(len(aln_before[0]))
+
+        Plotting.plot_gt_distribution(
+            self.popgenio.genotypes_int, plot_dir=plot_dir
+        )
 
         if plot_missingness_report:
             self.plot_missing_data_thresholds(plot_outfile, plot_dir=plot_dir)
@@ -128,11 +135,14 @@ class NRemover2:
             ),
         ]
 
+        indices_loci_before = list(range(len(aln_before[0])))
         loci_removed_per_step = []
+        filter_idx_dict = {}
+        retained_indices = indices_loci_before
 
         for name, condition, threshold, filter_func, step_idx in steps:
             if condition:
-                filtered_alignment = filter_func(
+                filtered_alignment, indices = filter_func(
                     threshold, alignment=self.alignment
                 )
                 loci_removed = len(self.alignment[0]) - len(
@@ -141,11 +151,20 @@ class NRemover2:
 
                 if name != "Filter missing data (sample)":
                     loci_removed_per_step.append((name, loci_removed))
-                    self.alignment = filtered_alignment
+
+                    # Update retained_indices to only include the indices that were retained
+                    retained_indices = [retained_indices[i] for i in indices]
+                    filter_idx_dict[step_idx] = retained_indices
+                else:
+                    self.sample_indices = indices
+                self.alignment = filtered_alignment
             else:
                 loci_removed_per_step.append((name, 0))
 
         aln_after = deepcopy(self.alignment)
+
+        max_step_idx = max(filter_idx_dict)
+        self.loci_indices = filter_idx_dict[max_step_idx]
 
         self.print_filtering_report(
             aln_before, aln_after, loci_removed_per_step
@@ -165,8 +184,88 @@ class NRemover2:
             included_steps=included_steps,
         )
 
-        self.popgenio.filtered_alignment = self.alignment
-        return self.popgenio
+        return self.return_filtered_output()
+
+    def return_filtered_output(self):
+        """
+        Creates a temporary alignment file and a temporary population map file,
+        writes data to them, and returns a new GenotypeData object with the
+        filtered alignment.
+
+        Returns:
+            new_popgenio (GenotypeData): A new GenotypeData object with the filtered alignment.
+
+        Raises:
+            None
+        """
+        # Create a temporary file and write some data to it
+        aln = tempfile.NamedTemporaryFile(delete=False)
+
+        if self.sample_indices is not None:
+            indices = list(
+                set(self.sample_indices + (self.popgenio.sample_indices))
+            )
+            indices.sort()
+            self.sample_indices = indices
+
+        else:
+            self.sample_indices = self.popgenio.sample_indices
+
+        samples = [
+            self.popgenio.samples[i]
+            for i in range(len(self.popgenio.samples))
+            if i in self.sample_indices
+        ]
+
+        popmap = {
+            k: v for k, v in self.popgenio.popmap.items() if k in samples
+        }
+
+        if self.popgenio.filetype == "vcf":
+            vcf_attributes = self.popgenio.subset_vcf_data(
+                self.loci_indices,
+                self.sample_indices,
+                self.popgenio.vcf_attributes,
+                self.popgenio.num_snps,
+                self.popgenio.num_inds,
+            )
+
+        aln_filename = aln.name
+        self.popgenio.write_phylip(
+            aln_filename, snp_data=self.alignment, samples=samples
+        )
+        aln.close()
+
+        popmap = tempfile.NamedTemporaryFile(delete=False)
+        popmap_filename = popmap.name
+        print(popmap_filename)
+
+        with open(popmap_filename, "w") as fout:
+            for key, value in self.popgenio.popmap.items():
+                fout.write(f"{key}\t{value}\n")
+        popmap.close()
+
+        inputs = self.popgenio.inputs
+        inputs["popmapfile"] = popmap_filename
+        inputs["filename"] = aln_filename
+        inputs["loci_indices"] = self.loci_indices
+        inputs["included_sample_indices"] = self.sample_indices
+        inputs["filetype"] = "phylip"
+        inputs["vcf_attributes"] = vcf_attributes
+
+        # Create a new object with the filtered alignment.
+        new_popgenio = GenotypeData(**inputs)
+
+        new_popgenio.filetype = self.popgenio.filetype
+
+        if self.popgenio.filetype == "vcf":
+            new_popgenio.vcf_attributes = vcf_attributes
+
+        # When done, delete the file manually using os.unlink
+        os.unlink(aln_filename)
+        os.unlink(popmap_filename)
+
+        return new_popgenio
 
     def calc_missing_proportions(
         self,
@@ -223,6 +322,9 @@ class NRemover2:
         )
         mask = missing_counts / alignment_array.shape[0] <= threshold
 
+        # Get the indices of the True values in the mask
+        mask_indices = [i for i, val in enumerate(mask) if val]
+
         # Apply the mask to filter out columns with a missing proportion greater than the threshold
         filtered_alignment_array = alignment_array[:, mask]
 
@@ -236,7 +338,7 @@ class NRemover2:
                 None,
             )
         else:
-            return filtered_alignment_array
+            return filtered_alignment_array, mask_indices
 
     def filter_missing_pop(
         self, max_missing, alignment, populations=None, return_props=False
@@ -245,10 +347,6 @@ class NRemover2:
             populations = self.popmap_inverse
 
         alignment_array = alignment
-
-        # alignment_array = np.array(
-        #     [list(str(record.seq)) for record in alignment]
-        # )
 
         sample_id_to_index = {
             record.id: i for i, record in enumerate(self.msa)
@@ -285,6 +383,9 @@ class NRemover2:
             axis=1,
         )
 
+        # Get the indices of the True values in the mask
+        mask_indices = [i for i, val in enumerate(mask) if not val]
+
         filtered_alignment_array = alignment_array[:, ~mask]
 
         if return_props:
@@ -307,7 +408,7 @@ class NRemover2:
                 std_missing_props,
             )
         else:
-            return filtered_alignment_array
+            return filtered_alignment_array, mask_indices
 
     def filter_missing_sample(
         self, threshold, alignment=None, return_props=False
@@ -360,7 +461,7 @@ class NRemover2:
             )
             return filtered_alignment, missing_prop, mask_indices
         else:
-            return filtered_alignment
+            return filtered_alignment, mask_indices
 
     def filter_minor_allele_frequency(
         self, min_maf, alignment=None, return_props=False
@@ -379,7 +480,7 @@ class NRemover2:
             for base in column:
                 if base in base_count:
                     base_count[base] += 1
-                elif base not in {"N", "-", "."}:
+                elif base not in {"N", "-", ".", "?"}:
                     try:
                         ambig_bases = SeqUtils.IUPACData.ambiguous_dna_values[
                             base
@@ -414,6 +515,10 @@ class NRemover2:
 
         maf = np.apply_along_axis(minor_allele_frequency, 0, alignment_array)
         mask = maf >= min_maf
+
+        # Get the indices of the True values in the mask
+        mask_indices = [i for i, val in enumerate(mask) if val]
+
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
@@ -426,7 +531,7 @@ class NRemover2:
                 maf,
             )
         else:
-            return filtered_alignment_array
+            return filtered_alignment_array, mask_indices
 
     def filter_non_biallelic(
         self, threshold=None, alignment=None, return_props=False
@@ -489,6 +594,9 @@ class NRemover2:
         )
         mask = unique_base_counts == 2
 
+        # Get the indices of the True values in the mask
+        mask_indices = [i for i, val in enumerate(mask) if val]
+
         # Apply the mask to filter non-biallelic columns
         filtered_alignment_array = alignment_array[:, mask]
 
@@ -503,7 +611,7 @@ class NRemover2:
                 mask,
             )
         else:
-            return filtered_alignment_array
+            return filtered_alignment_array, mask_indices
 
     def count_iupac_alleles(self, column):
         """
@@ -587,8 +695,14 @@ class NRemover2:
         if alignment_array.shape[1] > 0:
             mask = np.apply_along_axis(is_monomorphic, 0, alignment_array)
             filtered_alignment_array = alignment_array[:, ~mask]
+
+            # Get the indices of the True values in the mask
+            mask_indices = [i for i, val in enumerate(mask) if not val]
+
         else:
-            filtered_alignment_array = alignment_array
+            raise ValueError(
+                "No loci remain in the alignment. Try adjusting the filtering paramters."
+            )
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
@@ -601,7 +715,7 @@ class NRemover2:
                 mask,
             )
         else:
-            return filtered_alignment_array
+            return filtered_alignment_array, mask_indices
 
     @staticmethod
     def resolve_ambiguity(base):
@@ -682,8 +796,12 @@ class NRemover2:
         if alignment_array.shape[1] > 0:
             mask = np.apply_along_axis(is_singleton, 0, alignment_array)
             filtered_alignment_array = alignment_array[:, ~mask]
+            # Get the indices of the True values in the mask
+            mask_indices = [i for i, val in enumerate(mask) if not val]
         else:
-            filtered_alignment_array = alignment_array
+            raise ValueError(
+                "No loci remain in the alignment. Try adjusting the filtering paramters."
+            )
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
@@ -696,7 +814,7 @@ class NRemover2:
                 mask,
             )
         else:
-            return filtered_alignment_array
+            return filtered_alignment_array, mask_indices
 
     def get_population_sequences(self, population):
         """
@@ -781,13 +899,18 @@ class NRemover2:
     def plot_missing_data_thresholds(
         self,
         output_file,
-        num_thresholds=2,
-        num_maf_thresholds=5,
-        max_maf_threshold=0.1,
-        show=False,
+        num_thresholds=5,
+        num_maf_thresholds=10,
+        max_maf_threshold=0.2,
+        show_plot_inline=False,
         plot_dir="plots",
+        plot_fontsize=28,
+        plot_ticksize=20,
+        plot_ymin=0.0,
+        plot_ymax=1.0,
+        plot_legend_loc="upper left",
     ):
-        thresholds = np.linspace(0.1, 1, num=num_thresholds)
+        thresholds = np.linspace(0.1, 1, num=num_thresholds, endpoint=True)
         maf_thresholds = np.linspace(
             0.0, max_maf_threshold, num=num_maf_thresholds, endpoint=True
         )
@@ -796,9 +919,6 @@ class NRemover2:
         population_missing_data_proportions = []
         maf_per_threshold = []
         maf_props_per_threshold = []
-        mono_filtered_props = []
-
-        data = []
         mask_indices = []
 
         for threshold, maf_threshold in zip(thresholds, maf_thresholds):
@@ -977,137 +1097,22 @@ class NRemover2:
         df = pd.concat([df_sample, df_global])
         df2 = pd.concat([df_mono, df_biallelic, df_singleton])
 
-        # plot the boxplots
-        fig, axs = plt.subplots(3, 2, figsize=(48, 27))
-        ax1 = sns.boxplot(
-            x="Threshold", y="Proportion", hue="Type", data=df, ax=axs[0, 0]
+        Plotting.plot_filter_report(
+            df,
+            df2,
+            df_populations,
+            df_maf,
+            maf_per_threshold,
+            maf_props_per_threshold,
+            plot_dir,
+            output_file,
+            plot_fontsize,
+            plot_ticksize,
+            plot_ymin,
+            plot_ymax,
+            plot_legend_loc,
+            show_plot_inline,
         )
-
-        ax2 = sns.boxplot(
-            x="Threshold",
-            y="Proportion",
-            hue="Type",
-            data=df_populations,
-            ax=axs[0, 1],
-        )
-
-        ax3 = sns.lineplot(
-            x="Threshold", y="Proportion", hue="Type", data=df, ax=axs[1, 0]
-        )
-
-        ax4 = sns.lineplot(
-            x="Threshold",
-            y="Proportion",
-            hue="Type",
-            data=df_populations,
-            ax=axs[1, 1],
-        )
-
-        ax5 = sns.violinplot(
-            x="Threshold",
-            y="Proportion",
-            hue="Type",
-            data=df,
-            inner="box",
-            ax=axs[2, 0],
-        )
-
-        ax6 = sns.violinplot(
-            x="Threshold",
-            y="Proportion",
-            hue="Type",
-            data=df_populations,
-            inner="quartile",
-            ax=axs[2, 1],
-        )
-
-        def make_labs(ax, title, fontsize=28, ticksize=20, loc="upper left"):
-            ax.set_title(title, fontsize=fontsize)
-            ax.set_xlabel("Missing Data Threshold", fontsize=fontsize)
-            ax.set_ylabel("Proportion of Missing Data", fontsize=fontsize)
-            ax.set_ylim(0, 1)
-            ax.tick_params(axis="both", labelsize=ticksize)
-            ax.legend(fontsize=fontsize, loc=loc)
-
-        titles = [
-            "Global and Sample Filtering",
-            "Per-population Filtering",
-        ]
-
-        titles.extend([""] * 4)
-
-        for title, ax in zip(titles, [ax1, ax2, ax3, ax4, ax5, ax6]):
-            make_labs(ax, title)
-
-        plt.tight_layout()
-
-        outfile = os.path.join(plot_dir, output_file)
-        Path(plot_dir).mkdir(parents=True, exist_ok=True)
-
-        fig.savefig(outfile, facecolor="white")
-
-        if show:
-            plt.show()
-
-        plt.close()
-
-        # Plot the MAF visualizations in a separate figure
-        fig_maf, axs_maf = plt.subplots(4, 2, figsize=(24, 24))
-
-        for i, (maf, props) in enumerate(
-            zip(maf_per_threshold, maf_props_per_threshold)
-        ):
-            threshold = maf_thresholds[i]
-
-            plt.sca(axs_maf[0, 0])
-            Plotting.histogram_maf(maf)
-
-            plt.sca(axs_maf[0, 1])
-            Plotting.cdf_maf(maf)
-
-            plt.sca(axs_maf[1, 0])
-            Plotting.boxplot_maf(df_maf)
-
-            plt.sca(axs_maf[1, 1])
-            Plotting.scatterplot_maf(df_maf)
-
-        plt.sca(axs_maf[2, 0])
-        Plotting.lineplot_maf(df_maf)
-
-        plt.sca(axs_maf[2, 1])
-        Plotting.cdf_maf(
-            props,
-            title="Cumulative Missing Data (MAF)",
-            ylab="Cumulative Missing Proportion",
-        )
-
-        plt.sca(axs_maf[3, 0])
-        sns.violinplot(
-            x="Type", y="Proportion", hue="Filtered", data=df2, split=True
-        )
-        plt.xlabel("Filter Type", fontsize=28)
-        plt.ylabel("Proportion of Missing Data", fontsize=28)
-        plt.title(
-            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
-        )
-        plt.tick_params(axis="both", labelsize=20)
-        plt.legend(fontsize=28, loc="upper left")
-
-        plt.sca(axs_maf[3, 1])
-        sns.boxplot(x="Type", y="Proportion", hue="Filtered", data=df2)
-        plt.xlabel("Filter Type", fontsize=28)
-        plt.ylabel("Proportion of Missing Data", fontsize=28)
-        plt.title(
-            "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
-        )
-        plt.tick_params(axis="both", labelsize=20)
-        plt.legend(fontsize=28, loc="upper left")
-
-        plt.tight_layout()
-
-        # Save the MAF figure
-        outfile_maf = os.path.join(plot_dir, f"maf_{output_file}")
-        fig_maf.savefig(outfile_maf, facecolor="white")
 
     def filter_per_threshold(
         self, filter_func, *args, is_maf=False, is_bool=False, **kwargs

@@ -648,56 +648,114 @@ class Plotting:
             # Save the plot to an HTML file
             combined.save(outfile_final)
 
-        @staticmethod
-        def plot_gt_distribution(df, plot_path):
-            df = misc.validate_input_type(df, return_type="df")
-            df_melt = pd.melt(df, value_name="Count")
-            cnts = df_melt["Count"].value_counts()
-            cnts.index.names = ["Genotype"]
-            cnts = pd.DataFrame(cnts).reset_index()
-            cnts.sort_values(by="Genotype", inplace=True)
-            cnts["Genotype"] = cnts["Genotype"].astype(str)
+    @staticmethod
+    def plot_gt_distribution(
+        df, plot_dir="plots", fontsize=28, ticksize=20, annotation_size=15
+    ):
+        df = misc.validate_input_type(df, return_type="df")
+        df_melt = pd.melt(df, value_name="Count")
+        cnts = df_melt["Count"].value_counts()
+        cnts.index.names = ["Genotype Int"]
+        cnts = pd.DataFrame(cnts).reset_index()
+        cnts.sort_values(by="Genotype Int", inplace=True)
+        cnts["Genotype Int"] = cnts["Genotype Int"].astype(str)
 
-            fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-            g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax)
-            g.set_xlabel("Integer-encoded Genotype")
-            g.set_ylabel("Count")
-            g.set_title("Genotype Counts")
-            for p in g.patches:
-                g.annotate(
-                    f"{p.get_height():.1f}",
-                    (p.get_x() + 0.25, p.get_height() + 0.01),
-                    xytext=(0, 1),
-                    textcoords="offset points",
-                    va="bottom",
-                )
+        onehot_dict = {
+            "A": 0,
+            "T": 1,
+            "G": 2,
+            "C": 3,
+            "W": 4,
+            "R": 5,
+            "M": 6,
+            "K": 7,
+            "Y": 8,
+            "S": 9,
+            "-": -9,
+            "N": -9,
+        }
+        onehot_dict = {str(v): k for k, v in onehot_dict.items()}
+        cnts["Genotype"] = cnts["Genotype Int"].map(onehot_dict)
 
-            fig.savefig(
-                os.path.join(plot_path, "genotype_distributions.png"),
-                bbox_inches="tight",
-                facecolor="white",
+        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+        g = sns.barplot(
+            x="Genotype", y="Count", data=cnts, ax=ax, color="orange"
+        )
+        g.set_xlabel("Genotype", fontsize=fontsize)
+        g.set_ylabel("Count", fontsize=fontsize)
+        g.set_title("Genotype Counts", fontsize=fontsize)
+        g.tick_params(axis="both", labelsize=ticksize)
+        for p in g.patches:
+            g.annotate(
+                f"{int(p.get_height())}",
+                (p.get_x() + 0.075, p.get_height() + 0.01),
+                xytext=(0, 1),
+                textcoords="offset points",
+                va="bottom",
+                fontsize=annotation_size,
             )
-            plt.close()
+
+        Path(plot_dir).mkdir(parents=True, exist_ok=True)
+
+        fig.savefig(
+            os.path.join(plot_dir, "genotype_distributions.png"),
+            bbox_inches="tight",
+            facecolor="white",
+        )
+        plt.close()
 
     @staticmethod
-    def lineplot_maf(df, fontsize=28):
+    def make_labs(
+        xlab,
+        ylab,
+        title,
+        labelsize=20,
+        fontsize=28,
+        ymin=0.0,
+        ymax=1.0,
+        legend=False,
+        legend_loc="upper left",
+    ):
+        plt.xlabel(xlab, fontsize=fontsize)
+        plt.ylabel(ylab, fontsize=fontsize)
+        plt.ylim(ymin, ymax)
+        plt.title(title, fontsize=fontsize)
+        plt.tick_params(axis="both", labelsize=labelsize)
+
+        if legend:
+            plt.legend(fontsize=fontsize, loc=legend_loc)
+
+    @staticmethod
+    def lineplot_maf(df, fontsize=28, labelsize=20, ymin=0.0, ymax=1.0):
         sns.lineplot(
             x="Threshold",
             y="Proportion",
             hue="Type",
             data=df,
         )
-        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
-        plt.ylabel("Proportion of Missing Data", fontsize=fontsize)
-        plt.ylim(0.0, 1.0)
-        plt.title("MAF vs. Missing Data Proportion", fontsize=fontsize)
+
+        Plotting.make_labs(
+            "Minimum MAF Threshold",
+            "Proportion of Missing Data",
+            "MAF vs. Missing Data Proportion",
+            fontsize=fontsize,
+            labelsize=labelsize,
+            ymin=ymin,
+            ymax=ymax,
+        )
 
     @staticmethod
-    def histogram_maf(maf, fontsize=28):
+    def histogram_maf(maf, fontsize=28, labelsize=20, ymin=0.0, ymax=1.0):
         sns.histplot(maf, kde=False, bins=30)
-        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
-        plt.ylabel("Minor Allele Count", fontsize=fontsize)
-        plt.title("Minor Allele Frequency Histogram", fontsize=fontsize)
+        Plotting.make_labs(
+            "Minor Allele Frequency",
+            "Minor Allele Count",
+            "Minor Allele Frequency Histogram",
+            fontsize=fontsize,
+            labelsize=labelsize,
+            ymin=0.0,
+            ymax=None,
+        )
 
     @staticmethod
     def cdf_maf(
@@ -705,52 +763,342 @@ class Plotting:
         title="Cumulative Distribution of Minor Alleles",
         ylab="Cumulative Distribution",
         fontsize=28,
+        labelsize=20,
+        ymin=0.0,
+        ymax=1.0,
     ):
         sns.ecdfplot(maf)
-        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
-        plt.ylabel(ylab, fontsize=fontsize)
-        plt.title(
+        Plotting.make_labs(
+            "Minor Allele Frequency",
+            ylab,
             title,
             fontsize=fontsize,
+            labelsize=labelsize,
+            ymin=ymin,
+            ymax=ymax,
         )
 
-    def boxplot_maf(data, fontsize=28):
-        sns.boxplot(x="Threshold", y="Proportion", data=data)
-        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
-        plt.ylabel("Proportion of Missing Data", fontsize=fontsize)
-        plt.ylim(0, 1)
-        plt.title("MAF vs. Missing Data", fontsize=fontsize)
+    def violinplot(
+        x,
+        y,
+        data,
+        xlab,
+        ylab,
+        title,
+        hue=None,
+        fontsize=28,
+        labelsize=20,
+        ymin=0.0,
+        ymax=1.0,
+        legend=False,
+        legend_loc="upper left",
+        split=False,
+    ):
+        sns.violinplot(x=x, y=y, hue=hue, data=data, split=split)
+        Plotting.make_labs(
+            xlab,
+            ylab,
+            title,
+            fontsize=fontsize,
+            labelsize=labelsize,
+            ymin=ymin,
+            ymax=ymax,
+            legend=legend,
+            legend_loc=legend_loc,
+        )
+
+    def boxplot(
+        x,
+        y,
+        data,
+        xlab,
+        ylab,
+        title,
+        hue=None,
+        fontsize=28,
+        labelsize=20,
+        ymin=0.0,
+        ymax=1.0,
+        legend=False,
+        legend_loc="upper left",
+    ):
+        sns.boxplot(x=x, y=y, hue=hue, data=data)
+        Plotting.make_labs(
+            xlab,
+            ylab,
+            title,
+            fontsize=fontsize,
+            labelsize=labelsize,
+            ymin=ymin,
+            ymax=ymax,
+            legend=legend,
+            legend_loc=legend_loc,
+        )
 
     @staticmethod
-    def scatterplot_maf(data, fontsize=28):
-        sns.scatterplot(x="Threshold", y="Proportion", data=data)
-        plt.xlabel("Minimum MAF Threshold", fontsize=fontsize)
-        plt.ylabel("Proportion of Missing Data", fontsize=fontsize)
-        plt.ylim(0, 1)
-        plt.title(f"MAF vs. Missing Data", fontsize=fontsize)
-
-    @classmethod
-    def visualize_maf(
-        cls, min_maf, alignment_array, other_col=None, group_col=None
+    def scatterplot(
+        x,
+        y,
+        data,
+        xlab,
+        ylab,
+        title,
+        fontsize=28,
+        labelsize=20,
+        ymin=0.0,
+        ymax=1.0,
+        legend=False,
+        legend_loc="upper left",
     ):
-        # Calculate MAF using your function
-        maf = np.apply_along_axis(
-            cls.minor_allele_frequency, 0, alignment_array
+        sns.scatterplot(x=x, y=y, data=data)
+        Plotting.make_labs(
+            xlab,
+            ylab,
+            title,
+            fontsize=fontsize,
+            labelsize=labelsize,
+            ymin=ymin,
+            ymax=ymax,
         )
 
-        # Plot histogram and CDF
-        cls.histogram_maf(maf, min_maf)
-        cls.cdf_maf(maf, min_maf)
+    @staticmethod
+    def plot_filter_report(
+        df,
+        df2,
+        df_populations,
+        df_maf,
+        maf_per_threshold,
+        maf_props_per_threshold,
+        plot_dir,
+        output_file,
+        plot_fontsize,
+        plot_ticksize,
+        plot_ymin,
+        plot_ymax,
+        plot_legend_loc,
+        show,
+    ):
+        # plot the boxplots
+        fig, axs = plt.subplots(3, 2, figsize=(48, 27))
+        ax1 = sns.boxplot(
+            x="Threshold", y="Proportion", hue="Type", data=df, ax=axs[0, 0]
+        )
 
-        # For boxplot and scatterplot, you need additional columns (group and other variable)
-        # You'll need to adjust this part based on how your data is structured
-        if group_col is not None and other_col is not None:
-            data = pd.DataFrame(
-                {
-                    group_col: alignment_array[group_col],
-                    "MAF": maf,
-                    other_col: alignment_array[other_col],
-                }
+        ax2 = sns.boxplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df_populations,
+            ax=axs[0, 1],
+        )
+
+        ax3 = sns.lineplot(
+            x="Threshold", y="Proportion", hue="Type", data=df, ax=axs[1, 0]
+        )
+
+        ax4 = sns.lineplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df_populations,
+            ax=axs[1, 1],
+        )
+
+        ax5 = sns.violinplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df,
+            inner="box",
+            ax=axs[2, 0],
+        )
+
+        ax6 = sns.violinplot(
+            x="Threshold",
+            y="Proportion",
+            hue="Type",
+            data=df_populations,
+            inner="quartile",
+            ax=axs[2, 1],
+        )
+
+        titles = [
+            "Global and Sample Filtering",
+            "Per-population Filtering",
+        ]
+
+        titles.extend([""] * 4)
+
+        for title, ax in zip(titles, [ax1, ax2, ax3, ax4, ax5, ax6]):
+            plt.sca(ax)
+            Plotting.make_labs(
+                "Missing Data Threshold",
+                "Proportion of Missing Data",
+                title,
+                legend=True,
+                fontsize=plot_fontsize,
+                labelsize=plot_ticksize,
+                ymin=plot_ymin,
+                ymax=plot_ymax,
+                legend_loc=plot_legend_loc,
             )
-            cls.boxplot_maf(data, group_col, "MAF")
-            cls.catterplot_maf(data, "MAF", other_col)
+
+        plt.tight_layout()
+
+        outfile = os.path.join(plot_dir, output_file)
+        Path(plot_dir).mkdir(parents=True, exist_ok=True)
+
+        fig.savefig(outfile, facecolor="white")
+
+        if show:
+            plt.show()
+        else:
+            plt.close()
+
+        # Plot the MAF visualizations in a separate figure
+        fig_maf, axs_maf = plt.subplots(4, 2, figsize=(24, 32))
+
+        for maf, props in zip(maf_per_threshold, maf_props_per_threshold):
+            plt.sca(axs_maf[0, 0])
+            Plotting.histogram_maf(maf)
+
+            plt.sca(axs_maf[0, 1])
+            Plotting.cdf_maf(maf)
+
+            plt.sca(axs_maf[1, 0])
+            Plotting.boxplot(
+                "Threshold",
+                "Proportion",
+                df_maf,
+                "Minimum MAF Threshold",
+                "Proportion of Missing Data",
+                "MAF vs. Missing Data",
+                fontsize=plot_fontsize,
+                labelsize=plot_ticksize,
+                ymin=plot_ymin,
+                ymax=plot_ymax,
+            )
+
+            plt.sca(axs_maf[1, 1])
+            Plotting.scatterplot(
+                "Threshold",
+                "Proportion",
+                df_maf,
+                "Minimum MAF Threshold",
+                "Minimum MAF Threshold",
+                f"MAF vs. Missing Data",
+                fontsize=plot_fontsize,
+                labelsize=plot_ticksize,
+                ymin=plot_ymin,
+                ymax=plot_ymax,
+            )
+
+        plt.sca(axs_maf[2, 0])
+        Plotting.lineplot_maf(df_maf)
+
+        plt.sca(axs_maf[2, 1])
+        Plotting.cdf_maf(
+            props,
+            title="Cumulative Missing Data (MAF)",
+            ylab="Cumulative Missing Proportion",
+            fontsize=plot_fontsize,
+            labelsize=plot_ticksize,
+            ymin=plot_ymin,
+            ymax=plot_ymax,
+        )
+
+        plt.sca(axs_maf[3, 0])
+        Plotting.violinplot(
+            "Type",
+            "Proportion",
+            df2,
+            "Filter Type",
+            "Proportion of Missing Data",
+            "Allele Count Filters",
+            hue="Filtered",
+            legend=True,
+            legend_loc=plot_legend_loc,
+            fontsize=plot_fontsize,
+            labelsize=plot_ticksize,
+            ymin=plot_ymin,
+            ymax=plot_ymax,
+            split=True,
+        )
+
+        plt.sca(axs_maf[3, 1])
+        Plotting.boxplot(
+            "Type",
+            "Proportion",
+            df2,
+            "Filter Type",
+            "Proportion of Missing Data",
+            "Allele Count Filters",
+            hue="Filtered",
+            legend=True,
+            legend_loc=plot_legend_loc,
+            fontsize=plot_fontsize,
+            labelsize=plot_ticksize,
+            ymin=plot_ymin,
+            ymax=plot_ymax,
+        )
+
+        plt.tight_layout()
+
+        outfile_maf = os.path.join(plot_dir, f"maf_{output_file}")
+        fig_maf.savefig(outfile_maf, facecolor="white")
+
+        if show:
+            plt.show()
+        else:
+            plt.close()
+
+    @staticmethod
+    def plot_pop_counts(
+        populations, plot_dir, fontsize=28, ticksize=20, show=False
+    ):
+        # Create the countplot
+        fig, axs = plt.subplots(1, 2, figsize=(16, 9))
+
+        # Calculate the counts and proportions
+        counts = pd.value_counts(populations)
+        proportions = counts / len(populations)
+
+        # Calculate the median count and proportion
+        median_count = np.median(counts)
+        median_proportion = np.median(proportions)
+
+        colors = sns.color_palette("colorblind")
+
+        for ax, data, ylabel, median, color, median_color in zip(
+            axs,
+            [counts, proportions],
+            ["Count", "Proportion"],
+            [median_count, median_proportion],
+            [colors[1], colors[0]],
+            [colors[0], colors[1]],
+        ):
+            plt.sca(ax)
+            sns.barplot(x=data.index, y=data.values, color=color)
+            median_line = plt.axhline(
+                median, color=median_color, linestyle="--"
+            )  # Add a horizontal line for the median
+            plt.xticks(rotation=90)  # Rotate the x-axis labels if they're long
+            plt.title("Population Counts", fontsize=fontsize)
+            plt.xlabel("Population ID", fontsize=fontsize)
+            plt.ylabel(ylabel, fontsize=fontsize)
+            plt.tick_params(axis="both", labelsize=ticksize)
+            plt.legend(
+                [median_line], ["Median"], loc="upper right", fontsize=ticksize
+            )
+
+        plt.tight_layout()
+
+        fig.savefig(
+            os.path.join(plot_dir, "population_counts.png"),
+            facecolor="white",
+        )
+
+        if show:
+            plt.show()
+        else:
+            plt.close()

@@ -1,20 +1,23 @@
-# nremover.py
 import argparse
 from snpio.read_input.genotype_data import GenotypeData
 from snpio.filtering import nremover2
-from snpio.popgenstats.pop_gen_statistics import PopGenStatistics
-from snpio.plotting.plotting import Plotting
 
 
 def main(args):
     # Read the alignment and popmap files
     gd = GenotypeData(
-        filename=args.alignment, popmapfile=args.popmap, filetype=args.filetype
+        filename=args.alignment,
+        popmapfile=args.popmap,
+        force_popmap=True,
+        filetype=args.filetype,
+        qmatrix_iqtree=args.qmat_iqtree,
+        siterates_iqtree=args.siterates_iqtree,
+        guidetree=args.tree,
     )
 
     # Run the NRemover class
     nrm = nremover2.NRemover2(gd)
-    gd = nrm.nremover(
+    gd_filtered = nrm.nremover(
         max_missing_global=args.max_missing_global,
         max_missing_pop=args.max_missing_pop,
         max_missing_sample=args.max_missing_sample,
@@ -26,8 +29,13 @@ def main(args):
         plot_dir=args.plot_dir,
     )
 
-    pgs = PopGenStatistics(gd)
-    Plotting.plot_sfs(pgs, "ON", "EA")
+    gd_filtered.write_vcf("example_data/vcf_files/nremover_test.vcf")
+    gd_filtered.write_phylip("example_data/phylip_files/nremover_test.phy")
+    gd_filtered.write_structure(
+        "example_data/structure_files/nremover_test.str"
+    )
+
+    print(gd_filtered.tree)
 
 
 def get_args():
@@ -92,6 +100,27 @@ def get_args():
         type=str,
         default="plots",
         help="Directory to save plots to.",
+    )
+    parser.add_argument(
+        "--qmat", type=str, default=None, help="Path to Q-matrix file."
+    )
+    parser.add_argument(
+        "--qmat_iqtree",
+        type=str,
+        default=None,
+        help="Path to Q-matrix IQTREE file.",
+    )
+    parser.add_argument(
+        "--siterates", type=str, default=None, help="Path to Site Rates file."
+    )
+    parser.add_argument(
+        "--siterates_iqtree",
+        type=str,
+        default=None,
+        help="Path to Site Rates IQTREE file.",
+    )
+    parser.add_argument(
+        "--tree", type=str, default=None, help="Path to newick treefile."
     )
 
     args = parser.parse_args()
