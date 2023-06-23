@@ -7,7 +7,6 @@ import matplotlib.colors as mpl_colors
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import plotly.graph_objs as go
-from plotly.subplots import make_subplots
 from sklearn.model_selection import train_test_split
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 import numpy as np
@@ -20,25 +19,203 @@ import warnings
 from typing import Tuple
 
 import holoviews as hv
-from holoviews import opts, dim
-from holoviews.plotting.util import process_cmap
-from holoviews import Overlay
-from bokeh.plotting import show
-from bokeh.plotting import save
-from bokeh.resources import CDN
-from bokeh.embed import file_html
 import panel as pn
+import plotly.express as px
+
 
 hv.extension("bokeh")
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
 
 from ..utils import misc
 
 
 class Plotting:
+    """Class with various static methods for plotting."""
+
     def __init__(self, popgenio):
         self.alignment = popgenio.alignment
         self.popmap = popgenio.populations
         self.populations = popgenio.populations
+
+    @staticmethod
+    def visualize_missingness(
+        genotype_data,
+        df,
+        zoom=True,
+        prefix="imputer",
+        horizontal_space=0.6,
+        vertical_space=0.6,
+        bar_color="gray",
+        heatmap_palette="magma",
+        plot_format="pdf",
+    ):
+        """Make multiple plots to visualize missing data.
+
+        Args:
+            genotype_data (GenotypeData): Initialized GentoypeData object.
+
+            df (pandas.DataFrame): DataFrame with snps to visualize.
+
+            zoom (bool, optional): If True, zooms in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
+
+            prefix (str, optional): Prefix for output directory and files. Plots and files will be written to a directory called <prefix>_reports. The report directory will be created if it does not already exist. If prefix is None, then the reports directory will not have a prefix. Defaults to 'imputer'.
+
+            horizontal_space (float, optional): Set width spacing between subplots. If your plot are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
+
+            vertical_space (float, optioanl): Set height spacing between subplots. If your plots are overlapping vertically, increase vertical_space. If your plots are too far apart, decrease it. Defaults to 0.6.
+
+            bar_color (str, optional): Color of the bars on the non-stacked barplots. Can be any color supported by matplotlib. See matplotlib.pyplot.colors documentation. Defaults to 'gray'.
+
+            heatmap_palette (str, optional): Palette to use for heatmap plot. Can be any palette supported by seaborn. See seaborn documentation. Defaults to 'magma'.
+
+            plot_format (str, optional): Format to save plots. Can be any of the following: "pdf", "png", "svg", "ps", "eps". Defaults to "pdf".
+
+        Returns:
+            pandas.DataFrame: Per-locus missing data proportions.
+
+            pandas.DataFrame: Per-individual missing data proportions.
+
+            pandas.DataFrame: Per-population + per-locus missing data proportions.
+
+            pandas.DataFrame: Per-population missing data proportions.
+
+            pandas.DataFrame: Per-individual and per-population missing data proportions.
+        """
+
+        loc, ind, poploc, poptotal, indpop = genotype_data.calc_missing(df)
+
+        ncol = 3
+        nrow = 1 if genotype_data.pops is None else 2
+
+        fig, axes = plt.subplots(nrow, ncol, figsize=(8, 11))
+        plt.subplots_adjust(wspace=horizontal_space, hspace=vertical_space)
+        fig.suptitle("Missingness Report")
+
+        ax = axes[0, 0]
+
+        ax.set_title("Per-Individual")
+        ax.barh(genotype_data.samples, ind, color=bar_color, height=1.0)
+        if not zoom:
+            ax.set_xlim([0, 1])
+        ax.set_ylabel("Sample")
+        ax.set_xlabel("Missing Prop.")
+        ax.tick_params(
+            axis="y",
+            which="both",
+            left=False,
+            right=False,
+            labelleft=False,
+        )
+
+        ax = axes[0, 1]
+
+        ax.set_title("Per-Locus")
+        ax.barh(
+            range(genotype_data.num_snps), loc, color=bar_color, height=1.0
+        )
+        if not zoom:
+            ax.set_xlim([0, 1])
+        ax.set_ylabel("Locus")
+        ax.set_xlabel("Missing Prop.")
+        ax.tick_params(
+            axis="y",
+            which="both",
+            left=False,
+            right=False,
+            labelleft=False,
+        )
+
+        id_vars = ["SampleID"]
+        if poptotal is not None:
+            ax = axes[0, 2]
+
+            ax.set_title("Per-Population Total")
+            ax.barh(poptotal.index, poptotal, color=bar_color, height=1.0)
+            if not zoom:
+                ax.set_xlim([0, 1])
+            ax.set_xlabel("Missing Prop.")
+            ax.set_ylabel("Population")
+
+            ax = axes[1, 0]
+
+            ax.set_title("Per-Population + Per-Locus")
+            npops = len(poploc.columns)
+
+            vmax = None if zoom else 1.0
+
+            sns.heatmap(
+                poploc,
+                vmin=0.0,
+                vmax=vmax,
+                cmap=sns.color_palette(heatmap_palette, as_cmap=True),
+                yticklabels=False,
+                cbar_kws={"label": "Missing Prop."},
+                ax=ax,
+            )
+            ax.set_xlabel("Population")
+            ax.set_ylabel("Locus")
+
+            id_vars.append("Population")
+
+        melt_df = indpop.isna()
+        melt_df["SampleID"] = genotype_data.samples
+        indpop["SampleID"] = genotype_data.samples
+
+        if poptotal is not None:
+            melt_df["Population"] = genotype_data.pops
+            indpop["Population"] = genotype_data.pops
+
+        melt_df = melt_df.melt(value_name="Missing", id_vars=id_vars)
+        melt_df.sort_values(by=id_vars[::-1], inplace=True)
+        melt_df["Missing"].replace(False, "Present", inplace=True)
+        melt_df["Missing"].replace(True, "Missing", inplace=True)
+
+        ax = axes[0, 2] if poptotal is None else axes[1, 1]
+
+        ax.set_title("Per-Individual")
+        g = sns.histplot(
+            data=melt_df,
+            y="variable",
+            hue="Missing",
+            multiple="fill",
+            ax=ax,
+        )
+        ax.tick_params(
+            axis="y",
+            which="both",
+            left=False,
+            right=False,
+            labelleft=False,
+        )
+        g.get_legend().set_title(None)
+
+        if poptotal is not None:
+            ax = axes[1, 2]
+
+            ax.set_title("Per-Population")
+            g = sns.histplot(
+                data=melt_df,
+                y="Population",
+                hue="Missing",
+                multiple="fill",
+                ax=ax,
+            )
+            g.get_legend().set_title(None)
+
+        fig.savefig(
+            os.path.join(
+                f"{prefix}_output", "plots", f"missingness.{plot_format}"
+            ),
+            bbox_inches="tight",
+            facecolor="white",
+        )
+        plt.cla()
+        plt.clf()
+        plt.close()
+
+        return loc, ind, poploc, poptotal, indpop
 
     @staticmethod
     def _plot_summary_statistics_per_sample(summary_stats, ax=None):
@@ -69,7 +246,13 @@ class Plotting:
         Plot summary statistics per population.
 
         Args:
+            summary_stats (pd.DataFrame): DataFrame containing summary statistics.
+
+            popmap (pd.DataFrame): DataFrame containing population mapping.
+
             ax (matplotlib.axes.Axes, optional): The axis on which to plot the summary statistics.
+
+            save_file (str, optional): Filename for the saved plot. If None, the plot will not be saved.
         """
         if ax is None:
             _, ax = plt.subplots()
@@ -95,6 +278,13 @@ class Plotting:
     ):
         """
         Plot summary statistics per population using a Seaborn PairGrid plot.
+
+        Args:
+            summary_statistics_df (pd.DataFrame): DataFrame containing summary statistics.
+
+            save_file (str): Filename for the saved plot. Default is 'summary_statistics_per_population_grid.png'.
+
+            show (bool): Whether to display the plot. Default is False.
         """
         g = sns.PairGrid(summary_statistics_df)
         g.map_upper(sns.scatterplot)
@@ -116,6 +306,13 @@ class Plotting:
     ):
         """
         Plot summary statistics per sample using a Seaborn PairGrid plot.
+
+        Args:
+            summary_statistics_df (pd.DataFrame): DataFrame containing summary statistics.
+
+            save_file (str): Filename for the saved plot. Default is 'summary_statistics_per_sample_grid.png'.
+
+            show (bool): Whether to display the plot. Default is False.
         """
         g = sns.PairGrid(summary_statistics_df)
         g.map_upper(sns.scatterplot)
@@ -135,6 +332,11 @@ class Plotting:
     def plot_summary_statistics(cls, summary_statistics_df, show=False):
         """
         Plot summary statistics per sample and per population on the same figure.
+
+        Args:
+            summary_statistics_df (pd.DataFrame): DataFrame containing summary statistics.
+
+            show (bool): Whether to display the plot. Default is False.
         """
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
 
@@ -163,8 +365,16 @@ class Plotting:
 
         Args:
             pca (sklearn.PCA): The fitted PCA object.
+
+            alignment (numpy.ndarray): The genotype data used for PCA.
+
+            popmap (pd.DataFrame): DataFrame containing population mapping information.
+
             dimensions (int): Number of dimensions to plot (2 or 3). Default is 2.
+
             save_file (str): Filename for the saved plot. Default is 'pca_plot.png'.
+
+            show (bool): Whether to display the plot. Default is False.
         """
         pca_transformed = pd.DataFrame(
             pca.transform(alignment),
@@ -209,8 +419,16 @@ class Plotting:
 
         Args:
             dapc (sklearn.discriminant_analysis.LinearDiscriminantAnalysis): The fitted DAPC object.
+
+            alignment (numpy.ndarray): The genotype data used for DAPC.
+
+            popmap (pd.DataFrame): DataFrame containing population mapping information.
+
             dimensions (int): Number of dimensions to plot (2 or 3). Default is 2.
+
             save_file (str): Filename for the saved plot. Default is 'dapc_plot.png'.
+
+            show (bool): Whether to display the plot. Default is False.
         """
         dapc_transformed = pd.DataFrame(
             dapc.transform(alignment),
@@ -247,6 +465,10 @@ class Plotting:
         Plot the DAPC cross-validation results.
 
         Args:
+            pca_transformed (numpy.ndarray): Transformed PCA data.
+
+            popmap (pd.DataFrame): DataFrame containing population mapping information.
+
             n_components_range (range): Range of principal components to perform cross-validation on.
         """
         rmse_scores = []
@@ -281,12 +503,18 @@ class Plotting:
         Plot a heatmap for the 2D SFS between two given populations and
         bar plots for the 1D SFS of each population.
 
-        :param pop_gen_stats: An instance of the PopGenStatistics class
-        :param population1: The name of the first population
-        :param population2: The name of the second population
-        :param savefig: Whether to save the figure to a file (default: True)
-        :param show: Whether to show the figure inline (default: True)
+        Args:
+            pop_gen_stats (PopGenStatistics): An instance of the PopGenStatistics class.
+
+            population1 (str): The name of the first population.
+
+            population2 (str): The name of the second population.
+
+            savefig (bool, optional): Whether to save the figure to a file. Defaults to True.
+
+            show (bool, optional): Whether to show the figure inline. Defaults to True.
         """
+
         sfs1 = pop_gen_stats.calculate_1d_sfs(population1)
         sfs2 = pop_gen_stats.calculate_1d_sfs(population2)
         sfs2d = pop_gen_stats.calculate_2d_sfs(population1, population2)
@@ -332,13 +560,15 @@ class Plotting:
         pop_gen_stats, populations, savefig=True, show=True
     ):
         """
-        Plot the joint SFS between all possible pairs of populations in the popmap file
-        in a grid layout.
+        Plot the joint SFS between all possible pairs of populations in the popmap file in a grid layout.
 
         Args:
             pop_gen_stats (PopGenStatistics): An instance of the PopGenStatistics class.
+
             populations (list): A list of population names.
+
             savefig (bool, optional): Whether to save the figure to a file. Defaults to True.
+
             show (bool, optional): Whether to show the figure inline. Defaults to True.
         """
         n_populations = len(populations)
@@ -372,6 +602,16 @@ class Plotting:
 
     @staticmethod
     def _plotly_sankey(nodes, links, outfile):
+        """
+        Generate a Sankey diagram using Plotly.
+
+        Args:
+            nodes (list): A list of dictionaries representing the nodes in the diagram.
+
+            links (list): A list of dictionaries representing the links between nodes.
+
+            outfile (str): The path to save the generated image file.
+        """
         # Prepare the data for the Sankey diagram
         link_colors = [
             "rgba(31, 119, 180, 0.8)",
@@ -426,6 +666,23 @@ class Plotting:
         final_group_extra_gap: float = 0.05,
         y_sep: float = 0.3,
     ) -> Tuple[list, list]:
+        """
+        Calculate the positions of the nodes in the Sankey diagram.
+
+        Args:
+            nodes (list): A list of all nodes in the diagram.
+
+            node_groups (list): A list of lists representing the groups of nodes.
+
+            level_arrangement (list): A list of lists representing the arrangement of nodes within each level.
+
+            final_group_extra_gap (float, optional): The extra gap for the last group. Defaults to 0.05.
+
+            y_sep (float, optional): The separation between different levels. Defaults to 0.3.
+
+        Returns:
+            Tuple[list, list]: Two lists representing the x and y positions of the nodes.
+        """
         final_group_extra_gap = 0.05
         normal_gap = (1 - final_group_extra_gap) / (len(node_groups) - 1)
 
@@ -458,6 +715,22 @@ class Plotting:
         plot_dir="plots",
         included_steps=None,
     ):
+        """
+        Plot a sankey diagram representing the filtering steps and the number of loci removed at each step.
+
+        Args:
+            loci_removed_per_step (List[Tuple[str, int]]): A list of tuples representing the filtering steps and the number of loci removed at each step.
+
+            loci_before (int): The number of loci before filtering.
+
+            loci_after (int): The number of loci after filtering.
+            outfile (str): The output filename for the plot.
+
+            plot_dir (str, optional): The directory to save the plot. Defaults to "plots".
+
+            included_steps (List[int], optional): The indices of the filtering steps to include in the plot. Defaults to None.
+        """
+
         if loci_before == loci_after:
             warnings.warn(
                 "No loci were removed. Please ensure that at least one of the "
@@ -652,6 +925,20 @@ class Plotting:
     def plot_gt_distribution(
         df, plot_dir="plots", fontsize=28, ticksize=20, annotation_size=15
     ):
+        """
+        Plot the distribution of genotype counts.
+
+        Args:
+            df (pd.DataFrame): The input dataframe containing the genotype counts.
+
+            plot_dir (str, optional): The directory to save the plot. Defaults to "plots".
+
+            fontsize (int, optional): The font size for labels and titles. Defaults to 28.
+
+            ticksize (int, optional): The font size for tick labels. Defaults to 20.
+
+            annotation_size (int, optional): The font size for count annotations. Defaults to 15.
+        """
         df = misc.validate_input_type(df, return_type="df")
         df_melt = pd.melt(df, value_name="Count")
         cnts = df_melt["Count"].value_counts()
@@ -878,6 +1165,37 @@ class Plotting:
         plot_legend_loc,
         show,
     ):
+        """
+        Plot the filter report.
+
+        Args:
+            df (pd.DataFrame): The dataframe containing the filter report data.
+
+            df2 (pd.DataFrame): Another dataframe containing the filter report data.
+
+            df_populations (pd.DataFrame): The dataframe containing population data for filtering.
+
+            df_maf (pd.DataFrame): The dataframe containing MAF data.
+
+            maf_per_threshold (list): A list of MAF values per threshold.
+
+            maf_props_per_threshold (list): A list of MAF proportions per threshold.
+
+            plot_dir (str): The directory to save the plots.
+            output_file (str): The output file name for the main filter report plot.
+
+            plot_fontsize (int): The font size for labels and titles in the plots.
+
+            plot_ticksize (int): The font size for tick labels in the plots.
+
+            plot_ymin (float): The minimum value for the y-axis in the plots.
+
+            plot_ymax (float): The maximum value for the y-axis in the plots.
+
+            plot_legend_loc (str): The location of the legend in the plots.
+
+            show (bool): Whether to show the plots or not.
+        """
         # plot the boxplots
         fig, axs = plt.subplots(3, 2, figsize=(48, 27))
         ax1 = sns.boxplot(
@@ -1056,6 +1374,20 @@ class Plotting:
     def plot_pop_counts(
         populations, plot_dir, fontsize=28, ticksize=20, show=False
     ):
+        """
+        Plot the population counts.
+
+        Args:
+            populations (pd.Series): The series containing population data.
+
+            plot_dir (str): The directory to save the plot.
+
+            fontsize (int): The font size for labels and titles in the plot.
+
+            ticksize (int): The font size for tick labels in the plot.
+
+            show (bool): Whether to show the plot or not.
+        """
         # Create the countplot
         fig, axs = plt.subplots(1, 2, figsize=(16, 9))
 
@@ -1102,3 +1434,295 @@ class Plotting:
             plt.show()
         else:
             plt.close()
+
+    @staticmethod
+    def plot_performance(
+        resource_data, fontsize=14, color="#8C56E3", figsize=(16, 9)
+    ):
+        """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time.
+
+        This static method takes a dictionary of performance data and plots the metrics for each of the methods. The resulting plots are saved in a .png file.
+
+        Args:
+            resource_data (dict): Dictionary with performance data. Keys are method names, and values are dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
+
+            fontsize (int, optional): Font size to be used in the plot. Defaults to 14.
+
+            color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
+
+            figsize (tuple, optional): Size of the figure. Should be a tuple of 2 integers. Defaults to (16, 9).
+
+        Returns:
+            None. The function saves the plot as a .png file.
+        """
+        methods = list(resource_data.keys())
+
+        cpu_loads = [data["cpu_load"] for data in resource_data.values()]
+        memory_footprints = [
+            data["memory_footprint"] for data in resource_data.values()
+        ]
+        execution_times = [
+            data["execution_time"] for data in resource_data.values()
+        ]
+
+        # Plot CPU Load
+        fig, axs = plt.subplots(1, 3, figsize=figsize)
+        plt.sca(axs[0])
+
+        sns.barplot(
+            x=methods,
+            y=cpu_loads,
+            errorbar=None,
+            color=color,
+        )
+        plt.xlabel("Methods", fontsize=fontsize)
+        plt.ylabel("CPU Load (%)", fontsize=fontsize)
+        plt.title(f"CPU Load Performance", fontsize=fontsize)
+        plt.xticks(rotation=90, fontsize=fontsize)
+        plt.ylim(bottom=0)
+        plt.tight_layout()
+
+        plt.sca(axs[1])
+
+        # Plot Memory Footprint
+        sns.lineplot(
+            x=methods,
+            y=memory_footprints,
+            errorbar=None,
+            color=color,
+        )
+        plt.xlabel("Method Execution/ Property Access", fontsize=fontsize)
+        plt.ylabel("Memory Footprint (MB)", fontsize=fontsize)
+        plt.title(f"Memory Footprint Performance", fontsize=fontsize)
+        plt.xticks(rotation=90, fontsize=fontsize)
+        plt.tight_layout()
+
+        plt.sca(axs[2])
+
+        # Plot Execution Time
+        sns.barplot(
+            x=methods,
+            y=execution_times,
+            errorbar=None,
+            color=color,
+        )
+        plt.xlabel("Methods", fontsize=fontsize)
+        plt.ylabel("Execution Time (seconds)", fontsize=fontsize)
+        plt.title(f"Execution Time Performance", fontsize=fontsize)
+        plt.xticks(rotation=90, fontsize=fontsize)
+        plt.yticks(fontsize=fontsize)
+        plt.tight_layout()
+
+        fig.savefig(f"tests/benchmarking_plot.png", facecolor="white")
+
+    @staticmethod
+    def run_and_plot_pca(
+        original_genotype_data,
+        imputer_object,
+        prefix="imputer",
+        n_components=3,
+        center=True,
+        scale=False,
+        n_axes=2,
+        point_size=15,
+        font_size=15,
+        plot_format="pdf",
+        bottom_margin=0,
+        top_margin=0,
+        left_margin=0,
+        right_margin=0,
+        width=1088,
+        height=700,
+    ):
+        """Runs PCA and makes scatterplot with colors showing missingness.
+
+        Genotypes are plotted as separate shapes per population and colored according to missingness per individual.
+
+        This function is run at the end of each imputation method, but can be run independently to change plot and PCA parameters such as ``n_axes=3`` or ``scale=True``.
+
+        The imputed and original GenotypeData objects need to be passed to the function as positional arguments.
+
+        PCA (principal component analysis) scatterplot can have either two or three axes, set with the n_axes parameter.
+
+        The plot is saved as both an interactive HTML file and as a static image. Each population is represented by point shapes. The interactive plot has associated metadata when hovering over the points.
+
+        Files are saved to a reports directory as <prefix>_output/imputed_pca.<plot_format|html>. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
+
+        Args:
+            original_genotype_data (GenotypeData): Original GenotypeData object that was input into the imputer.
+
+            imputer_object (Any imputer instance): Imputer object created when imputing. Can be any of the imputers, such as: ``ImputePhylo()``, ``ImputeUBP()``, and ``ImputeRandomForest()``.
+
+            original_012 (pandas.DataFrame, numpy.ndarray, or List[List[int]], optional): Original 012-encoded genotypes (before imputing). Missing values are encoded as -9. This object can be obtained as ``df = GenotypeData.genotypes012_df``.
+
+            prefix (str, optional): Prefix for report directory. Plots will be save to a directory called <prefix>_output/imputed_pca<html|plot_format>. Report directory will be created if it does not already exist. Defaults to "imputer".
+
+            n_components (int, optional): Number of principal components to include in the PCA. Defaults to 3.
+
+            center (bool, optional): If True, centers the genotypes to the mean before doing the PCA. If False, no centering is done. Defaults to True.
+
+            scale (bool, optional): If True, scales the genotypes to unit variance before doing the PCA. If False, no scaling is done. Defaults to False.
+
+            n_axes (int, optional): Number of principal component axes to plot. Must be set to either 2 or 3. If set to 3, a 3-dimensional plot will be made. Defaults to 2.
+
+            point_size (int, optional): Point size for scatterplot points. Defaults to 15.
+
+            plot_format (str, optional): Plot file format to use. Supported formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). An interactive HTML file is also created regardless of this setting. Defaults to "pdf".
+
+            bottom_margin (int, optional): Adjust bottom margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
+
+            top (int, optional): Adjust top margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
+
+            left_margin (int, optional): Adjust left margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
+
+            right_margin (int, optional): Adjust right margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
+
+            width (int, optional): Width of plot space. If your plot is cut off at the edges, even after adjusting the margins, increase the width and height. Try to keep the aspect ratio similar. Defaults to 1088.
+
+            height (int, optional): Height of plot space. If your plot is cut off at the edges, even after adjusting the margins, increase the width and height. Try to keep the aspect ratio similar. Defaults to 700.
+
+        Returns:
+            numpy.ndarray: PCA data as a numpy array with shape (n_samples, n_components).
+
+            sklearn.decomposision.PCA: Scikit-learn PCA object from sklearn.decomposision.PCA. Any of the sklearn.decomposition.PCA attributes can be accessed from this object. See sklearn documentation.
+
+        Examples:
+            >>> data = GenotypeData(
+            >>>     filename="snps.str",
+            >>>     filetype="structure2row",
+            >>>     popmapfile="popmap.txt",
+            >>> )
+            >>>
+            >>> components, pca = run_and_plot_pca(
+            >>>     data,
+            >>>     ubp,
+            >>>     scale=True,
+            >>>     center=True,
+            >>>     plot_format="png"
+            >>> )
+            >>>
+            >>> # Calculate and print explained variance ratio
+            >>> explvar = pca.explained_variance_ratio_
+            >>> print(explvar)
+
+        """
+        report_path = os.path.join(f"{prefix}_output", "plots")
+        Path(report_path).mkdir(parents=True, exist_ok=True)
+
+        if n_axes > 3:
+            raise ValueError(
+                ">3 axes is not supported; n_axes must be either 2 or 3."
+            )
+        if n_axes < 2:
+            raise ValueError(
+                "<2 axes is not supported; n_axes must be either 2 or 3."
+            )
+
+        imputer = imputer_object.imputed
+
+        df = misc.validate_input_type(
+            imputer.genotypes012_df, return_type="df"
+        )
+
+        original_df = misc.validate_input_type(
+            original_genotype_data.genotypes012_df, return_type="df"
+        )
+
+        original_df.replace(-9, np.nan, inplace=True)
+
+        if center or scale:
+            # Center data to mean. Scaling to unit variance is off.
+            scaler = StandardScaler(with_mean=center, with_std=scale)
+            pca_df = scaler.fit_transform(df)
+        else:
+            pca_df = df.copy()
+
+        # Run PCA.
+        model = PCA(n_components=n_components)
+        components = model.fit_transform(pca_df)
+
+        df_pca = pd.DataFrame(
+            components[:, [0, 1, 2]], columns=["Axis1", "Axis2", "Axis3"]
+        )
+
+        df_pca["SampleID"] = original_genotype_data.samples
+        df_pca["Population"] = original_genotype_data.pops
+        df_pca["Size"] = point_size
+
+        _, ind, _, _, _ = imputer.calc_missing(original_df, use_pops=False)
+        df_pca["missPerc"] = ind
+
+        my_scale = [("rgb(19, 43, 67)"), ("rgb(86,177,247)")]  # ggplot default
+
+        z = "Axis3" if n_axes == 3 else None
+        labs = {
+            "Axis1": f"PC1 ({round(model.explained_variance_ratio_[0] * 100, 2)}%)",
+            "Axis2": f"PC2 ({round(model.explained_variance_ratio_[1] * 100, 2)}%)",
+            "missPerc": "Missing Prop.",
+            "Population": "Population",
+        }
+
+        if z is not None:
+            labs[
+                "Axis3"
+            ] = f"PC3 ({round(model.explained_variance_ratio_[2] * 100, 2)}%)"
+            fig = px.scatter_3d(
+                df_pca,
+                x="Axis1",
+                y="Axis2",
+                z="Axis3",
+                color="missPerc",
+                symbol="Population",
+                color_continuous_scale=my_scale,
+                custom_data=["Axis3", "SampleID", "Population", "missPerc"],
+                size="Size",
+                size_max=point_size,
+                labels=labs,
+            )
+        else:
+            fig = px.scatter(
+                df_pca,
+                x="Axis1",
+                y="Axis2",
+                color="missPerc",
+                symbol="Population",
+                color_continuous_scale=my_scale,
+                custom_data=["Axis3", "SampleID", "Population", "missPerc"],
+                size="Size",
+                size_max=point_size,
+                labels=labs,
+            )
+        fig.update_traces(
+            hovertemplate="<br>".join(
+                [
+                    "Axis 1: %{x}",
+                    "Axis 2: %{y}",
+                    "Axis 3: %{customdata[0]}",
+                    "Sample ID: %{customdata[1]}",
+                    "Population: %{customdata[2]}",
+                    "Missing Prop.: %{customdata[3]}",
+                ]
+            ),
+        )
+        fig.update_layout(
+            showlegend=True,
+            margin=dict(
+                b=bottom_margin,
+                t=top_margin,
+                l=left_margin,
+                r=right_margin,
+            ),
+            width=width,
+            height=height,
+            legend_orientation="h",
+            legend_title="Population",
+            legend_title_font=dict(size=font_size),
+            legend_title_side="top",
+            font=dict(size=font_size),
+        )
+        fig.write_html(os.path.join(report_path, "imputed_pca.html"))
+        fig.write_image(
+            os.path.join(report_path, f"imputed_pca.{plot_format}"),
+        )
+
+        return components, model

@@ -1,0 +1,17 @@
+biopython
+bokeh
+ete3
+holoviews
+kneed
+matplotlib
+numpy
+pandas
+panel
+plotly
+requests
+scikit-allel
+scikit-learn
+scikit-learn-intelex
+scipy
+seaborn
+toytree

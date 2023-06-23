@@ -18,12 +18,10 @@ import toytree as tt
 from toytree.TreeParser import TreeParser
 
 """
-###############################################################
-# NOTE:  Monkey patching a method in toytree because
-# There is a bug in the method that makes it incompatible
-# with Python 3.11. It tries to open a file with 'rU', which
-# is deprecated in Python 3.11.
-###############################################################
+NOTE:  Monkey patching a method in toytree because
+There is a bug in the method that makes it incompatible
+with Python 3.11. It tries to open a file with 'rU', which
+is deprecated in Python 3.11.
 """
 ###############################################################
 # Monkey patching begin
@@ -33,7 +31,7 @@ original_get_data_from_intree = TreeParser.get_data_from_intree
 
 def patched_get_data_from_intree(self):
     """
-    Load *data* from a file or string and return as a list of strings.
+    Load data from a file or string and return as a list of strings.
     The data contents could be one newick string; a multiline NEXUS format
     for one tree; multiple newick strings on multiple lines; or multiple
     newick strings in a multiline NEXUS format. In any case, we will read
@@ -80,113 +78,195 @@ import allel
 try:
     from .popmap_file import ReadPopmap
     from ..utils.plotting import Plotting
+    from ..plotting.plotting import Plotting as Plotting2
     from ..utils import sequence_tools
     from ..utils.misc import timer
+    from ..utils.misc import class_performance_decorator
 except (ModuleNotFoundError, ValueError):
     from read_input.popmap_file import ReadPopmap
     from utils.plotting import Plotting
+    from plotting.plotting import Plotting as Plotting2
+
     from utils import sequence_tools
     from utils.misc import timer
+    from utils.misc import class_performance_decorator
 
 
+# Global resource data dictionary
+resource_data = {}
+
+
+@class_performance_decorator(measure=True)
 class GenotypeData:
-
     """A class for handling and analyzing genotype data.
 
     The GenotypeData class provides methods to read, manipulate, and analyze genotype data in various formats, including VCF, Structure, and other custom formats. It allows for data preprocessing, allele encoding, and various data transformations.
 
+    Notes:
+        GenotypeData handles the following characters as missing data:
+            - 'N'
+            - '-'
+            - '?'
+            - '.'
+
+        Thus, it treats gaps as missing data. 
+        
+        Some of the GenotypeData methods also force each site to be biallelic.
+
+        Please keep this in mind when using GenotypeData.
+
+
     Args:
         filename (str or None): Path to input file containing genotypes. Defaults to None.
+
         filetype (str or None): Type of input genotype file. Possible values include: 'phylip', 'structure', 'vcf', or '012'. Defaults to None.
+
         popmapfile (str or None): Path to population map file. If supplied and filetype is one of the STRUCTURE formats, then the structure file is assumed to have NO popID column. Defaults to None.
+
         force_popmap (bool): If True, then samples not present in the popmap file will be excluded from the alignment. If False, then an error is raised if samples are present in the popmap file that are not present in the alignment. Defaults to False.
+
         exclude_pops (List[str] or None): List of population IDs to exclude from the alignment. Defaults to None.
+
         include_pops (List[str] or None): List of population IDs to include in the alignment. Populations not present in the include_pops list will be excluded. Defaults to None.
+
         guidetree (str or None): Path to input treefile. Defaults to None.
         qmatrix_iqtree (str or None): Path to iqtree output file containing Q rate matrix. Defaults to None.
+
         qmatrix (str or None): Path to file containing only Q rate matrix, and not the full iqtree file. Defaults to None.
+
         siterates (str or None): Path to file containing per-site rates, with 1 rate per line corresponding to 1 site. Not required if genotype_data is defined with the siterates or siterates_iqtree option. Defaults to None.
-        siterates_iqtree (str or None): Path to *.rates file output from IQ-TREE, containing a per-site rate table. Cannot be used in conjunction with siterates argument. Not required if the siterates or siterates_iqtree options were used with the GenotypeData object. Defaults to None.
+
+        siterates_iqtree (str or None): Path to \*.rates file output from IQ-TREE, containing a per-site rate table. Cannot be used in conjunction with siterates argument. Not required if the siterates or siterates_iqtree options were used with the GenotypeData object. Defaults to None.
+
         plot_format (str): Format to save report plots. Valid options include: 'pdf', 'svg', 'png', and 'jpeg'. Defaults to 'pdf'.
         prefix (str): Prefix to use for output directory.
 
     Attributes:
         inputs (dict): GenotypeData keyword arguments as a dictionary.
+
         num_snps (int): Number of SNPs in the dataset.
+
         num_inds (int): Number of individuals in the dataset.
+
         populations (List[Union[str, int]]): Population IDs.
+
         popmap (dict): Dictionary object with SampleIDs as keys and popIDs as values.
+
         popmap_inverse (dict or None): Inverse dictionary of popmap, where popIDs are keys and lists of sampleIDs are values.
+
         samples (List[str]): Sample IDs in input order.
+
         snpsdict (dict or None): Dictionary with SampleIDs as keys and lists of genotypes as values.
+
         snp_data (List[List[str]]): Genotype data as a 2D list.
+
         genotypes_012 (List[List[int]], np.ndarray, or pd.DataFrame): Encoded 012 genotypes.
+
         genotypes_onehot (np.ndarray): One-hot encoded genotypes.
+
         genotypes_int (np.ndarray): Integer-encoded genotypes.
+
         alignment (Bio.MultipleSeqAlignment): Genotype data as a Biopython MultipleSeqAlignment object.
+
         vcf_attributes (dict): Attributes read in from VCF file.
         loci_indices (List[int]): Column indices for retained loci in filtered alignment.
+
         sample_indices (List[int]): Row indices for retained samples in the alignment.
+
         ref (List[str]): List of reference alleles of length num_snps.
+
         alt (List[str]): List of alternate alleles of length num_snps.
+
         q (QMatrix or None): Q-matrix object for phylogenetic tree.
+
         site_rates (SiteRates or None): Site rate data for phylogenetic tree.
+
         tree (NewickTree or None): Newick tree object.
 
     Methods:
         read_structure: Read data from a Structure file.
+
         read_vcf: Read data from a VCF file.
+
         read_phylip: Read data from a Phylip file.
+
         read_phylip: Read data from a Phylip file.
+
         read_012: Read data from a custom 012-encoded file format.
+
         read_tree: Read data from a newick file.
-        q_from_iqtree: Read Q-matrix from *.iqtree file.
+
+        q_from_iqtree: Read Q-matrix from \*.iqtree file.
+
         q_from_file: Read Q-matrix from file with only Q-matrix in it.
-        siterates_from_iqtree: Read site rates from *.rate file.
+
+        siterates_from_iqtree: Read site rates from \*.rate file.
+
         siterates_from_file: Read site rates from file with only site rates in single column.
+
         write_structure: Write data to a Structure file.
         write_vcf: Write data to a VCF file.
+
         write_phylip: Write data to a Phylip file.
         read_popmap: Read in a popmap file.
+
         subset_vcf_data: Subset the data based on locus and sample indices.
-        encode_012: Encode genotypes as 0/1/2 integers for reference, heterozygous, alternate alleles.
-        decode_012: Decode 0/1/2 integers back to original genotypes.
+        encode_012: Encode genotypes as 0,1,2 integers for reference, heterozygous, alternate alleles.
+
+        decode_012: Decode 0,1,2 integers back to original genotypes.
         convert_onehot: Convert genotypes to one-hot encoding.
         convert_int_iupac: Convert genotypes to integer encoding (0-9) with IUPAC characters.
+
         missingness_reports: Create missingness reports from GenotypeData object.
 
-        Example usage:
-        ```
-        # Instantiate GenotypeData object
+    Example usage:
+        Instantiate GenotypeData object
+
         genotype_data = GenotypeData(file="data.vcf", filetype="vcf", popmapfile="popmap.txt")
 
         # Access basic properties
-        print(genotype_data.num_snps)  # Number of SNPs in the dataset
-        print(genotype_data.num_inds)  # Number of individuals in the dataset
-        print(genotype_data.populations)  # Population IDs
-        print(genotype_data.popmap)  # Dictionary of SampleIDs as keys and popIDs as values
-        print(genotype_data.samples)  # Sample IDs in input order
+
+        print(genotype_data.num_snps) # Number of SNPs in the dataset
+
+        print(genotype_data.num_inds) # Number of individuals in the dataset
+
+        print(genotype_data.populations) # Population IDs
+
+        print(genotype_data.popmap) # Dictionary of SampleIDs as keys and popIDs as values
+        print(genotype_data.samples) # Sample IDs in input order
 
         # Access transformed genotype data
-        genotypes_012 = genotype_data.genotypes_012  # Encoded 012 genotypes as a 2D list
+        genotypes_012 = genotype_data.genotypes_012 # Encoded 012 genotypes as a 2D list
+
         genotypes_012_array = genotype_data.genotypes_012(fmt="numpy")
+
         genotypes_012_df = genotype_data.genotypes_012(fmt="pandas")
-        genotypes_onehot = genotype_data.genotypes_onehot  # One-hot encoded genotypes as a numpy array
-        genotypes_int = genotype_data.genotypes_int  # Integer-encoded genotypes (0-9) as a numpy array
-        alignment = genotype_data.alignment  # Genotype data as a Biopython MultipleSeqAlignment object
+
+        genotypes_onehot = genotype_data.genotypes_onehot # One-hot encoded genotypes as a numpy array
+
+        genotypes_int = genotype_data.genotypes_int # Integer-encoded genotypes (0-9) as a numpy array
+
+        alignment = genotype_data.alignment # Genotype data as a Biopython MultipleSeqAlignment object
 
         # Access VCF file attributes
-        vcf_attributes = genotype_data.vcf_attributes  # Dictionary of VCF file attributes
+
+        vcf_attributes = genotype_data.vcf_attributes # Dictionary of VCF file attributes
 
         # Set and access additional properties
-        genotype_data.q = q_matrix  # Set q-matrix for phylogenetic tree
-        q_matrix = genotype_data.q  # Get q-matrix object
-        genotype_data.site_rates = site_rates  # Set site rate data for phylogenetic tree
-        site_rates = genotype_data.site_rates  # Get site rate data
-        genotype_data.tree = newick_tree  # Set newick tree data
-        newick_tree = genotype_data.tree  # Get newick tree object
-        ```
+
+        genotype_data.q = q_matrix # Set q-matrix for phylogenetic tree
+
+        q_matrix = genotype_data.q # Get q-matrix object
+        genotype_data.site_rates = site_rates # Set site rate data for phylogenetic tree
+
+        site_rates = genotype_data.site_rates # Get site rate data
+
+        genotype_data.tree = newick_tree # Set newick tree data
+
+        newick_tree = genotype_data.tree # Get newick tree object
     """
+
+    resource_data = {}
 
     def __init__(
         self,
@@ -207,25 +287,7 @@ class GenotypeData:
         **kwargs,
     ) -> None:
         """
-        Initialize the GenotypeData object.
-
-        Args:
-            filename (Optional[str], default=None): Path to input file containing genotypes.
-            filetype (Optional[str], default='auto'): Type of input genotype file. Possible values include: "auto", "phylip", "structure", "vcf", or "012". If ``filetype='auto'``\, GenotypeData will try to automatically detect the file format.
-            popmapfile (Optional[str], default=None): Path to population map file. If supplied and filetype is one of the STRUCTURE formats, then the structure file is assumed to have NO popID column.
-            force_popmap (bool, optional, default=False): If True, then samples not present in the popmap file will be excluded from the alignment. If False, then an error is raised if samples are present in the popmap file that are not present in the alignment.
-            exclude_pops (Optional[List[str]]): List of population IDs to exclude from the alignment.
-            include_pops (Optional[List[str]]): List of population IDs to include in the alignment. Populations not present in the ``include_pops`` list will be excluded.
-            guidetree (Optional[str], default=None): Path to input treefile.
-            qmatrix_iqtree (Optional[str], default=None): Path to iqtree output file containing Q rate matrix.
-            qmatrix (Optional[str], default=None): Path to file containing only Q rate matrix, and not the full iqtree file.
-            siterates (Optional[str], default=None): Path to file containing per-site rates, with 1 rate per line corresponding to 1 site. Not required if genotype_data is defined with the siterates or siterates_iqtree option.
-            siterates_iqtree (Optional[str], default=None): Path to *.rates file output from IQ-TREE, containing a per-site rate table. Cannot be used in conjunction with siterates argument. Not required if the siterates or siterates_iqtree options were used with the GenotypeData object.
-            plot_format (Optional[str], default="pdf"): Format to save report plots. Valid options include: 'pdf', 'svg', 'png', and 'jpeg'.
-            prefix (str, default='imputer'): Prefix to use for output directory.
-            verbose (bool, default=True): Verbosity level.
-            kwargs (Dict[str, Optional[Union[np.ndarray, List[int]], Dict[str, Union[np.ndarray], Dict[str, np.ndarray]]): Supported values include indices that were retained from a filtered alignment and vcf_attributes object.
-        """
+        Initialize the GenotypeData object."""
 
         self.filename = filename
         self.filetype = filetype.lower()
@@ -241,6 +303,7 @@ class GenotypeData:
         self.plot_format = plot_format
         self.prefix = prefix
         self.verbose = verbose
+        self.measure = kwargs.get("measure", False)
 
         self._kwargs = {
             "filename": filename,
@@ -384,6 +447,7 @@ class GenotypeData:
 
         Args:
             filetype (Optional[str], default=None): Filetype. Supported values include: "phylip", "structure", "vcf", and "012".
+
             popmapfile (Optional[str], default=None): Path to population map file.
 
         Raises:
@@ -470,6 +534,7 @@ class GenotypeData:
 
         Args:
             fname (str): Path to the Q matrix input file.
+
             label (bool): True if the nucleotide label order is present, False otherwise.
 
         Returns:
@@ -514,12 +579,12 @@ class GenotypeData:
 
     def q_from_iqtree(self, iqfile: str) -> pd.DataFrame:
         """
-        Read Q matrix from an IQ-TREE (*.iqtree) file.
+        Read Q matrix from an IQ-TREE (\*.iqtree) file.
 
         The IQ-TREE file contains the standard output of an IQ-TREE run and includes the Q-matrix.
 
         Args:
-            iqfile (str): Path to the IQ-TREE file (*.iqtree).
+            iqfile (str): Path to the IQ-TREE file (\*.iqtree).
 
         Returns:
             pandas.DataFrame: The Q-matrix as a pandas DataFrame.
@@ -584,12 +649,12 @@ class GenotypeData:
 
     def siterates_from_iqtree(self, iqfile: str) -> pd.DataFrame:
         """
-        Read site-specific substitution rates from *.rates file.
+        Read site-specific substitution rates from \*.rates file.
 
-        The *.rates file is an optional output file generated by IQ-TREE and contains a table of site-specific rates and rate categories.
+        The \*.rates file is an optional output file generated by IQ-TREE and contains a table of site-specific rates and rate categories.
 
         Args:
-            iqfile (str): Path to *.rates input file.
+            iqfile (str): Path to \*.rates input file.
 
         Returns:
             List[float]: List of site-specific substitution rates.
@@ -771,9 +836,13 @@ class GenotypeData:
 
         Args:
             output_file (str): The output filename.
+
             genotype_data (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
+
             snp_data (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided.
+
             samples (List[str], optional): List of sample IDs.
+
             verbose (bool, optional): If True, status updates are printed.
 
         Raises:
@@ -866,6 +935,7 @@ class GenotypeData:
 
         Raises:
             ValueError: If all sequences are not the same length as specified in the header line.
+
             ValueError: If the number of individuals differs from the header line.
         """
         if self.verbose:
@@ -901,7 +971,6 @@ class GenotypeData:
                 f"individuals...\n"
             )
 
-    @timer
     def read_vcf(self) -> None:
         """
         Read a VCF file into a GenotypeData object.
@@ -1199,9 +1268,13 @@ class GenotypeData:
 
         Args:
             output_file (str): Name of the output phylip file.
+
             genotype_data (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
+
             snp_data (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided. If snp_data is not None, then samples must also be provided.
+
             samples (List[str], optional): List of sample IDs. Must be provided if snp_data is not None.
+
             verbose (bool, optional): If True, status updates are printed.
 
         Raises:
@@ -1240,7 +1313,6 @@ class GenotypeData:
         if verbose:
             print(f"Successfully wrote PHYLIP file!")
 
-    @timer
     def write_vcf(
         self,
         output_filename: str,
@@ -1254,9 +1326,13 @@ class GenotypeData:
 
         Args:
             output_filename (str): The name of the VCF file to write to.
+
             genotype_data (Optional[GenotypeData], optional): A GenotypeData object.
+
             vcf_attributes (Optional[Dict[str, Union[np.ndarray, Dict[str, np.ndarray]]]]): vcf_attributes property from a GenotypeData object.
+
             snp_data (Optional[List[List[str]]]): snp_data property from a GenotypeData object. Only required if genotype_data is None.
+
             verbose (bool, optional): If True, print progress messages. Defaults to False.
 
         Raises:
@@ -1470,12 +1546,16 @@ class GenotypeData:
 
         Args:
             snps (List[List[str]]): 2D list of genotypes of shape (n_samples, n_sites).
+
             vcf (bool, optional): Whether or not VCF file input is provided. Not yet supported. Defaults to False.
+
             impute_mode (bool, optional): Whether or not convert_012() is called in impute mode. If True, then returns the 012-encoded genotypes and does not set the ``self.snp_data`` property. If False, it does the opposite. Defaults to False.
 
         Returns:
             List[List[int]], optional: 012-encoded genotypes as a 2D list of shape (n_samples, n_sites). Only returns value if ``impute_mode`` is True.
+
             List[int], optional: List of integers indicating bi-allelic site indexes.
+
             int, optional: Number of remaining valid sites.
 
         Warnings:
@@ -1702,6 +1782,7 @@ class GenotypeData:
 
         Args:
             samples (List[str], optional): List of sample IDs. If not provided, uses self.samples.
+
             snp_data (List[List[str]], optional): 2D list of genotypes. If not provided, uses self.snp_data.
 
         Returns:
@@ -1727,8 +1808,11 @@ class GenotypeData:
 
         Args:
             message (str): Warning message to be printed.
+
             category (str): Type of warning.
+
             filename (str): Name of the Python file where the warning was raised.
+
             lineno (str): Line number where the warning occurred.
 
         Returns:
@@ -1749,6 +1833,7 @@ class GenotypeData:
 
         Args:
             snp_data (Union[np.ndarray, List[List[int]]]): Input 012-encoded data of shape (n_samples, n_SNPs).
+
             encodings_dict (Optional[Dict[str, int]]): Encodings to convert structure to phylip format. Defaults to None.
 
         Returns:
@@ -1756,7 +1841,9 @@ class GenotypeData:
 
         Note:
             If the data file type is "phylip" and `encodings_dict` is not provided, default encodings for nucleotides are used.
+
             If the data file type is "structure1row" or "structure2row" and `encodings_dict` is not provided, default encodings for alleles are used.
+
             Otherwise, if `encodings_dict` is provided, it will be used for conversion.
 
         Warnings:
@@ -1837,7 +1924,9 @@ class GenotypeData:
 
         Note:
             If the data file type is "phylip" or "vcf" and `encodings_dict` is not provided, default encodings based on IUPAC codes are used.
+
             If the data file type is "structure" and `encodings_dict` is not provided, default encodings for alleles are used.
+
             Otherwise, if `encodings_dict` is provided, it will be used for conversion.
         """
 
@@ -1911,12 +2000,16 @@ class GenotypeData:
         Args:
             popmapfile (str): Path to the population map file.
             force (bool): If True, return a subset dictionary without the keys that weren't found. If False, raise an error if not all samples are present in the population map file.
+
             include_pops (Optional[List[str]]): List of populations to include. If provided, only samples belonging to these populations will be included in the popmap and alignment.
+
             exclude_pops (Optional[List[str]]): List of populations to exclude. If provided, samples belonging to these populations will be excluded from the popmap and alignment.
 
         Raises:
             ValueError: No samples were found in the GenotypeData object.
+
             ValueError: Samples are missing from the population map file.
+
             ValueError: The number of individuals in the population map file differs from the number of samples in the GenotypeData object.
         """
         self.popmapfile = popmapfile
@@ -1983,8 +2076,11 @@ class GenotypeData:
 
         Args:
             X (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
+
             write_output (bool, optional): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
+
             prefix (str, optional): Prefix to append to the output file name. Defaults to "output".
+
             is_nuc (bool, optional): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
 
         Returns:
@@ -2176,29 +2272,45 @@ class GenotypeData:
         Generate missingness reports and plots.
 
         The function will write several comma-delimited report files:
+
             1) individual_missingness.csv: Missing proportions per individual.
+
             2) locus_missingness.csv: Missing proportions per locus.
+
             3) population_missingness.csv: Missing proportions per population (only generated if popmapfile was passed to GenotypeData).
+
             4) population_locus_missingness.csv: Table of per-population and per-locus missing data proportions.
 
         A file missingness.<plot_format> will also be saved. It contains the following subplots:
+
             1) Barplot with per-individual missing data proportions.
+
             2) Barplot with per-locus missing data proportions.
+
             3) Barplot with per-population missing data proportions (only if popmapfile was passed to GenotypeData).
+
             4) Heatmap showing per-population + per-locus missing data proportions (only if popmapfile was passed to GenotypeData).
+
             5) Stacked barplot showing missing data proportions per-individual.
+
             6) Stacked barplot showing missing data proportions per-population (only if popmapfile was passed to GenotypeData).
 
         If popmapfile was not passed to GenotypeData, then the subplots and report files that require populations are not included.
 
         Args:
             zoom (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
+
             prefix (str, optional): Prefix for output directory and files. Plots and files will be written to a directory called <prefix>_reports. The report directory will be created if it does not already exist. Defaults to 'imputer'.
+
             horizontal_space (float, optional): Set the width spacing between subplots. If your plots are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
+
             vertical_space (float, optional): Set the height spacing between subplots. If your plots are overlapping vertically, increase vertical_space. If your plots are too far apart, decrease it. Defaults to 0.6.
+
             bar_color (str, optional): Color of the bars on the non-stacked bar plots. Can be any color supported by matplotlib. See the matplotlib.pyplot.colors documentation. Defaults to 'gray'.
             heatmap_palette (str, optional): Palette to use for the heatmap plot. Can be any palette supported by seaborn. See the seaborn documentation. Defaults to 'magma'.
+
             plot_format (str, optional): Format to save the plots. Can be any of the following: "pdf", "png", "svg", "ps", "eps". Defaults to "pdf".
+
             dpi (int): The resolution in dots per inch. Defaults to 300.
         """
         params = dict(
@@ -2252,7 +2364,9 @@ class GenotypeData:
         Args:
             df (pandas.DataFrame): DataFrame to be written to the file.
             report_path (str): Path to the report directory.
+
             mypath (str): Name of the file to write.
+
             header (bool, optional): Whether to include the header row in the file. Defaults to False.
         """
         df.to_csv(
@@ -2272,9 +2386,13 @@ class GenotypeData:
 
         Args:
             loci_indices (List[int]): Indices of loci to include.
+
             sample_indices (List[int]): Indices of samples to include.
+
             vcf_attributes (Dict[str, Any]): Dictionary of VCF attributes.
+
             num_snps (int): Total number of SNPs.
+
             num_inds (int): Total number of individuals.
 
         Returns:
@@ -2342,6 +2460,7 @@ class GenotypeData:
 
         Args:
             vcf_header (str): VCF header string.
+
             sample_indices (List[int]): Indices of samples to include.
 
         Returns:
@@ -2427,14 +2546,20 @@ class GenotypeData:
 
         Args:
             df (pd.DataFrame): Input DataFrame containing genotype data.
+
             use_pops (bool, optional): If True, calculate statistics per population. Defaults to True.
 
         Returns:
             Tuple[pd.Series, pd.Series, Optional[pd.DataFrame], Optional[pd.Series], Optional[pd.DataFrame]]: A tuple of missing value statistics:
+
             - loc (pd.Series): Missing value proportions per locus.
+
             - ind (pd.Series): Missing value proportions per individual.
+
             - poploc (Optional[pd.DataFrame]): Missing value proportions per population and locus. Only returned if use_pops=True.
+
             - poptot (Optional[pd.Series]): Missing value proportions per population. Only returned if use_pops=True.
+
             - indpop (Optional[pd.DataFrame]): Missing value proportions per individual and population. Only returned if use_pops=True.
         """
         # Get missing value counts per-locus.
@@ -2467,6 +2592,7 @@ class GenotypeData:
 
             Args:
                 instance: An instance of the GenotypeData class.
+
                 is_structure (bool, optional): Specify whether the data is in STRUCTURE format. Defaults to False.
             """
             self.instance = instance
@@ -2510,6 +2636,28 @@ class GenotypeData:
                 raise ValueError(
                     "Invalid format. Supported formats: 'list', 'numpy', 'pandas'"
                 )
+
+    @classmethod
+    def plot_performance(cls, fontsize=14, color="#8C56E3", figsize=(16, 9)):
+        """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time.
+
+        Takes a dictionary of performance data and plots the metrics for each of the methods. The resulting plot is saved in a .png file in the ``tests`` directory.
+
+        Args:
+            resource_data (dict): Dictionary with performance data. Keys are method names, and values are dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
+
+            fontsize (int, optional): Font size to be used in the plot. Defaults to 14.
+
+            color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
+
+            figsize (tuple, optional): Size of the figure. Should be a tuple of two integers. Defaults to (16, 9).
+
+        Returns:
+            None. The function saves the plot as a .png file.
+        """
+        Plotting2.plot_performance(
+            cls.resource_data, fontsize=fontsize, color=color, figsize=figsize
+        )
 
     @property
     def inputs(self):
@@ -2869,6 +3017,7 @@ def merge_alleles(
 
     Args:
         first (List[Union[str, int] or None): Alleles on the first line.
+
         second (List[Union[str, int]] or None, optional): Second row of alleles. Defaults to None.
 
     Returns:
@@ -2876,6 +3025,7 @@ def merge_alleles(
 
     Raises:
         ValueError: If the first and second lines have differing lengths.
+
         ValueError: If the line has a non-even number of alleles.
     """
     ret = list()

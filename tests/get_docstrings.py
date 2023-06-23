@@ -1,9 +1,12 @@
 import sys
+import os
 
-sys.path.insert(0, "C:/Users/evobi/Desktop/SNPio")
+sys.path.append(os.path.normpath(os.getcwd()))
 
 import inspect
 from snpio.read_input import genotype_data
+
+docstrings = {}
 
 for name, obj in inspect.getmembers(genotype_data):
     if (
@@ -11,6 +14,8 @@ for name, obj in inspect.getmembers(genotype_data):
         or inspect.isfunction(obj)
         or inspect.ismethod(obj)
     ):
-        print(f"Docstring for {name}:")
-        print(inspect.getdoc(obj))
-        print()
+        docstrings[name] = inspect.getdoc(obj)
+
+with open("docs/GenotypeData_Docstrings.txt", "w") as fout:
+    for k, v in docstrings.items():
+        fout.write(f"Function Name: {k}\nDocstring: {v}\n\n")

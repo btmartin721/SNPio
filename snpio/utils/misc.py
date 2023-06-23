@@ -1,17 +1,15 @@
 import sys
 import os
 import functools
+import psutil
 import time
-import datetime
-import platform
 import subprocess
 import re
 import logging
+import platform
 
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
-from tqdm.utils import disp_len, _unicode  # for overriding status_print
 
 
 # from skopt import BayesSearchCV
@@ -378,17 +376,86 @@ def get_attributes(cls):
 def timer(func):
     """print the runtime of the decorated function in the format HH:MM:SS."""
 
-    @functools.wraps(func)
-    def wrapper_timer(*args, **kwargs):
-        start_time = time.perf_counter()
-        value = func(*args, **kwargs)
-        end_time = time.perf_counter()
-        run_time = end_time - start_time
-        final_runtime = str(datetime.timedelta(seconds=run_time))
-        print(f"Finshed {func.__name__!r} in {final_runtime}\n")
-        return value
 
-    return wrapper_timer
+def measure_performance_for_instance_method(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Create nested dictionary for function's resource data
+        self.resource_data[func.__name__] = {}
+
+        # Measure CPU load
+        cpu_load = psutil.cpu_percent()
+        self.resource_data[func.__name__]["cpu_load"] = cpu_load
+
+        # Measure memory footprint
+        process = psutil.Process(os.getpid())
+        memory_footprint = process.memory_info().rss
+        memory_footprint_mb = memory_footprint / (
+            1024 * 1024
+        )  # Convert bytes to megabytes
+        self.resource_data[func.__name__][
+            "memory_footprint"
+        ] = memory_footprint_mb
+
+        # Measure execution time
+        start_time = time.time()
+        result = func(self, *args, **kwargs)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        self.resource_data[func.__name__]["execution_time"] = execution_time
+        return result
+
+    return wrapper
+
+
+def measure_performance_for_class_method(func):
+    @functools.wraps(func)
+    def wrapper(cls, *args, **kwargs):
+        # Create nested dictionary for function's resource data
+        cls.resource_data[func.__name__] = {}
+
+        # Measure CPU load
+        cpu_load = psutil.cpu_percent()
+        cls.resource_data[func.__name__]["cpu_load"] = cpu_load
+
+        # Measure memory footprint
+        process = psutil.Process(os.getpid())
+        memory_footprint = process.memory_info().rss
+        memory_footprint_mb = memory_footprint / (
+            1024 * 1024
+        )  # Convert bytes to megabytes
+        cls.resource_data[func.__name__][
+            "memory_footprint"
+        ] = memory_footprint_mb
+
+        # Measure execution time
+        start_time = time.time()
+        result = func(cls, *args, **kwargs)
+        end_time = time.time()
+        execution_time = end_time - start_time
+        cls.resource_data[func.__name__]["execution_time"] = execution_time
+        return result
+
+    return wrapper
+
+
+def class_performance_decorator(measure=True):
+    def measure_decorator(cls):
+        for attr_name, attr_value in cls.__dict__.items():
+            if callable(attr_value) and not attr_name.startswith("_"):
+                if isinstance(attr_value, (staticmethod, classmethod)):
+                    decorated_func = measure_performance_for_class_method(
+                        attr_value.__func__
+                    )
+                    setattr(cls, attr_name, classmethod(decorated_func))
+                else:
+                    decorated_func = measure_performance_for_instance_method(
+                        attr_value
+                    )
+                    setattr(cls, attr_name, decorated_func)
+        return cls
+
+    return measure_decorator if measure else lambda cls: cls
 
 
 def progressbar(it, prefix="", size=60, file=sys.stdout):
@@ -451,39 +518,39 @@ def get_processor_name():
     return ""
 
 
-class tqdm_linux(tqdm):
-    """Adds a dynamically updating progress bar.
+# class tqdm_linux(tqdm):
+#     """Adds a dynamically updating progress bar.
 
-    Decorate an iterable object, with a dynamically updating progressbar every time a value is requested.
-    """
+#     Decorate an iterable object, with a dynamically updating progressbar every time a value is requested.
+#     """
 
-    @staticmethod
-    def status_printer(self, file):
-        """Manage the printing and in-place updating of a line of characters.
+#     @staticmethod
+#     def status_printer(self, file):
+#         """Manage the printing and in-place updating of a line of characters.
 
-        NOTE: If the string is longer than a line, then in-place updating may not work (it will print a new line at each refresh).
+#         NOTE: If the string is longer than a line, then in-place updating may not work (it will print a new line at each refresh).
 
-        Overridden to work with linux HPC clusters. Replaced carriage return with linux newline in fp_write function.
+#         Overridden to work with linux HPC clusters. Replaced carriage return with linux newline in fp_write function.
 
-        Args:
-            file (str): Path of file to print status to.
-        """
+#         Args:
+#             file (str): Path of file to print status to.
+#         """
 
-        fp = file
-        fp_flush = getattr(fp, "flush", lambda: None)
+#         fp = file
+#         fp_flush = getattr(fp, "flush", lambda: None)
 
-        def fp_write(s):
-            fp.write(_unicode(s))
-            fp_flush()
+#         def fp_write(s):
+#             fp.write(_unicode(s))
+#             fp_flush()
 
-        last_len = [0]
+#         last_len = [0]
 
-        def print_status(s):
-            len_s = disp_len(s)
-            fp_write("\n" + s + (" " * max(last_len[0] - len_s, 0)))
-            last_len[0] = len_s
+#         def print_status(s):
+#             len_s = disp_len(s)
+#             fp_write("\n" + s + (" " * max(last_len[0] - len_s, 0)))
+#             last_len[0] = len_s
 
-        return print_status
+#         return print_status
 
 
 class HiddenPrints:

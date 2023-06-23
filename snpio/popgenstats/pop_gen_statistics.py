@@ -10,8 +10,8 @@ from sklearn.metrics import mean_squared_error
 from kneed import KneeLocator
 from ete3 import Tree
 from sklearn.model_selection import train_test_split
-from xgboost import XGBClassifier
-from sklearn.preprocessing import LabelEncoder
+
+# from xgboost import XGBClassifier
 import allel
 from functools import partial
 import sys
@@ -25,6 +25,7 @@ from sklearn.preprocessing import OneHotEncoder
 
 class PopGenStatistics:
     def __init__(self, popgenio):
+        raise NotImplemented("PopGenStatistics has not yet been implemented.")
         if popgenio.filtered_alignment is not None:
             self.alignment = popgenio.filtered_alignment
         else:
@@ -757,51 +758,3 @@ class PopGenStatistics:
                     self.alignment.at[sample, site] = self.alignment.at[
                         node.name, site
                     ]
-
-    def _impute_xgboost(self, random_state=None):
-        le = LabelEncoder()
-        alignment_encoded = self.alignment.apply(le.fit_transform)
-
-        # Impute missing genotypes using XGBClassifier
-        for site in alignment_encoded.columns:
-            missing_samples = alignment_encoded[
-                alignment_encoded[site].isna()
-            ].index
-            if len(missing_samples) == 0:
-                continue
-
-            non_missing_samples = alignment_encoded[
-                alignment_encoded[site].notna()
-            ].index
-
-            X = (
-                alignment_encoded.loc[non_missing_samples]
-                .drop(columns=[site])
-                .values
-            )
-            y = alignment_encoded.loc[non_missing_samples, site].values
-
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=random_state
-            )
-
-            xgb = XGBClassifier(
-                use_label_encoder=False,
-                eval_metric="mlogloss",
-                random_state=random_state,
-            )
-            xgb.fit(X_train, y_train)
-            xgb.score(X_test, y_test)
-
-            # Predict missing genotypes
-            missing_X = (
-                alignment_encoded.loc[missing_samples]
-                .drop(columns=[site])
-                .values
-            )
-            missing_pred = xgb.predict(missing_X)
-
-            # Fill in the imputed genotypes
-            self.alignment.loc[missing_samples, site] = le.inverse_transform(
-                missing_pred
-            )

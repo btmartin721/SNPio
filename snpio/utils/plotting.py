@@ -1,6 +1,5 @@
 import os
 import sys
-from itertools import cycle
 from pathlib import Path
 
 import numpy as np
@@ -11,8 +10,6 @@ import plotly.express as px
 
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
-from sklearn_genetic.utils import logbook_to_pandas
-from sklearn.metrics import ConfusionMatrixDisplay
 
 try:
     from . import misc
@@ -22,275 +19,6 @@ except (ModuleNotFoundError, ValueError):
 
 class Plotting:
     """Functions for plotting imputer scoring and results."""
-
-    @staticmethod
-    def plot_grid_search(cv_results, prefix):
-        """Plot cv_results_ from a grid search for each parameter.
-
-        Saves a figure to disk.
-
-        Args:
-            cv_results (numpy.ndarray): the cv_results_ attribute from a trained grid search object.
-
-            prefix (str): Prefix to use for saving the plot to file.
-        """
-        ## Results from grid search
-        results = pd.DataFrame(cv_results)
-        means_test = [col for col in results if col.startswith("mean_test_")]
-        filter_col = [col for col in results if col.startswith("param_")]
-        params_df = results[filter_col].astype(str)
-        for i, col in enumerate(means_test):
-            params_df[col] = results[means_test[i]]
-
-        # Get number of needed subplot rows.
-        tot = len(filter_col)
-        cols = 4
-        rows = int(np.ceil(tot / cols))
-
-        fig = plt.figure(1, figsize=(20, 10))
-        fig.tight_layout(pad=3.0)
-
-        # Set font properties.
-        font = {"size": 12}
-        plt.rc("font", **font)
-
-        for i, p in enumerate(filter_col, start=1):
-            ax = fig.add_subplot(rows, cols, i)
-
-            # Plot each metric.
-            for col in means_test:
-                # Get maximum score for each parameter setting.
-                df_plot = params_df.groupby(p)[col].agg("max")
-
-                # Convert to float if not supposed to be string.
-                try:
-                    df_plot.index = df_plot.index.astype(float)
-                except TypeError:
-                    pass
-
-                # Sort by index (numerically if possible).
-                df_plot = df_plot.sort_index()
-
-                # Remove prefix from score name.
-                col_new_name = col[len("mean_test_") :]
-
-                ax.plot(
-                    df_plot.index.astype(str),
-                    df_plot.values,
-                    "-o",
-                    label=col_new_name,
-                )
-
-                ax.legend(loc="best")
-
-            param_new_name = p[len("param_") :]
-            ax.set_xlabel(param_new_name.lower())
-            ax.set_ylabel("Max Score")
-            ax.set_ylim([0, 1])
-
-        fig.savefig(
-            os.path.join(
-                f"{prefix}_output", "plots", "gridsearch_metrics.pdf"
-            ),
-            bbox_inches="tight",
-            facecolor="white",
-        )
-
-    @staticmethod
-    def plot_metrics(metrics, num_classes, prefix):
-        """Plot performance metrics for classifier.
-
-        Saves plot to PDF file on disk.
-
-        Args:
-            metrics (Dict[str, Any]): Per-class, micro, and macro-averaged metrics including accuracy, ROC-AUC, and Precision-Recall with Average Precision scores.
-
-            num_classes (int): Number of classes evaluated.
-
-            prefix (str): Prefix to use for output plot.
-        """
-        # Set font properties.
-        font = {"size": 12}
-        plt.rc("font", **font)
-
-        fn = os.path.join(f"{prefix}_output", "plots", "auc_pr_curves.pdf")
-        fig = plt.figure(figsize=(20, 10))
-
-        acc = round(metrics["accuracy"] * 100, 2)
-        ham = round(metrics["hamming"], 2)
-
-        fig.suptitle(
-            f"Performance Metrics\nAccuracy: {acc}\nHamming Loss: {ham}"
-        )
-        axs = fig.subplots(nrows=1, ncols=2)
-        plt.subplots_adjust(hspace=0.5)
-
-        # Line weight
-        lw = 2
-
-        roc_auc = metrics["roc_auc"]
-        pr_ap = metrics["precision_recall"]
-
-        metric_list = [roc_auc, pr_ap]
-
-        for metric, ax in zip(metric_list, axs):
-
-            if "fpr_micro" in metric:
-                prefix1 = "fpr"
-                prefix2 = "tpr"
-                lab1 = "ROC"
-                lab2 = "AUC"
-                xlab = "False Positive Rate"
-                ylab = "True Positive Rate"
-                title = "Receiver Operating Characteristic (ROC)"
-                baseline = [0, 1]
-
-            elif "recall_micro" in metric:
-                prefix1 = "recall"
-                prefix2 = "precision"
-                lab1 = "Precision-Recall"
-                lab2 = "AP"
-                xlab = "Recall"
-                ylab = "Precision"
-                title = "Precision-Recall"
-                baseline = [metric["baseline"], metric["baseline"]]
-
-                # Plot iso-f1 curves.
-                f_scores = np.linspace(0.2, 0.8, num=4)
-                for i, f_score in enumerate(f_scores):
-                    x = np.linspace(0.01, 1)
-                    y = f_score * x / (2 * x - f_score)
-                    ax.plot(
-                        x[y >= 0],
-                        y[y >= 0],
-                        color="gray",
-                        alpha=0.2,
-                        linewidth=lw,
-                        label="Iso-F1 Curves" if i == 0 else "",
-                    )
-                    ax.annotate(f"F1={f_score:0.1f}", xy=(0.9, y[45] + 0.02))
-
-            # Plot ROC curves.
-            ax.plot(
-                metric[f"{prefix1}_micro"],
-                metric[f"{prefix2}_micro"],
-                label=f"Micro-averaged {lab1} Curve ({lab2} = {metric['micro']:.2f})",
-                color="deeppink",
-                linestyle=":",
-                linewidth=4,
-            )
-
-            ax.plot(
-                metric[f"{prefix1}_macro"],
-                metric[f"{prefix2}_macro"],
-                label=f"Macro-averaged {lab1} Curve ({lab2} = {metric['macro']:.2f})",
-                color="navy",
-                linestyle=":",
-                linewidth=4,
-            )
-
-            colors = cycle(["aqua", "darkorange", "cornflowerblue"])
-            for i, color in zip(range(num_classes), colors):
-                if f"{prefix1}_{i}" in metric:
-                    ax.plot(
-                        metric[f"{prefix1}_{i}"],
-                        metric[f"{prefix2}_{i}"],
-                        color=color,
-                        lw=lw,
-                        label=f"{lab1} Curve of class {i} ({lab2} = {metric[i]:.2f})",
-                    )
-
-            if "fpr_micro" in metric:
-                # Make center baseline
-                ax.plot(
-                    baseline,
-                    baseline,
-                    "k--",
-                    linewidth=lw,
-                    label="No Classification Skill",
-                )
-            else:
-                ax.plot(
-                    [0, 1],
-                    baseline,
-                    "k--",
-                    linewidth=lw,
-                    label="No Classification Skill",
-                )
-
-            ax.set_xlim(0.0, 1.0)
-            ax.set_ylim(0.0, 1.05)
-            ax.set_xlabel(f"{xlab}")
-            ax.set_ylabel(f"{ylab}")
-            ax.set_title(f"{title}")
-            ax.legend(loc="best")
-
-        fig.savefig(fn, bbox_inches="tight", facecolor="white")
-        plt.close()
-        plt.clf()
-        plt.cla()
-
-    @staticmethod
-    def plot_search_space(
-        estimator,
-        height=2,
-        s=25,
-        features=None,
-    ):
-        """Make density and contour plots for showing search space during grid search.
-
-        Modified from sklearn-genetic-opt function to implement exception handling.
-
-        Args:
-            estimator (sklearn estimator object): A fitted estimator from :class:`~sklearn_genetic.GASearchCV`.
-
-            height (float, optional): Height of each facet. Defaults to 2.
-
-            s (float, optional): Size of the markers in scatter plot. Defaults to 5.
-
-            features (list, optional): Subset of features to plot, if ``None`` it plots all the features by default. Defaults to None.
-
-        Returns:
-            g (seaborn.PairGrid): Pair plot of the used hyperparameters during the search.
-        """
-        sns.set_style("white")
-
-        df = logbook_to_pandas(estimator.logbook)
-        if features:
-            _stats = df[features]
-        else:
-            variables = [*estimator.space.parameters, "score"]
-            _stats = df[variables]
-
-        g = sns.PairGrid(_stats, diag_sharey=False, height=height)
-
-        g = g.map_upper(sns.scatterplot, s=s, color="r", alpha=0.2)
-
-        try:
-            g = g.map_lower(
-                sns.kdeplot,
-                shade=True,
-                cmap=sns.color_palette("ch:s=.25,rot=-.25", as_cmap=True),
-            )
-        except np.linalg.LinAlgError as err:
-            if "singular matrix" in str(err).lower():
-                g = g.map_lower(sns.scatterplot, s=s, color="b", alpha=1.0)
-            else:
-                raise
-
-        try:
-            g = g.map_diag(
-                sns.kdeplot,
-                shade=True,
-                palette="crest",
-                alpha=0.2,
-                color="red",
-            )
-        except np.linalg.LinAlgError as err:
-            if "singular matrix" in str(err).lower():
-                g = g.map_diag(sns.histplot, color="red", alpha=1.0, kde=False)
-
-        return g
 
     @staticmethod
     def visualize_missingness(
@@ -541,23 +269,24 @@ class Plotting:
             sklearn.decomposision.PCA: Scikit-learn PCA object from sklearn.decomposision.PCA. Any of the sklearn.decomposition.PCA attributes can be accessed from this object. See sklearn documentation.
 
         Examples:
-            >>>data = GenotypeData(
-            >>>    filename="snps.str",
-            >>>    filetype="structure2row",
-            >>>    popmapfile="popmap.txt",
-            >>>)
+            >>> data = GenotypeData(
+            >>>     filename="snps.str",
+            >>>     filetype="structure2row",
+            >>>     popmapfile="popmap.txt",
+            >>> )
             >>>
-            >>>ubp = ImputeUBP(genotype_data=data)
+            >>> components, pca = Plotting.run_and_plot_pca(
+            >>>     data,
+            >>>     ubp,
+            >>>     scale=True,
+            >>>     center=True,
+            >>>     plot_format="png"
+            >>> )
             >>>
-            >>>components, pca = run_and_plot_pca(
-            >>>    data,
-            >>>    ubp,
-            >>>    scale=True,
-            >>>    center=True,
-            >>>    plot_format="png"
-            >>>)
-            >>>
-            >>>explvar = pca.explained_variance_ratio_
+            >>> # Calculate and print explained variance ratio
+            >>> explvar = pca.explained_variance_ratio_
+            >>> print(explvar)
+
         """
         report_path = os.path.join(f"{prefix}_output", "plots")
         Path(report_path).mkdir(parents=True, exist_ok=True)
@@ -681,147 +410,6 @@ class Plotting:
         return components, model
 
     @staticmethod
-    def plot_history(lod, nn_method, prefix="imputer"):
-        """Plot model history traces. Will be saved to file.
-
-        Args:
-            lod (List[tf.keras.callbacks.History]): List of history objects.
-            nn_method (str): Neural network method to plot. Possible options include: 'NLPCA', 'UBP', or 'VAE'. NLPCA and VAE get plotted the same, but UBP does it differently due to its three phases.
-            prefix (str, optional): Prefix to use for output directory. Defaults to 'imputer'.
-
-        Raises:
-            ValueError: nn_method must be either 'NLPCA', 'UBP', or 'VAE'.
-        """
-        if nn_method == "NLPCA" or nn_method == "VAE" or nn_method == "SAE":
-            title = nn_method
-            fn = os.path.join(
-                f"{prefix}_output", "plots", f"histplot_{nn_method}.pdf"
-            )
-
-            if nn_method == "VAE":
-                fig, axes = plt.subplots(2, 2)
-                ax1 = axes[0, 0]
-                ax2 = axes[0, 1]
-                ax3 = axes[1, 0]
-                ax4 = axes[1, 1]
-            else:
-                fig, (ax1, ax2) = plt.subplots(1, 2)
-            fig.suptitle(title)
-            fig.tight_layout(h_pad=3.0, w_pad=3.0)
-            history = lod[0]
-
-            acctrain = (
-                "categorical_accuracy" if nn_method == "NLPCA" else "accuracy"
-            )
-
-            if nn_method == "VAE":
-                accval = "val_accuracy"
-                recon_loss = "reconstruction_loss"
-                kl_loss = "kl_loss"
-                val_recon_loss = "val_reconstruction_loss"
-                val_kl_loss = "val_kl_loss"
-                lossval = "val_loss"
-
-            elif nn_method == "SAE":
-                accval = "val_accuracy"
-                lossval = "val_loss"
-
-            # Plot train accuracy
-            ax1.plot(history[acctrain])
-            ax1.set_title("Model Accuracy")
-            ax1.set_ylabel("Accuracy")
-            ax1.set_xlabel("Epoch")
-            ax1.set_ylim(bottom=0.0, top=1.0)
-            ax1.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
-
-            labels = ["Train"]
-            if nn_method == "VAE" or nn_method == "SAE":
-                # Plot validation accuracy
-                ax1.plot(history[accval])
-                labels.append("Validation")
-
-            ax1.legend(labels, loc="best")
-
-            # Plot model loss
-            if nn_method == "VAE":
-                # Reconstruction loss only.
-                ax2.plot(history[recon_loss])
-                ax2.plot(history[val_recon_loss])
-
-                # KL Loss
-                ax3.plot(history[kl_loss])
-                ax3.plot(history[val_kl_loss])
-                ax3.set_title("KL Divergence Loss")
-                ax3.set_ylabel("Loss")
-                ax3.set_xlabel("Epoch")
-                ax3.legend(labels, loc="best")
-
-                # Total Loss (Reconstruction Loss + KL Loss)
-                ax4.plot(history["loss"])
-                ax4.plot(history[lossval])
-                ax4.set_title("Total Loss (Recon. + KL)")
-                ax4.set_ylabel("Loss")
-                ax4.set_xlabel("Epoch")
-                ax4.legend(labels, loc="best")
-
-            else:
-                ax2.plot(history["loss"])
-
-                if nn_method == "SAE":
-                    ax2.plot(history[lossval])
-
-            ax2.set_title(f"Reconstruction Loss")
-            ax2.set_ylabel(f"Loss")
-            ax2.set_xlabel("Epoch")
-            ax2.legend(labels, loc="best")
-
-            fig.savefig(fn, bbox_inches="tight", facecolor="white")
-
-            plt.close()
-            plt.clf()
-
-        elif nn_method == "UBP":
-            fig = plt.figure(figsize=(12, 16))
-            fig.suptitle(nn_method)
-            fig.tight_layout(h_pad=2.0, w_pad=2.0)
-            fn = os.path.join(f"{prefix}_output", "plots", "histplot_ubp.pdf")
-
-            idx = 1
-            for i, history in enumerate(lod, start=1):
-                plt.subplot(3, 2, idx)
-                title = f"Phase {i}"
-
-                # Plot model accuracy
-                ax = plt.gca()
-                ax.plot(history["categorical_accuracy"])
-                ax.set_title(f"{title} Accuracy")
-                ax.set_ylabel("Accuracy")
-                ax.set_xlabel("Epoch")
-                ax.set_yticks([0.0, 0.25, 0.5, 0.75, 1.0])
-                ax.legend(["Training"], loc="best")
-
-                # Plot model loss
-                plt.subplot(3, 2, idx + 1)
-                ax = plt.gca()
-                ax.plot(history["loss"])
-                ax.set_title(f"{title} Loss")
-                ax.set_ylabel("Loss (MSE)")
-                ax.set_xlabel("Epoch")
-                ax.legend(["Train"], loc="best")
-
-                idx += 2
-
-            plt.savefig(fn, bbox_inches="tight", facecolor="white")
-
-            plt.close()
-            plt.clf()
-
-        else:
-            raise ValueError(
-                f"nn_method must be either 'NLPCA', 'UBP', or 'VAE', but got {nn_method}"
-            )
-
-    @staticmethod
     def plot_certainty_heatmap(y_certainty, sample_ids=None, prefix="imputer"):
         fig = plt.figure()
         hm = sns.heatmap(
@@ -840,69 +428,3 @@ class Plotting:
             bbox_inches="tight",
             facecolor="white",
         )
-
-    @staticmethod
-    def plot_confusion_matrix(y_true_1d, y_pred_1d, prefix="imputer"):
-        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        ConfusionMatrixDisplay.from_predictions(
-            y_true=y_true_1d, y_pred=y_pred_1d, ax=ax
-        )
-
-        outfile = os.path.join(
-            f"{prefix}_output", "plots", "vae_confusion_matrix.png"
-        )
-
-        if os.path.isfile(outfile):
-            os.remove(outfile)
-
-        fig.savefig(outfile, facecolor="white")
-
-    @staticmethod
-    def plot_gt_distribution(df, plot_path):
-        df = misc.validate_input_type(df, return_type="df")
-        df_melt = pd.melt(df, value_name="Count")
-        cnts = df_melt["Count"].value_counts()
-        cnts.index.names = ["Genotype"]
-        cnts = pd.DataFrame(cnts).reset_index()
-        cnts.sort_values(by="Genotype", inplace=True)
-        cnts["Genotype"] = cnts["Genotype"].astype(str)
-
-        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax)
-        g.set_xlabel("Integer-encoded Genotype")
-        g.set_ylabel("Count")
-        g.set_title("Genotype Counts")
-        for p in g.patches:
-            g.annotate(
-                f"{p.get_height():.1f}",
-                (p.get_x() + 0.25, p.get_height() + 0.01),
-                xytext=(0, 1),
-                textcoords="offset points",
-                va="bottom",
-            )
-
-        fig.savefig(
-            os.path.join(plot_path, "genotype_distributions.png"),
-            bbox_inches="tight",
-            facecolor="white",
-        )
-        plt.close()
-
-    @staticmethod
-    def plot_label_clusters(z_mean, labels, prefix="imputer"):
-        """display a 2D plot of the digit classes in the latent space."""
-        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-
-        if z_mean.shape[1] == 2:
-            sns.scatterplot(z_mean[:, 0], z_mean[:, 1], ax=ax)
-            ax.set_xlabel("Latent Dimension 1")
-            ax.set_ylabel("Latent Dimension 2")
-
-        outfile = os.path.join(
-            f"{prefix}_output", "plots", "vae_label_clusters.png"
-        )
-
-        if os.path.isfile(outfile):
-            os.remove(outfile)
-
-        fig.savefig(outfile, facecolor="white", bbox_inches="tight")

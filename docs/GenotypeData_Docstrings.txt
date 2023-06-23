@@ -1,0 +1,323 @@
+Function Name: Any
+Docstring: Special type indicating an unconstrained type.
+
+- Any is compatible with every type.
+- Any assumed to have all methods.
+- All values assumed to be instances of Any.
+
+Note that all the above statements are true from the point of view of
+static type checkers. At runtime, Any should not be used with instance
+checks.
+
+Function Name: GenotypeData
+Docstring: A class for handling and analyzing genotype data.
+
+The GenotypeData class provides methods to read, manipulate, and analyze genotype data in various formats, including VCF, Structure, and other custom formats. It allows for data preprocessing, allele encoding, and various data transformations.
+
+Args:
+    filename (str or None): Path to input file containing genotypes. Defaults to None.
+    filetype (str or None): Type of input genotype file. Possible values include: 'phylip', 'structure', 'vcf', or '012'. Defaults to None.
+    popmapfile (str or None): Path to population map file. If supplied and filetype is one of the STRUCTURE formats, then the structure file is assumed to have NO popID column. Defaults to None.
+    force_popmap (bool): If True, then samples not present in the popmap file will be excluded from the alignment. If False, then an error is raised if samples are present in the popmap file that are not present in the alignment. Defaults to False.
+    exclude_pops (List[str] or None): List of population IDs to exclude from the alignment. Defaults to None.
+    include_pops (List[str] or None): List of population IDs to include in the alignment. Populations not present in the include_pops list will be excluded. Defaults to None.
+    guidetree (str or None): Path to input treefile. Defaults to None.
+    qmatrix_iqtree (str or None): Path to iqtree output file containing Q rate matrix. Defaults to None.
+    qmatrix (str or None): Path to file containing only Q rate matrix, and not the full iqtree file. Defaults to None.
+    siterates (str or None): Path to file containing per-site rates, with 1 rate per line corresponding to 1 site. Not required if genotype_data is defined with the siterates or siterates_iqtree option. Defaults to None.
+    siterates_iqtree (str or None): Path to *.rates file output from IQ-TREE, containing a per-site rate table. Cannot be used in conjunction with siterates argument. Not required if the siterates or siterates_iqtree options were used with the GenotypeData object. Defaults to None.
+    plot_format (str): Format to save report plots. Valid options include: 'pdf', 'svg', 'png', and 'jpeg'. Defaults to 'pdf'.
+    prefix (str): Prefix to use for output directory.
+
+Attributes:
+    inputs (dict): GenotypeData keyword arguments as a dictionary.
+    num_snps (int): Number of SNPs in the dataset.
+    num_inds (int): Number of individuals in the dataset.
+    populations (List[Union[str, int]]): Population IDs.
+    popmap (dict): Dictionary object with SampleIDs as keys and popIDs as values.
+    popmap_inverse (dict or None): Inverse dictionary of popmap, where popIDs are keys and lists of sampleIDs are values.
+    samples (List[str]): Sample IDs in input order.
+    snpsdict (dict or None): Dictionary with SampleIDs as keys and lists of genotypes as values.
+    snp_data (List[List[str]]): Genotype data as a 2D list.
+    genotypes_012 (List[List[int]], np.ndarray, or pd.DataFrame): Encoded 012 genotypes.
+    genotypes_onehot (np.ndarray): One-hot encoded genotypes.
+    genotypes_int (np.ndarray): Integer-encoded genotypes.
+    alignment (Bio.MultipleSeqAlignment): Genotype data as a Biopython MultipleSeqAlignment object.
+    vcf_attributes (dict): Attributes read in from VCF file.
+    loci_indices (List[int]): Column indices for retained loci in filtered alignment.
+    sample_indices (List[int]): Row indices for retained samples in the alignment.
+    ref (List[str]): List of reference alleles of length num_snps.
+    alt (List[str]): List of alternate alleles of length num_snps.
+    q (QMatrix or None): Q-matrix object for phylogenetic tree.
+    site_rates (SiteRates or None): Site rate data for phylogenetic tree.
+    tree (NewickTree or None): Newick tree object.
+
+Methods:
+    read_structure: Read data from a Structure file.
+    read_vcf: Read data from a VCF file.
+    read_phylip: Read data from a Phylip file.
+    read_phylip: Read data from a Phylip file.
+    read_012: Read data from a custom 012-encoded file format.
+    read_tree: Read data from a newick file.
+    q_from_iqtree: Read Q-matrix from *.iqtree file.
+    q_from_file: Read Q-matrix from file with only Q-matrix in it.
+    siterates_from_iqtree: Read site rates from *.rate file.
+    siterates_from_file: Read site rates from file with only site rates in single column.
+    write_structure: Write data to a Structure file.
+    write_vcf: Write data to a VCF file.
+    write_phylip: Write data to a Phylip file.
+    read_popmap: Read in a popmap file.
+    subset_vcf_data: Subset the data based on locus and sample indices.
+    encode_012: Encode genotypes as 0/1/2 integers for reference, heterozygous, alternate alleles.
+    decode_012: Decode 0/1/2 integers back to original genotypes.
+    convert_onehot: Convert genotypes to one-hot encoding.
+    convert_int_iupac: Convert genotypes to integer encoding (0-9) with IUPAC characters.
+    missingness_reports: Create missingness reports from GenotypeData object.
+
+Example usage:
+    Instantiate GenotypeData object
+
+    genotype_data = GenotypeData(file="data.vcf", filetype="vcf", popmapfile="popmap.txt")
+
+    # Access basic properties
+
+    print(genotype_data.num_snps) # Number of SNPs in the dataset
+    print(genotype_data.num_inds) # Number of individuals in the dataset
+    print(genotype_data.populations) # Population IDs
+    print(genotype_data.popmap) # Dictionary of SampleIDs as keys and popIDs as values
+    print(genotype_data.samples) # Sample IDs in input order
+
+    # Access transformed genotype data
+
+    genotypes_012 = genotype_data.genotypes_012 # Encoded 012 genotypes as a 2D list
+    genotypes_012_array = genotype_data.genotypes_012(fmt="numpy")
+    genotypes_012_df = genotype_data.genotypes_012(fmt="pandas")
+    genotypes_onehot = genotype_data.genotypes_onehot # One-hot encoded genotypes as a numpy array
+    genotypes_int = genotype_data.genotypes_int # Integer-encoded genotypes (0-9) as a numpy array
+    alignment = genotype_data.alignment # Genotype data as a Biopython MultipleSeqAlignment object
+
+    # Access VCF file attributes
+
+    vcf_attributes = genotype_data.vcf_attributes # Dictionary of VCF file attributes
+    Set and access additional properties
+
+    genotype_data.q = q_matrix # Set q-matrix for phylogenetic tree
+    q_matrix = genotype_data.q # Get q-matrix object
+    genotype_data.site_rates = site_rates # Set site rate data for phylogenetic tree
+    site_rates = genotype_data.site_rates # Get site rate data
+    genotype_data.tree = newick_tree # Set newick tree data
+    newick_tree = genotype_data.tree # Get newick tree object
+
+Function Name: MultipleSeqAlignment
+Docstring: Represents a classical multiple sequence alignment (MSA).
+
+By this we mean a collection of sequences (usually shown as rows) which
+are all the same length (usually with gap characters for insertions or
+padding). The data can then be regarded as a matrix of letters, with well
+defined columns.
+
+You would typically create an MSA by loading an alignment file with the
+AlignIO module:
+
+>>> from Bio import AlignIO
+>>> align = AlignIO.read("Clustalw/opuntia.aln", "clustal")
+>>> print(align)
+Alignment with 7 rows and 156 columns
+TATACATTAAAGAAGGGGGATGCGGATAAATGGAAAGGCGAAAG...AGA gi|6273285|gb|AF191659.1|AF191
+TATACATTAAAGAAGGGGGATGCGGATAAATGGAAAGGCGAAAG...AGA gi|6273284|gb|AF191658.1|AF191
+TATACATTAAAGAAGGGGGATGCGGATAAATGGAAAGGCGAAAG...AGA gi|6273287|gb|AF191661.1|AF191
+TATACATAAAAGAAGGGGGATGCGGATAAATGGAAAGGCGAAAG...AGA gi|6273286|gb|AF191660.1|AF191
+TATACATTAAAGGAGGGGGATGCGGATAAATGGAAAGGCGAAAG...AGA gi|6273290|gb|AF191664.1|AF191
+TATACATTAAAGGAGGGGGATGCGGATAAATGGAAAGGCGAAAG...AGA gi|6273289|gb|AF191663.1|AF191
+TATACATTAAAGGAGGGGGATGCGGATAAATGGAAAGGCGAAAG...AGA gi|6273291|gb|AF191665.1|AF191
+
+In some respects you can treat these objects as lists of SeqRecord objects,
+each representing a row of the alignment. Iterating over an alignment gives
+the SeqRecord object for each row:
+
+>>> len(align)
+7
+>>> for record in align:
+...     print("%s %i" % (record.id, len(record)))
+...
+gi|6273285|gb|AF191659.1|AF191 156
+gi|6273284|gb|AF191658.1|AF191 156
+gi|6273287|gb|AF191661.1|AF191 156
+gi|6273286|gb|AF191660.1|AF191 156
+gi|6273290|gb|AF191664.1|AF191 156
+gi|6273289|gb|AF191663.1|AF191 156
+gi|6273291|gb|AF191665.1|AF191 156
+
+You can also access individual rows as SeqRecord objects via their index:
+
+>>> print(align[0].id)
+gi|6273285|gb|AF191659.1|AF191
+>>> print(align[-1].id)
+gi|6273291|gb|AF191665.1|AF191
+
+And extract columns as strings:
+
+>>> print(align[:, 1])
+AAAAAAA
+
+Or, take just the first ten columns as a sub-alignment:
+
+>>> print(align[:, :10])
+Alignment with 7 rows and 10 columns
+TATACATTAA gi|6273285|gb|AF191659.1|AF191
+TATACATTAA gi|6273284|gb|AF191658.1|AF191
+TATACATTAA gi|6273287|gb|AF191661.1|AF191
+TATACATAAA gi|6273286|gb|AF191660.1|AF191
+TATACATTAA gi|6273290|gb|AF191664.1|AF191
+TATACATTAA gi|6273289|gb|AF191663.1|AF191
+TATACATTAA gi|6273291|gb|AF191665.1|AF191
+
+Combining this alignment slicing with alignment addition allows you to
+remove a section of the alignment. For example, taking just the first
+and last ten columns:
+
+>>> print(align[:, :10] + align[:, -10:])
+Alignment with 7 rows and 20 columns
+TATACATTAAGTGTACCAGA gi|6273285|gb|AF191659.1|AF191
+TATACATTAAGTGTACCAGA gi|6273284|gb|AF191658.1|AF191
+TATACATTAAGTGTACCAGA gi|6273287|gb|AF191661.1|AF191
+TATACATAAAGTGTACCAGA gi|6273286|gb|AF191660.1|AF191
+TATACATTAAGTGTACCAGA gi|6273290|gb|AF191664.1|AF191
+TATACATTAAGTATACCAGA gi|6273289|gb|AF191663.1|AF191
+TATACATTAAGTGTACCAGA gi|6273291|gb|AF191665.1|AF191
+
+Note - This object replaced the older Alignment object defined in module
+Bio.Align.Generic but is not fully backwards compatible with it.
+
+Note - This object does NOT attempt to model the kind of alignments used
+in next generation sequencing with multiple sequencing reads which are
+much shorter than the alignment, and where there is usually a consensus or
+reference sequence with special status.
+
+Function Name: Plotting
+Docstring: Functions for plotting imputer scoring and results.
+
+Function Name: Plotting2
+Docstring: None
+
+Function Name: ReadPopmap
+Docstring: Class to read and parse a population map file.
+
+Population map file should contain two tab-delimited columns, with the first being the SampleIDs and the second being the associated population ID. There should not be a header line in the popmap file.
+
+Examples:
+    Sample1 Population1
+    Sample2 Population1
+    Sample3 Population2
+    Sample4 Population2
+
+Function Name: Seq
+Docstring: Read-only sequence object (essentially a string with biological methods).
+
+Like normal python strings, our basic sequence object is immutable.
+This prevents you from doing my_seq[5] = "A" for example, but does allow
+Seq objects to be used as dictionary keys.
+
+The Seq object provides a number of string like methods (such as count,
+find, split and strip).
+
+The Seq object also provides some biological methods, such as complement,
+reverse_complement, transcribe, back_transcribe and translate (which are
+not applicable to protein sequences).
+
+Function Name: SeqRecord
+Docstring: A SeqRecord object holds a sequence and information about it.
+
+Main attributes:
+ - id          - Identifier such as a locus tag (string)
+ - seq         - The sequence itself (Seq object or similar)
+
+Additional attributes:
+ - name        - Sequence name, e.g. gene name (string)
+ - description - Additional text (string)
+ - dbxrefs     - List of database cross references (list of strings)
+ - features    - Any (sub)features defined (list of SeqFeature objects)
+ - annotations - Further information about the whole sequence (dictionary).
+   Most entries are strings, or lists of strings.
+ - letter_annotations - Per letter/symbol annotation (restricted
+   dictionary). This holds Python sequences (lists, strings
+   or tuples) whose length matches that of the sequence.
+   A typical use would be to hold a list of integers
+   representing sequencing quality scores, or a string
+   representing the secondary structure.
+
+You will typically use Bio.SeqIO to read in sequences from files as
+SeqRecord objects.  However, you may want to create your own SeqRecord
+objects directly (see the __init__ method for further details):
+
+>>> from Bio.Seq import Seq
+>>> from Bio.SeqRecord import SeqRecord
+>>> record = SeqRecord(Seq("MKQHKAMIVALIVICITAVVAALVTRKDLCEVHIRTGQTEVAVF"),
+...                    id="YP_025292.1", name="HokC",
+...                    description="toxic membrane protein")
+>>> print(record)
+ID: YP_025292.1
+Name: HokC
+Description: toxic membrane protein
+Number of features: 0
+Seq('MKQHKAMIVALIVICITAVVAALVTRKDLCEVHIRTGQTEVAVF')
+
+If you want to save SeqRecord objects to a sequence file, use Bio.SeqIO
+for this.  For the special case where you want the SeqRecord turned into
+a string in a particular file format there is a format method which uses
+Bio.SeqIO internally:
+
+>>> print(record.format("fasta"))
+>YP_025292.1 toxic membrane protein
+MKQHKAMIVALIVICITAVVAALVTRKDLCEVHIRTGQTEVAVF
+<BLANKLINE>
+
+You can also do things like slicing a SeqRecord, checking its length, etc
+
+>>> len(record)
+44
+>>> edited = record[:10] + record[11:]
+>>> print(edited.seq)
+MKQHKAMIVAIVICITAVVAALVTRKDLCEVHIRTGQTEVAVF
+>>> print(record.seq)
+MKQHKAMIVALIVICITAVVAALVTRKDLCEVHIRTGQTEVAVF
+
+Function Name: TreeParser
+Docstring: None
+
+Function Name: class_performance_decorator
+Docstring: None
+
+Function Name: merge_alleles
+Docstring: Merges first and second alleles in a structure file.
+
+Args:
+    first (List[Union[str, int] or None): Alleles on the first line.
+    second (List[Union[str, int]] or None, optional): Second row of alleles. Defaults to None.
+
+Returns:
+    List[str]: VCF file-style genotypes (i.e., split by "/").
+
+Raises:
+    ValueError: If the first and second lines have differing lengths.
+    ValueError: If the line has a non-even number of alleles.
+
+Function Name: original_get_data_from_intree
+Docstring: Load *data* from a file or string and return as a list of strings.
+The data contents could be one newick string; a multiline NEXUS format
+for one tree; multiple newick strings on multiple lines; or multiple
+newick strings in a multiline NEXUS format. In any case, we will read
+in the data as a list on lines. 
+
+Function Name: patched_get_data_from_intree
+Docstring: Load data from a file or string and return as a list of strings.
+The data contents could be one newick string; a multiline NEXUS format
+for one tree; multiple newick strings on multiple lines; or multiple
+newick strings in a multiline NEXUS format. In any case, we will read
+in the data as a list on lines.
+
+NOTE: This method is monkey patched from the toytree package (v2.0.5) because there is a bug that appears in Python 11 where it tries to open a file using 'rU'. 'rU' is is deprecated in Python 11, so I changed it to just ``with open(self.intree, 'r')``\. This has been fixed on the GitHub version of toytree, but it is not at present fixed in the pip or conda versions.
+
+Function Name: timer
+Docstring: print the runtime of the decorated function in the format HH:MM:SS.
+

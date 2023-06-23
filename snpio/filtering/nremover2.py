@@ -10,39 +10,62 @@ from copy import deepcopy
 
 from ..plotting.plotting import Plotting
 from ..read_input.genotype_data import GenotypeData
-from ..utils.misc import get_attributes
 
 
 class NRemover2:
-    """
-    A class for filtering alignments based on the proportion of missing data in a genetic alignment. The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold. The loci can be filtered by global missing data proportions or if any given population exceeds the missing data threshold. A number of informative plots are also generated.
+    """A class for filtering alignments based on the proportion of missing data in a genetic alignment. The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold. The loci can be filtered by global missing data proportions or if any given population exceeds the missing data threshold. A number of informative plots are also generated.
+
+    Notes:
+        NRemover2 handles the following characters as missing data:
+            - 'N'
+            - '-'
+            - '?'
+            - '.'
+
+        Thus, it treats gaps as missing data. 
+        
+        Please keep this in mind when using GenotypeData.
+
+    Args:
+        popgenio (GenotypeData): An instance of the GenotypeData class containing the genetic data alignment, population map, and populations.
 
     Attributes:
         alignment (list of Bio.SeqRecord.SeqRecord): The input alignment to filter.
+
         populations (list of str): The population for each sequence in the alignment.
 
     Methods:
+        nremover: Runs the whole NRemover2 pipeline.
+
         filter_missing: Filters out sequences from the alignment that have more than a given proportion of missing data.
+
         filter_missing_pop: Filters out sequences from the alignment that have more than a given proportion of missing data in a specific population.
+
         filter_missing_sample: Filters out samples from the alignment that have more than a given proportion of missing data.
+
+        filter_minor_allele_frequency: Filters out loci (columns) where the minor allele frequency is below the threshold.
+
         filter_monomorphic: Filters out monomorphic sites.
+
         filter_singletons: Filters out loci (columns) where the only variant is a singleton.
+
+        filter_non_biallelic: Filter out loci (columns) that have  more than 2 alleles.
+
         get_population_sequences: Returns the sequences for a specific population.
+
         count_iupac_alleles: Counts the number of occurrences of each IUPAC ambiguity code in a given column.
+
         count_unique_bases: Counts the number of unique bases in a given column.
-        filter_singletons_sfs: Filters out singletons for the site frequency spectrum (SFS).
         plot_missing_data_thresholds: Plots the proportion of missing data against the filtering thresholds.
+
+        plot_sankey_filtering_report: Makes a Sankey plot showing the number of loci removed at each filtering step.
+
         print_filtering_report: Prints a summary of the filtering results.
+
         print_cletus: Prints ASCII art of Cletus (a silly inside joke).
     """
 
     def __init__(self, popgenio):
-        """
-        Initialize the NRemover class using an instance of the PopGenIO class.
-
-        Args:
-            popgenio (PopGenIO): An instance of the PopGenIO class containing the genetic data alignment, population map, and populations.
-        """
         self._msa = popgenio.alignment
         self._alignment = deepcopy(self._msa)
         self.popgenio = popgenio
@@ -302,7 +325,9 @@ class NRemover2:
 
         Args:
             threshold (float): The maximum missing data proportion allowed.
+
             alignment (MultipleSeqAlignment, optional): The alignment to be filtered. Defaults to the stored alignment.
+
             return_props (bool, optional): Whether to return the mean missing data proportion among all columns after filtering. Defaults to False.
 
         Returns:
@@ -310,6 +335,7 @@ class NRemover2:
 
         Raises:
             TypeError: If threshold is not a float value.
+
             ValueError: If threshold is not between 0.0 and 1.0 inclusive.
         """
         if alignment is None:
@@ -418,7 +444,9 @@ class NRemover2:
 
         Args:
             threshold (float): The maximum missing data proportion allowed for each sequence.
+
             alignment (MultipleSeqAlignment, optional): The alignment to be filtered. Defaults to the stored alignment.
+
             return_props (bool, optional): Whether to return the mean missing data proportion among all sequences after filtering. Defaults to False.
 
         Returns:
@@ -426,6 +454,7 @@ class NRemover2:
 
         Raises:
             TypeError: If threshold is not a float value.
+
             ValueError: If threshold is not between 0.0 and 1.0 inclusive.
         """
 
@@ -541,6 +570,7 @@ class NRemover2:
 
         Args:
             threshold (None, optional): Not used.
+
             alignment (MultipleSeqAlignment, optional): The alignment to be filtered. Defaults to the stored alignment.
 
         Returns:
@@ -672,10 +702,10 @@ class NRemover2:
             Determines if a column in an alignment is monomorphic.
 
             Args:
-            - column: a list of bases representing a column in an alignment
+                column: a list of bases representing a column in an alignment
 
             Returns:
-            - A boolean indicating whether the column is monomorphic.
+                A boolean indicating whether the column is monomorphic.
             """
             column_list = column.tolist()
             alleles = set(column_list)
@@ -770,10 +800,10 @@ class NRemover2:
             Determines if a column in an alignment is a singleton.
 
             Args:
-            - column: a list of bases representing a column in an alignment
+                column: a list of bases representing a column in an alignment
 
             Returns:
-            - A boolean indicating whether the column is a singleton, meaning that there is only one
+                A boolean indicating whether the column is a singleton, meaning that there is only one
             variant in the column and it appears only once.
             """
             column_list = column.tolist()
@@ -821,13 +851,13 @@ class NRemover2:
         Returns a list of sequence strings for a specific population.
 
         Args:
-        - population: str, the name of the population to retrieve sequences for.
+            population: str, the name of the population to retrieve sequences for.
 
         Returns:
-        - population_sequences: list, a list of sequence strings for the specified population.
+            population_sequences: list, a list of sequence strings for the specified population.
 
         Raises:
-        - ValueError: If the specified population is not found in the object's list of populations.
+            ValueError: If the specified population is not found in the object's list of populations.
         """
         population_indices = [
             i for i, pop in enumerate(self.populations) if pop == population
@@ -1155,13 +1185,10 @@ class NRemover2:
         """
         Returns a dictionary of population sequences.
 
-        The dictionary keys are the names of the populations, and the values are
-        the corresponding sequences for each population. Sequences are in the form
-        of a list of strings, where each string is a sequence for a given sample.
+        The dictionary keys are the names of the populations, and the values are the corresponding sequences for each population. Sequences are in the form of a list of strings, where each string is a sequence for a given sample.
 
         Returns:
-            dict: A dictionary of population sequences, where each key is the name
-            of a population and the corresponding value is a list of sequences.
+            dict: A dictionary of population sequences, where each key is the name of a population and the corresponding value is a list of sequences.
         """
         population_sequences = {}
         for population_name in self.populations:
