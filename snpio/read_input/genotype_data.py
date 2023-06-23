@@ -111,9 +111,9 @@ class GenotypeData:
 
         Thus, it treats gaps as missing data. 
         
-        Some of the GenotypeData methods also force each site to be biallelic.
+        If using PHYLIP or STRUCTURE formats, all sites will also be forced to be biallelic. If you need >2 alleles, you must input a VCF file.
 
-        Please keep this in mind when using GenotypeData.
+        Please keep these things in mind when using GenotypeData.
 
 
     Args:

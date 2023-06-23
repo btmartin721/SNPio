@@ -22,9 +22,9 @@ class NRemover2:
             - '?'
             - '.'
 
-        Thus, it treats gaps as missing data. 
-        
-        Please keep this in mind when using GenotypeData.
+        Thus, it treats gaps as missing data.
+
+        Please keep this in mind when using NRemover2.
 
     Args:
         popgenio (GenotypeData): An instance of the GenotypeData class containing the genetic data alignment, population map, and populations.
