@@ -75,7 +75,7 @@ Once you have the genotype data, you can perform various data transformations an
 
    components, pca = Plotting.run_and_plot_pca(
        data=genotype_data,
-       ubp=ubp,
+       ubp=False,
        scale=True,
        center=True,
        plot_format="png"
@@ -89,11 +89,8 @@ Once you have the genotype data, you can perform various data transformations an
    vcf_attributes = genotype_data.vcf_attributes # If using VCF file.
 
    # Set and access additional properties
-   genotype_data.q = q_matrix
    q_matrix = genotype_data.q
-   genotype_data.site_rates = site_rates
    site_rates = genotype_data.site_rates
-   genotype_data.tree = newick_tree
    newick_tree = genotype_data.tree
 
 
