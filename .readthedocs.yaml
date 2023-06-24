@@ -1,0 +1,59 @@
+# .readthedocs.yaml
+# ReadTheDocs configuration file
+# See https://docs.readthedocs.io/en/stable/config-file/v2.html
+
+# Specify the version of the ReadTheDocs configuration file
+version: 2
+
+# Build configuration
+sphinx:
+  configuration: docs/source/conf.py
+
+# Python version to use
+python:
+  version: 3.9
+
+# Documentation versions
+docs:
+  versions:
+    - latest
+
+# Sphinx documentation options
+sphinx:
+  configuration: docs/source/conf.py
+  builder: html
+  fail_on_warning: true
+
+# Build and install dependencies
+install:
+  - method: pip
+    path: .
+    extra_requirements:
+      - docs
+      - sphinx
+      - sphinx-rtd-theme
+      - sphinx-autodocs-typehints
+
+# GitHub integration
+vcs:
+  type: git
+  remote_url: https://github.com/btmartin721/SNPio
+  provider: github
+
+# Clean build environment before each build
+wipe_env: true
+
+# Use Sphinx theme
+theme:
+  name: sphinx_rtd_theme
+  version: latest
+
+# Optional but recommended, declare the Python requirements required
+# to build your documentation
+# See https://docs.readthedocs.io/en/stable/guides/reproducible-builds.html
+python:
+   install:
+      requirements: 
+         - docs/requirements.txt
+         - docs/requirements-docs.txt
+
