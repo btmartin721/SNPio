@@ -31,7 +31,7 @@ install:
       - sphinx
       - sphinx-rtd-theme
       - sphinx autodocs-typehints
-     requirements_file: requirements.txt
+     requirements_file: "requirements.txt"
 
 # GitHub integration
 vcs:
