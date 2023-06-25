@@ -22,16 +22,9 @@ sphinx:
   builder: html
   fail_on_warning: true
 
-# Build and install dependencies
-install:
-  - method: pip
-    path: .
-    extra_requirements:
-      - docs
-      - sphinx
-      - sphinx-rtd-theme
-      - sphinx autodocs-typehints
-     requirements_file: "requirements.txt"
+python:
+  install:
+    - requirements: requirements.txt
 
 # GitHub integration
 vcs:
