@@ -12,6 +12,7 @@ sphinx:
 # Python version to use
 # Set the version of Python and other tools you might need
 build:
+  os: ubuntu-22.04
   tools:
     python: "3.9"
 
