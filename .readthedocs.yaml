@@ -26,9 +26,4 @@ python:
   install:
     - requirements: requirements.txt
 
-# Use Sphinx theme
-theme:
-  name: sphinx_rtd_theme
-  version: latest
-
 
