@@ -10,13 +10,10 @@ sphinx:
   configuration: docs/source/conf.py
 
 # Python version to use
-python:
-  version: 3.9
-
-# Documentation versions
-docs:
-  versions:
-    - latest
+# Set the version of Python and other tools you might need
+build:
+  tools:
+    python: "3.9"
 
 # Sphinx documentation options
 sphinx:
