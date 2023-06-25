@@ -62,6 +62,16 @@ seaborn==0.12.2
 six==1.16.0
 snowballstemmer==2.2.0
 -e git+https://github.com/btmartin721/SNPio.git@298ec211c64e040a081d8dddf9162b841d65209e#egg=snpio
+Sphinx==6.2.1
+sphinx-autodoc-typehints==1.23.0
+sphinx-rtd-theme==1.2.2
+sphinxcontrib-applehelp==1.0.4
+sphinxcontrib-devhelp==1.0.2
+sphinxcontrib-htmlhelp==2.0.1
+sphinxcontrib-jquery==4.1
+sphinxcontrib-jsmath==1.0.1
+sphinxcontrib-qthelp==1.0.3
+sphinxcontrib-serializinghtml==1.1.5
 tenacity==8.2.2
 threadpoolctl==3.1.0
 toolz==0.12.0
