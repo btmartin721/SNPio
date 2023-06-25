@@ -26,12 +26,6 @@ python:
   install:
     - requirements: requirements.txt
 
-# GitHub integration
-vcs:
-  type: git
-  remote_url: https://github.com/btmartin721/SNPio
-  provider: github
-
 # Clean build environment before each build
 wipe_env: true
 
