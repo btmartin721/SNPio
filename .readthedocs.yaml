@@ -26,9 +26,6 @@ python:
   install:
     - requirements: requirements.txt
 
-# Clean build environment before each build
-wipe_env: true
-
 # Use Sphinx theme
 theme:
   name: sphinx_rtd_theme
