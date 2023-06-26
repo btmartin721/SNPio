@@ -44,6 +44,7 @@ setup(
         "scipy",
         "seaborn",
         "toytree",
+        "kaleido",
     ],
     extras_require={
         "docs": ["sphinx", "sphinx-rtd_theme", "sphinx-autodoc-typehints"],
