@@ -13,7 +13,14 @@ from ..read_input.genotype_data import GenotypeData
 
 
 class NRemover2:
-    """A class for filtering alignments based on the proportion of missing data in a genetic alignment. The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold. The loci can be filtered by global missing data proportions or if any given population exceeds the missing data threshold. A number of informative plots are also generated.
+    """
+    A class for filtering alignments based on the proportion of missing data in a genetic alignment.
+
+    The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold.
+
+    The loci can be filtered by global missing data proportions or if any given population exceeds the missing data threshold.
+
+    A number of informative plots are also generated.
 
     Notes:
         NRemover2 handles the following characters as missing data:
@@ -22,9 +29,7 @@ class NRemover2:
             - '?'
             - '.'
 
-        Thus, it treats gaps as missing data.
-
-        Please keep this in mind when using NRemover2.
+        Thus, it treats gaps as missing data. Please keep this in mind when using NRemover2.
 
     Args:
         popgenio (GenotypeData): An instance of the GenotypeData class containing the genetic data alignment, population map, and populations.
@@ -33,6 +38,13 @@ class NRemover2:
         alignment (list of Bio.SeqRecord.SeqRecord): The input alignment to filter.
 
         populations (list of str): The population for each sequence in the alignment.
+
+    Properties:
+        alignment (property): Property for accessing and setting the alignment.
+
+        msa (property): Property for accessing and setting the msa.
+
+        population_sequences (property): Property for accessing the sequences for each population.
 
     Methods:
         nremover: Runs the whole NRemover2 pipeline.
@@ -49,13 +61,14 @@ class NRemover2:
 
         filter_singletons: Filters out loci (columns) where the only variant is a singleton.
 
-        filter_non_biallelic: Filter out loci (columns) that have  more than 2 alleles.
+        filter_non_biallelic: Filter out loci (columns) that have more than 2 alleles.
 
         get_population_sequences: Returns the sequences for a specific population.
 
         count_iupac_alleles: Counts the number of occurrences of each IUPAC ambiguity code in a given column.
 
         count_unique_bases: Counts the number of unique bases in a given column.
+
         plot_missing_data_thresholds: Plots the proportion of missing data against the filtering thresholds.
 
         plot_sankey_filtering_report: Makes a Sankey plot showing the number of loci removed at each filtering step.
@@ -72,6 +85,7 @@ class NRemover2:
         self.popmap = popgenio.popmap
         self.popmap_inverse = popgenio.popmap_inverse
         self.populations = list(set(popgenio.populations))
+        self.samples = popgenio.samples
         self.poplist = popgenio.populations
 
         self.loci_indices = None
@@ -86,16 +100,49 @@ class NRemover2:
         biallelic=False,
         monomorphic=False,
         singletons=False,
-        plot_missingness_report=True,
+        search_thresholds=True,
         plot_outfile="missingness_report.png",
         suppress_cletus=False,
         plot_dir="plots",
         included_steps=None,
     ):
+        """
+        Runs the NRemover2 pipeline for filtering alignments based on missing data, minor allele frequency, and monomorphic, non-biallelic, and singleton sites.
+
+        Args:
+            max_missing_global (float, optional): The maximum proportion of missing data allowed globally (across all samples). Defaults to 1.0.
+
+            max_missing_pop (float, optional): The maximum proportion of missing data allowed within a population. Defaults to 1.0.
+
+            max_missing_sample (float, optional): The maximum proportion of missing data allowed for a single sample. Defaults to 1.0.
+
+            min_maf (float, optional): The minimum minor allele frequency threshold. Defaults to 0.0.
+
+            biallelic (bool, optional): Whether to filter out non-biallelic loci. Defaults to False.
+
+            monomorphic (bool, optional): Whether to filter out monomorphic loci. Defaults to False.
+
+            singletons (bool, optional): Whether to filter out loci where the only variant is a singleton. Defaults to False.
+
+            search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
+
+            plot_outfile (str, optional): The filename for the missingness report plot. Defaults to "missingness_report.png".
+
+            suppress_cletus (bool, optional): Whether to suppress printing Cletus ASCII art. Defaults to False.
+
+            plot_dir (str, optional): The directory to save the plots. Defaults to "plots".
+
+            included_steps (list, optional): The steps to include in the Sankey plot. If None, all steps will be included. Defaults to None.
+
+        Returns:
+            GenotypeData: A GenotypeData object containing the filtered alignment, retained loci indices, and retained sample indices.
+
+        """
         if not suppress_cletus:
             self.print_cletus()
 
         self.alignment = self.msa[:]
+
         aln_before = deepcopy(self.alignment)
         indices_loci_before = range(len(aln_before[0]))
 
@@ -103,10 +150,18 @@ class NRemover2:
             self.popgenio.genotypes_int, plot_dir=plot_dir
         )
 
-        if plot_missingness_report:
+        if search_thresholds:
+            self.search_thresholds_ = True
             self.plot_missing_data_thresholds(plot_outfile, plot_dir=plot_dir)
 
         steps = [
+            (
+                "Filter missing data (sample)",
+                max_missing_sample < 1.0,
+                max_missing_sample,
+                self.filter_missing_sample,
+                5,
+            ),
             (
                 "Filter monomorphic sites",
                 monomorphic,
@@ -143,13 +198,6 @@ class NRemover2:
                 4,
             ),
             (
-                "Filter missing data (sample)",
-                max_missing_sample < 1.0,
-                max_missing_sample,
-                self.filter_missing_sample,
-                5,
-            ),
-            (
                 "Filter minor allele frequency",
                 min_maf > 0.0,
                 min_maf,
@@ -180,6 +228,7 @@ class NRemover2:
                     filter_idx_dict[step_idx] = retained_indices
                 else:
                     self.sample_indices = indices
+                    self.samples = [self.samples[i] for i in indices]
                 self.alignment = filtered_alignment
             else:
                 loci_removed_per_step.append((name, 0))
@@ -211,12 +260,10 @@ class NRemover2:
 
     def return_filtered_output(self):
         """
-        Creates a temporary alignment file and a temporary population map file,
-        writes data to them, and returns a new GenotypeData object with the
-        filtered alignment.
+        Creates a temporary alignment file and a temporary population map file, writes data to them, and returns a new GenotypeData object with the filtered alignment.
 
         Returns:
-            new_popgenio (GenotypeData): A new GenotypeData object with the filtered alignment.
+            GenotypeData: A new GenotypeData object with the filtered alignment.
 
         Raises:
             None
@@ -226,7 +273,7 @@ class NRemover2:
 
         if self.sample_indices is not None:
             indices = list(
-                set(self.sample_indices + (self.popgenio.sample_indices))
+                set(self.sample_indices) & set(self.popgenio.sample_indices)
             )
             indices.sort()
             self.sample_indices = indices
@@ -252,6 +299,8 @@ class NRemover2:
                 self.popgenio.num_snps,
                 self.popgenio.num_inds,
             )
+        else:
+            vcf_attributes = self.popgenio._vcf_attributes
 
         aln_filename = aln.name
         self.popgenio.write_phylip(
@@ -261,7 +310,11 @@ class NRemover2:
 
         popmap = tempfile.NamedTemporaryFile(delete=False)
         popmap_filename = popmap.name
-        print(popmap_filename)
+
+        if self.sample_indices is not None:
+            self.popgenio.popmap = {
+                k: v for k, v in self.popgenio.popmap.items() if k in samples
+            }
 
         with open(popmap_filename, "w") as fout:
             for key, value in self.popgenio.popmap.items():
@@ -272,14 +325,16 @@ class NRemover2:
         inputs["popmapfile"] = popmap_filename
         inputs["filename"] = aln_filename
         inputs["loci_indices"] = self.loci_indices
-        inputs["included_sample_indices"] = self.sample_indices
+        inputs["sample_indices"] = self.sample_indices
         inputs["filetype"] = "phylip"
         inputs["vcf_attributes"] = vcf_attributes
+        inputs["verbose"] = False
 
         # Create a new object with the filtered alignment.
         new_popgenio = GenotypeData(**inputs)
 
         new_popgenio.filetype = self.popgenio.filetype
+        new_popgenio.verbose = self.popgenio.verbose
 
         if self.popgenio.filetype == "vcf":
             new_popgenio.vcf_attributes = vcf_attributes
@@ -297,6 +352,23 @@ class NRemover2:
         calculate_stdev=False,
         is_sample_filter=False,
     ):
+        """Calculates the proportion of missing data in each column or row of the alignment.
+
+        Args:
+            alignment_array (numpy.ndarray): The alignment array.
+
+            missing_chars (list, optional): List of characters representing missing data. Defaults to ["N", "-", ".", "?"].
+
+            calculate_stdev (bool, optional): Whether to calculate the standard deviation of the missing data proportions. Defaults to False.
+
+            is_sample_filter (bool, optional): Whether the calculation is for a sample filter. If True, calculates proportions per column (axis=1). If False, calculates proportions per row (axis=0). Defaults to False.
+
+        Returns:
+            numpy.ndarray or tuple: The proportion of missing data per column or row. If calculate_stdev is True, returns a tuple with the proportions and the standard deviation.
+
+        Raises:
+            None
+        """
         axis = 1 if is_sample_filter else 0
 
         new_missing_counts = np.sum(
@@ -320,8 +392,7 @@ class NRemover2:
         return res
 
     def filter_missing(self, threshold, alignment=None, return_props=False):
-        """
-        Filters out columns with missing data proportion greater than the given threshold.
+        """Filters out columns with missing data proportion greater than the given threshold.
 
         Args:
             threshold (float): The maximum missing data proportion allowed.
@@ -331,7 +402,7 @@ class NRemover2:
             return_props (bool, optional): Whether to return the mean missing data proportion among all columns after filtering. Defaults to False.
 
         Returns:
-            MultipleSeqAlignment: The filtered alignment.
+            MultipleSeqAlignment or tuple: The filtered alignment. If return_props is True, returns a tuple with the filtered alignment, the mean missing data proportion, and None.
 
         Raises:
             TypeError: If threshold is not a float value.
@@ -369,14 +440,27 @@ class NRemover2:
     def filter_missing_pop(
         self, max_missing, alignment, populations=None, return_props=False
     ):
+        """Filters out sequences from the alignment that have more than a given proportion of missing data in any given population.
+
+        Args:
+            max_missing (float): The maximum missing data proportion allowed.
+
+            alignment (MultipleSeqAlignment): The alignment to be filtered.
+
+            populations (dict, optional): A dictionary mapping population names to sample IDs. Defaults to None.
+
+            return_props (bool, optional): Whether to return the mean and standard deviation of missing data proportions for each population after filtering. Defaults to False.
+
+        Returns:
+            MultipleSeqAlignment or tuple: The filtered alignment. If return_props is True, returns a tuple with the filtered alignment, a dictionary of mean missing data proportions for each population, and a dictionary of standard deviations of missing data proportions for each population.
+
+        Raises:
+            None
+        """
         if populations is None:
             populations = self.popmap_inverse
 
         alignment_array = alignment
-
-        sample_id_to_index = {
-            record.id: i for i, record in enumerate(self.msa)
-        }
 
         def missing_data_proportion(column, indices):
             missing_count = sum(
@@ -388,8 +472,12 @@ class NRemover2:
             missing_props = {}
             flaglist = []
             for pop, sample_ids in populations.items():
+                # Get sampleID indices for given population, if not removed
+                # with filter_missing_sample
                 indices = [
-                    sample_id_to_index[sample_id] for sample_id in sample_ids
+                    i
+                    for i, sid in enumerate(sample_ids)
+                    if sid in self.samples
                 ]
                 missing_prop = missing_data_proportion(column, indices)
 
@@ -439,8 +527,7 @@ class NRemover2:
     def filter_missing_sample(
         self, threshold, alignment=None, return_props=False
     ):
-        """
-        Filters out sequences with missing data proportion greater than the given threshold.
+        """Filters out sequences with missing data proportion greater than the given threshold.
 
         Args:
             threshold (float): The maximum missing data proportion allowed for each sequence.
@@ -450,7 +537,7 @@ class NRemover2:
             return_props (bool, optional): Whether to return the mean missing data proportion among all sequences after filtering. Defaults to False.
 
         Returns:
-            MultipleSeqAlignment: The filtered alignment.
+            MultipleSeqAlignment or tuple: The filtered alignment. If return_props is True, returns a tuple with the filtered alignment, the mean missing data proportion among all sequences, and the indices of the filtered sequences.
 
         Raises:
             TypeError: If threshold is not a float value.
@@ -463,9 +550,6 @@ class NRemover2:
 
         alignment_array = alignment
 
-        # alignment_array = np.array(
-        #     [list(str(record.seq)) for record in alignment]
-        # )
         missing_counts = np.sum(
             np.isin(alignment_array, ["N", "-", ".", "?"]), axis=1
         )
@@ -495,6 +579,23 @@ class NRemover2:
     def filter_minor_allele_frequency(
         self, min_maf, alignment=None, return_props=False
     ):
+        """Filters out loci (columns) where the minor allele frequency is below the threshold.
+
+        Args:
+            min_maf (float): The minimum minor allele frequency allowed.
+
+            alignment (MultipleSeqAlignment, optional): The alignment to be filtered. Defaults to the stored alignment.
+
+            return_props (bool, optional): Whether to return the mean missing data proportion among all columns after filtering. Defaults to False.
+
+        Returns:
+            MultipleSeqAlignment or tuple: The filtered alignment. If return_props is True, returns a tuple with the filtered alignment, the mean missing data proportion among all columns, and the minor allele frequencies.
+
+        Raises:
+            TypeError: If min_maf is not a float value.
+
+            ValueError: If min_maf is not between 0.0 and 1.0 inclusive.
+        """
         if alignment is None:
             alignment = self.alignment
         alignment_array = alignment
@@ -547,7 +648,6 @@ class NRemover2:
 
         # Get the indices of the True values in the mask
         mask_indices = [i for i, val in enumerate(mask) if val]
-
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
@@ -565,16 +665,20 @@ class NRemover2:
     def filter_non_biallelic(
         self, threshold=None, alignment=None, return_props=False
     ):
-        """
-        Filters out loci (columns) that are not biallelic.
+        """Filters out loci (columns) that are not biallelic.
 
         Args:
             threshold (None, optional): Not used.
 
             alignment (MultipleSeqAlignment, optional): The alignment to be filtered. Defaults to the stored alignment.
 
+            return_props (bool, optional): Whether to return additional information. Defaults to False.
+
         Returns:
-            MultipleSeqAlignment: The filtered alignment.
+            MultipleSeqAlignment or tuple: The filtered alignment. If return_props is True, returns a tuple with the original missing data proportions, filtered missing data proportions, and the mask indicating the biallelic columns.
+
+        Raises:
+            None
         """
 
         if alignment is None:
@@ -644,14 +748,16 @@ class NRemover2:
             return filtered_alignment_array, mask_indices
 
     def count_iupac_alleles(self, column):
-        """
-        Counts the number of occurrences of each IUPAC ambiguity code in a column of nucleotide sequences.
+        """Counts the number of occurrences of each IUPAC ambiguity code in a column of nucleotide sequences.
 
         Args:
             column (str): A string representing a column of nucleotide sequences.
 
         Returns:
             dict: A dictionary with the counts of the unambiguous nucleotide bases.
+
+        Raises:
+            None
         """
         iupac = {
             "A": "A",
@@ -684,14 +790,16 @@ class NRemover2:
     def filter_monomorphic(
         self, threshold=None, alignment=None, return_props=False
     ):
-        """
-        Filters out monomorphic sites from an alignment.
+        """Filters out monomorphic sites from an alignment.
 
         Args:
             alignment (Bio.Align.MultipleSeqAlignment): The alignment to be filtered.
 
         Returns:
             filtered_alignment (Bio.Align.MultipleSeqAlignment): The filtered alignment.
+
+        Raises:
+            ValueError: If no loci remain in the alignment.
         """
 
         if alignment is None:
@@ -871,9 +979,13 @@ class NRemover2:
         before_alignment, after_alignment, loci_removed_per_step
     ):
         """
+        Print a filtering report to the terminal.
+
         Args:
             before_alignment (list): The original alignment before filtering.
+
             after_alignment (list): The alignment after filtering.
+
             loci_removed_per_step (list of tuples): A list of tuples, where each tuple contains the name of a filtering step and the number of loci removed during that step.
 
         Returns:
@@ -924,7 +1036,7 @@ class NRemover2:
         print(f"  Loci remaining: {num_loci_after}")
         print(f"  Samples remaining: {num_samples_after}")
         print(f"  Missing data before filtering: {missing_data_before:.2f}%")
-        print(f"  Missing data after filtering: {missing_data_after:.2f}%")
+        print(f"  Missing data after filtering: {missing_data_after:.2f}%\n\n")
 
     def plot_missing_data_thresholds(
         self,
@@ -940,6 +1052,36 @@ class NRemover2:
         plot_ymax=1.0,
         plot_legend_loc="upper left",
     ):
+        """
+        Plots the missing data and MAF proportions for different filtering thresholds.
+
+        Args:
+            output_file (str): The name of the output plot file.
+            num_thresholds (int, optional): The number of thresholds to use for filtering. Defaults to 5.
+
+            num_maf_thresholds (int, optional): The number of minor allele frequency (MAF) thresholds to use for filtering. Defaults to 10.
+            max_maf_threshold (float, optional): The maximum MAF threshold to use for filtering. Defaults to 0.2.
+
+            show_plot_inline (bool, optional): Whether to show the plot inline. Defaults to False.
+
+            plot_dir (str, optional): The directory to save the plot. Defaults to "plots".
+
+            plot_fontsize (int, optional): The fontsize for plot labels. Defaults to 28.
+
+            plot_ticksize (int, optional): The fontsize for plot ticks. Defaults to 20.
+
+            plot_ymin (float, optional): The minimum y-axis value for the plot. Defaults to 0.0.
+
+            plot_ymax (float, optional): The maximum y-axis value for the plot. Defaults to 1.0.
+
+            plot_legend_loc (str, optional): The location of the plot legend. Defaults to "upper left".
+
+        Returns:
+            None.
+
+        Raises:
+            None.
+        """
         thresholds = np.linspace(0.1, 1, num=num_thresholds, endpoint=True)
         maf_thresholds = np.linspace(
             0.0, max_maf_threshold, num=num_maf_thresholds, endpoint=True
@@ -1147,6 +1289,32 @@ class NRemover2:
     def filter_per_threshold(
         self, filter_func, *args, is_maf=False, is_bool=False, **kwargs
     ):
+        """
+        Filters the alignment using the provided filter function for multiple thresholds.
+
+        Args:
+            filter_func (callable): The filtering function to apply.
+
+            args: Positional arguments to pass to the filter function.
+
+            is_maf (bool, optional): Indicates whether the filter is for minor allele frequency (MAF). Defaults to False.
+
+            is_bool (bool, optional): Indicates whether the filter returns boolean values. Defaults to False.
+
+            kwargs: Keyword arguments to pass to the filter function.
+
+        Returns:
+            tuple: A tuple containing the filtered results based on the filter function.
+                If is_bool is True:
+                    (orig_props, filt_props, mask)
+                If is_maf is True:
+                    (freqs, props)
+                Otherwise:
+                    props
+
+        Raises:
+            None.
+        """
         if is_bool:
             orig_props, filt_props, mask = filter_func(*args, **kwargs)
             res = (orig_props, filt_props, mask)
@@ -1157,14 +1325,35 @@ class NRemover2:
 
     @property
     def alignment(self):
+        """
+        Gets the alignment data.
+
+        Returns:
+            numpy.ndarray: The alignment data as a numpy array.
+
+        Raises:
+            None.
+        """
         if isinstance(self._alignment, MultipleSeqAlignment):
             a = np.array([list(str(record.seq)) for record in self._alignment])
         else:
-            a = self._alignment
+            a = np.array(self._alignment)
         return a
 
     @alignment.setter
     def alignment(self, value):
+        """
+        Sets the alignment data.
+
+        Args:
+            value (MultipleSeqAlignment or numpy.ndarray): The alignment data to be set.
+
+        Returns:
+            None.
+
+        Raises:
+            None.
+        """
         if isinstance(value, MultipleSeqAlignment):
             self._alignment = np.array(
                 [list(str(record.seq)) for record in value]
@@ -1174,10 +1363,31 @@ class NRemover2:
 
     @property
     def msa(self):
+        """
+        Gets the multiple sequence alignment (MSA) data.
+
+        Returns:
+            The multiple sequence alignment (MSA) data.
+
+        Raises:
+            None.
+        """
         return self._msa
 
     @msa.setter
     def msa(self, value):
+        """
+        Sets the multiple sequence alignment (MSA) data.
+
+        Args:
+            value: The multiple sequence alignment (MSA) data to be set.
+
+        Returns:
+            None.
+
+        Raises:
+            None.
+        """
         self._msa = value
 
     @property
@@ -1185,10 +1395,15 @@ class NRemover2:
         """
         Returns a dictionary of population sequences.
 
-        The dictionary keys are the names of the populations, and the values are the corresponding sequences for each population. Sequences are in the form of a list of strings, where each string is a sequence for a given sample.
+        The dictionary keys are the names of the populations, and the values are the corresponding sequences for each population.
+
+        Sequences are in the form of a list of strings, where each string is a sequence for a given sample.
 
         Returns:
             dict: A dictionary of population sequences, where each key is the name of a population and the corresponding value is a list of sequences.
+
+        Raises:
+            None.
         """
         population_sequences = {}
         for population_name in self.populations:
