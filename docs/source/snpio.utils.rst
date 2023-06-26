@@ -12,14 +12,6 @@ snpio.utils.misc module
    :undoc-members:
    :show-inheritance:
 
-snpio.utils.plotting module
----------------------------
-
-.. automodule:: snpio.utils.plotting
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 snpio.utils.sequence\_tools module
 ----------------------------------
 
