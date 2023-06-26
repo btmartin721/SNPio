@@ -5,6 +5,9 @@ import gzip
 import re
 import random
 import requests
+import textwrap
+from datetime import datetime
+from collections import Counter
 
 from typing import Optional, Union, List, Dict, Any, Tuple
 
@@ -77,18 +80,13 @@ import allel
 
 try:
     from .popmap_file import ReadPopmap
-    from ..utils.plotting import Plotting
-    from ..plotting.plotting import Plotting as Plotting2
+    from ..plotting.plotting import Plotting as Plotting
     from ..utils import sequence_tools
-    from ..utils.misc import timer
     from ..utils.misc import class_performance_decorator
 except (ModuleNotFoundError, ValueError):
     from read_input.popmap_file import ReadPopmap
-    from utils.plotting import Plotting
-    from plotting.plotting import Plotting as Plotting2
-
+    from plotting.plotting import Plotting as Plotting
     from utils import sequence_tools
-    from utils.misc import timer
     from utils.misc import class_performance_decorator
 
 
@@ -109,8 +107,8 @@ class GenotypeData:
             - '?'
             - '.'
 
-        Thus, it treats gaps as missing data. 
-        
+        Thus, it treats gaps as missing data.
+
         If using PHYLIP or STRUCTURE formats, all sites will also be forced to be biallelic. If you need >2 alleles, you must input a VCF file.
 
         Please keep these things in mind when using GenotypeData.
@@ -205,16 +203,21 @@ class GenotypeData:
         siterates_from_file: Read site rates from file with only site rates in single column.
 
         write_structure: Write data to a Structure file.
+
         write_vcf: Write data to a VCF file.
 
         write_phylip: Write data to a Phylip file.
+
         read_popmap: Read in a popmap file.
 
         subset_vcf_data: Subset the data based on locus and sample indices.
+
         encode_012: Encode genotypes as 0,1,2 integers for reference, heterozygous, alternate alleles.
 
         decode_012: Decode 0,1,2 integers back to original genotypes.
+
         convert_onehot: Convert genotypes to one-hot encoding.
+
         convert_int_iupac: Convert genotypes to integer encoding (0-9) with IUPAC characters.
 
         missingness_reports: Create missingness reports from GenotypeData object.
@@ -359,22 +362,15 @@ class GenotypeData:
                 "siterates and siterates_iqtree cannot both be defined"
             )
 
-        try:
-            self._loci_indices = kwargs["loci_indices"]
-        except KeyError:
-            self._loci_indices = None
-
-        try:
-            self._sample_indices = kwargs["sample_indices"]
-        except KeyError:
-            self._sample_indices = None
+        self._loci_indices = kwargs.get("loci_indices", None)
+        self._sample_indices = kwargs.get("sample_indices", None)
 
         if self.filetype == "auto":
             filetype = self._detect_file_format(filename)
 
             if not filetype:
                 raise AssertionError(
-                    "File type could not be automatically detected. Please check the file for formatting errors or specify the file format as either 'phylip', 'structure', 'vcf', or '012'."
+                    "File type could not be automatically detected. Please check the file for formatting errors or specify the file format as either 'phylip', 'structure', 'vcf', or '012' instead of 'auto'."
                 )
 
         self._parse_filetype(filetype, popmapfile)
@@ -399,12 +395,25 @@ class GenotypeData:
                 )
 
     def _detect_file_format(self, filename: str) -> str:
+        """
+        Check the filetype and call the appropriate function to read the file format.
+
+        Args:
+            **filetype** (Optional[str], default=None): Filetype. Supported values include: "phylip", "structure", "vcf", and "012".
+            **popmapfile** (Optional[str], default=None): Path to population map file.
+
+        Raises:
+            OSError: If no filetype is specified.
+            OSError: If an unsupported filetype is provided.
+        """
         try:
             with open(filename, "r") as fin:
                 lines = fin.readlines()
         except UnicodeDecodeError:
             with gzip.open(filename, "rt") as fin:
                 lines = fin.readlines()
+
+        lines = [line.strip() for line in lines]
 
         # Check for VCF format
         if (
@@ -417,26 +426,50 @@ class GenotypeData:
 
         # Check for PHYLIP format
         try:
-            num_samples, num_loci = map(int, lines[0].split())
-            if num_samples == len(lines[1:]) and num_loci == len(
-                lines[1].split()[1:]
-            ):
-                return "phylip"
+            if len(list(map(int, lines[0].split()))) == 2:
+                num_samples, num_loci = map(int, lines[0].split())
+
+                if num_samples == len(lines[1:]):
+                    line = lines[1]
+                    seqs = line.split()[1]
+                    if num_loci == len(list(seqs)):
+                        return "phylip"
         except ValueError:
             pass
 
         # Check for STRUCTURE or encoded 012 format
-        if all(line.split()[0].isalpha() for line in lines[1:]):
+        lines = lines[1:]
+
+        def is_integer(n):
+            try:
+                int(n)
+                return True
+            except ValueError:
+                return False
+
+        gt = [
+            line
+            for line in lines
+            if all(is_integer(col.strip()) for col in line.split()[3:])
+        ]
+
+        if gt:
             # Check for STRUCTURE format
-            if any(int(x) > 2 for line in lines[1:] for x in line.split()[2:]):
-                return "structure"
-            # Check for encoded 012 format
-            elif (
-                sum(x == "0" for line in lines[1:] for x in line.split()[2:])
-                / sum(1 for line in lines[1:] for x in line.split()[2:])
-                > 0.5
-            ):
-                return "012"
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                cols = line.split()
+
+                if any(int(x) > 2 for x in cols[3:]):
+                    return "structure"
+        # Check for encoded 012 format
+        elif (
+            sum(x == "0" for line in lines for x in line.split())
+            / sum(1 for line in lines[1:] for x in line.split())
+            > 0.5
+        ):
+            return "012"
         return False
 
     def _parse_filetype(
@@ -446,9 +479,8 @@ class GenotypeData:
         Check the filetype and call the appropriate function to read the file format.
 
         Args:
-            filetype (Optional[str], default=None): Filetype. Supported values include: "phylip", "structure", "vcf", and "012".
-
-            popmapfile (Optional[str], default=None): Path to population map file.
+            **filetype** (Optional[str] = None): Filetype. Supported values include: "phylip", "structure", "vcf", and "012".
+            **popmapfile** (Optional[str] = None): Path to population map file.
 
         Raises:
             OSError: If no filetype is specified.
@@ -491,7 +523,7 @@ class GenotypeData:
         Validate that the filetype is correct.
 
         Args:
-            filetype (str): Filetype to use.
+            **filetype** (str): Filetype to use.
 
         Raises:
             TypeError: If the provided filetype does not match the current filetype.
@@ -512,7 +544,7 @@ class GenotypeData:
         The Newick-style tree file should follow the format type 0 (see toytree documentation).
 
         Args:
-            treefile (str): Path to the Newick-style tree file.
+            **treefile** (str): Path to the Newick-style tree file.
 
         Returns:
             toytree.tree object: The input tree as a toytree object.
@@ -533,9 +565,9 @@ class GenotypeData:
         Read Q matrix from a file.
 
         Args:
-            fname (str): Path to the Q matrix input file.
+            **fname** (str): Path to the Q matrix input file.
 
-            label (bool): True if the nucleotide label order is present, False otherwise.
+            **label** (bool): True if the nucleotide label order is present, False otherwise.
 
         Returns:
             pandas.DataFrame: The Q-matrix as a pandas DataFrame object.
@@ -584,7 +616,7 @@ class GenotypeData:
         The IQ-TREE file contains the standard output of an IQ-TREE run and includes the Q-matrix.
 
         Args:
-            iqfile (str): Path to the IQ-TREE file (\*.iqtree).
+            **iqfile** (str): Path to the IQ-TREE file (\*.iqtree).
 
         Returns:
             pandas.DataFrame: The Q-matrix as a pandas DataFrame.
@@ -634,7 +666,7 @@ class GenotypeData:
         Create a blank Q-matrix dictionary initialized with default values.
 
         Args:
-            default (float, optional): Default value to initialize the Q-matrix cells. Defaults to 0.0.
+            **default** (float, optional): Default value to initialize the Q-matrix cells. Defaults to 0.0.
 
         Returns:
             Dict[str, Dict[str, float]]: Blank Q-matrix dictionary.
@@ -654,7 +686,7 @@ class GenotypeData:
         The \*.rates file is an optional output file generated by IQ-TREE and contains a table of site-specific rates and rate categories.
 
         Args:
-            iqfile (str): Path to \*.rates input file.
+            **iqfile** (str): Path to \*.rates input file.
 
         Returns:
             List[float]: List of site-specific substitution rates.
@@ -699,7 +731,7 @@ class GenotypeData:
         Read site-specific substitution rates from a file.
 
         Args:
-            fname (str): Path to the input file.
+            **fname** (str): Path to the input file.
 
         Returns:
             List[float]: List of site-specific substitution rates.
@@ -741,12 +773,14 @@ class GenotypeData:
         Read a structure file and automatically detect its format.
 
         Args:
-            popids (bool, optional): True if population IDs are present as the 2nd column in the structure file, otherwise False. Defaults to True.
+            **popids** (bool, optional): True if population IDs are present as the 2nd column in the structure file, otherwise False. Defaults to True.
 
         Raises:
-            ValueError: If sample names do not match for the two-row format.
-            ValueError: If population IDs do not match for the two-row format.
-            ValueError: If not all sequences (rows) are the same length.
+            **ValueError**: If sample names do not match for the two-row format.
+
+            **ValueError**: If population IDs do not match for the two-row format.
+
+            **ValueError**: If not all sequences (rows) are the same length.
         """
         if self.verbose:
             print(f"\nReading structure file {self.filename}...")
@@ -813,8 +847,13 @@ class GenotypeData:
                     snp_data.append(genotypes)
                     firstline = None
 
+        snp_data = [
+            list(map(self._genotype_to_iupac, row)) for row in snp_data
+        ]
         self._snp_data = snp_data
         self._validate_seq_lengths()
+
+        self._ref, self._alt = self._get_ref_alt_alleles(self._snp_data)
 
         if self.verbose:
             print(f"STRUCTURE file successfully loaded!")
@@ -835,19 +874,20 @@ class GenotypeData:
         Write a structure file.
 
         Args:
-            output_file (str): The output filename.
+            **output_file** (str): The output filename.
 
-            genotype_data (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
+            **genotype_data** (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
 
-            snp_data (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided.
+            **snp_data** (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided.
 
-            samples (List[str], optional): List of sample IDs.
+            **samples** (List[str], optional): List of sample IDs.
 
-            verbose (bool, optional): If True, status updates are printed.
+            **verbose** (bool, optional): If True, status updates are printed.
 
         Raises:
-            ValueError: If genotypes are not presented as a pair for each SNP.
-            TypeError: If using snp_data, samples must also be provided.
+            **ValueError**: If genotypes are not presented as a pair for each SNP.
+
+            **TypeError**: If using snp_data, samples must also be provided.
         """
         if verbose:
             print(f"\nWriting structure file {output_file}...")
@@ -934,9 +974,9 @@ class GenotypeData:
         Populates GenotypeData object by parsing a Phylip file.
 
         Raises:
-            ValueError: If all sequences are not the same length as specified in the header line.
+            **ValueError**: If all sequences are not the same length as specified in the header line.
 
-            ValueError: If the number of individuals differs from the header line.
+            **ValueError**: If the number of individuals differs from the header line.
         """
         if self.verbose:
             print(f"\nReading phylip file {self.filename}...")
@@ -964,6 +1004,8 @@ class GenotypeData:
         self._snp_data = snp_data
         self._validate_seq_lengths()
 
+        self._ref, self._alt = self._get_ref_alt_alleles(self._snp_data)
+
         if self.verbose:
             print(f"PHYLIP file successfully loaded!")
             print(
@@ -976,7 +1018,7 @@ class GenotypeData:
         Read a VCF file into a GenotypeData object.
 
         Raises:
-            ValueError: If the number of individuals differs from the header line.
+            **ValueError**: If the number of individuals differs from the header line.
         """
         if self.verbose:
             print(f"\nReading VCF file {self.filename}...")
@@ -1090,7 +1132,7 @@ class GenotypeData:
         Reads the header from a VCF file.
 
         Args:
-            filename (str): The path to the VCF file.
+            **filename** (str): The path to the VCF file.
 
         Returns:
             Tuple[str, str, bool]: The header of the VCF file, column names line, and a flag indicating if the file is compressed.
@@ -1124,7 +1166,7 @@ class GenotypeData:
         Load calldata/GT (genotypes) from a scikit-allel object.
 
         Args:
-            callset (Dict[str, Union[List[int], List[str], np.ndarray]]): Callset from scikit-allel `read_vcf()` function.
+            **callset** (Dict[str, Union[List[int], List[str], np.ndarray]]): Callset from scikit-allel `read_vcf()` function.
 
         Returns:
             List[List[str]]: 2D list of shape (n_samples, n_loci) with single IUPAC base characters (including IUPAC ambiguity codes) as values.
@@ -1210,12 +1252,77 @@ class GenotypeData:
 
         return iupac_array.tolist()
 
+    def _get_ref_alt_alleles(
+        self,
+        data: np.ndarray,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Find the most common and second most common alleles in each column of a 2D numpy array.
+
+        Args:
+            **data** (np.ndarray): A 2D numpy array where each column represents different data.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: A tuple of two numpy arrays. The first array contains the most common alleles in each column. The second array contains the second most common alleles in each column, or None if a column doesn't have a second most common allele.
+        """
+        iupac_codes = {
+            "A": ("A", "A"),
+            "C": ("C", "C"),
+            "G": ("G", "G"),
+            "T": ("T", "T"),
+            "U": ("U", "U"),
+            "R": ("A", "G"),
+            "Y": ("C", "T"),
+            "S": ("G", "C"),
+            "W": ("A", "T"),
+            "K": ("G", "T"),
+            "M": ("A", "C"),
+            "B": ("C", "G", "T"),
+            "D": ("A", "G", "T"),
+            "H": ("A", "C", "T"),
+            "V": ("A", "C", "G"),
+            "N": ("A", "C", "G", "T"),
+        }
+
+        if not isinstance(data, np.ndarray):
+            data = np.array(data)
+
+        most_common_alleles = []
+        second_most_common_alleles = []
+
+        for column in data.T:
+            alleles = []
+            for genotype in column:
+                if genotype != "N":
+                    alleles.extend(
+                        iupac_codes.get(genotype, (genotype, genotype))
+                    )
+            allele_counts = Counter(alleles)
+
+            most_common = allele_counts.most_common(1)
+            most_common_alleles.append(
+                most_common[0][0] if most_common else None
+            )
+
+            second_most_common = (
+                allele_counts.most_common(2)[1:]
+                if len(allele_counts) > 1
+                else None
+            )
+            second_most_common_alleles.append(
+                second_most_common[0][0] if second_most_common else None
+            )
+
+        return np.array(most_common_alleles), np.array(
+            second_most_common_alleles
+        )
+
     def _snpdata2gtarray(self, snpdata):
         """
         Converts a 2D list of IUPAC bases to a scikit-allel GenotypeArray.
 
         Args:
-            snpdata (List[List[str]]): 2D list of shape (n_samples, n_loci) with single IUPAC base characters (including IUPAC ambiguity codes) as values.
+            **snpdata** (List[List[str]]): 2D list of shape (n_samples, n_loci) with single IUPAC base characters (including IUPAC ambiguity codes) as values.
 
         Returns:
             allel.GenotypeArray: GenotypeArray object of shape (n_loci, n_samples, 2).
@@ -1240,6 +1347,8 @@ class GenotypeData:
             "G": ("G", "G"),
             "C": ("C", "C"),
             "N": ("N", "N"),
+            "-": ("N", "N"),
+            "?": ("N", "N"),
         }
 
         # Convert the 2D list to a numpy array
@@ -1267,20 +1376,20 @@ class GenotypeData:
         Write the alignment as a PHYLIP file.
 
         Args:
-            output_file (str): Name of the output phylip file.
+            **output_file** (str): Name of the output phylip file.
 
-            genotype_data (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
+            **genotype_data** (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
 
-            snp_data (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided. If snp_data is not None, then samples must also be provided.
+            **snp_data** (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided. If snp_data is not None, then samples must also be provided.
 
-            samples (List[str], optional): List of sample IDs. Must be provided if snp_data is not None.
+            **samples** (List[str], optional): List of sample IDs. Must be provided if snp_data is not None.
 
-            verbose (bool, optional): If True, status updates are printed.
+            **verbose** (bool, optional): If True, status updates are printed.
 
         Raises:
-            TypeError: If genotype_data and snp_data are both provided.
-            TypeError: If samples is not provided when snp_data is provided.
-            ValueError: If samples and snp_data are not the same length.
+            **TypeError**: If genotype_data and snp_data are both provided.
+            **TypeError**: If samples is not provided when snp_data is provided.
+            **ValueError**: If samples and snp_data are not the same length.
         """
         if verbose:
             print(f"\nWriting to PHYLIP file {output_file}...")
@@ -1325,22 +1434,26 @@ class GenotypeData:
         Writes the GenotypeData object to a VCF file.
 
         Args:
-            output_filename (str): The name of the VCF file to write to.
+            **output_filename** (str): The name of the VCF file to write to.
 
-            genotype_data (Optional[GenotypeData], optional): A GenotypeData object.
+            **genotype_data** (Optional[GenotypeData], optional): A GenotypeData object.
 
-            vcf_attributes (Optional[Dict[str, Union[np.ndarray, Dict[str, np.ndarray]]]]): vcf_attributes property from a GenotypeData object.
+            **vcf_attributes** (Optional[Dict[str, Union[np.ndarray, Dict[str, np.ndarray]]]]): vcf_attributes property from a GenotypeData object.
 
-            snp_data (Optional[List[List[str]]]): snp_data property from a GenotypeData object. Only required if genotype_data is None.
+            **snp_data** (Optional[List[List[str]]]): snp_data property from a GenotypeData object. Only required if genotype_data is None.
 
-            verbose (bool, optional): If True, print progress messages. Defaults to False.
+            **verbose** (bool, optional): If True, print progress messages. Defaults to False.
 
         Raises:
-            TypeError: If both genotype_data and vcf_attributes are provided.
-            TypeError: If both genotype_data and snp_data are provided.
-            TypeError: If vcf_attributes is provided without snp_data.
-            TypeError: If snp_data is provided without samples.
-            ValueError: If the shape of snp_data does not match the shape of vcf_attributes.
+            **TypeError**: If both genotype_data and vcf_attributes are provided.
+
+            **TypeError**: If both genotype_data and snp_data are provided.
+
+            **TypeError**: If vcf_attributes is provided without snp_data.
+
+            **TypeError**: If snp_data is provided without samples.
+
+            **ValueError**: If the shape of snp_data does not match the shape of vcf_attributes.
         """
         if verbose:
             print(f"\nWriting to VCF file {output_filename}...")
@@ -1362,7 +1475,42 @@ class GenotypeData:
 
         if genotype_data is None and snp_data is None:
             snp_data = self.snp_data
-            vcf_attributes = self.vcf_attributes
+            vcf_attributes = self._vcf_attributes
+
+        if all(x is None for x in vcf_attributes.values()):
+            sample_header = "\t".join(self.samples)
+            vcf_header = textwrap.dedent(
+                f"""##fileformat=VCFv4.0
+##fileDate={datetime.now().date()}
+##source=SNPio
+##phasing=unphased
+##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample_header}\n
+"""
+            )
+
+            chrom = np.array([f"locus_{x}" for x in self.loci_indices])
+            pos = np.array([0 for x in self.loci_indices])
+            vcf_id = np.array(["." for x in self.loci_indices])
+            ref = np.array(self.ref)
+            tmp = np.array([x if x is not None else "." for x in self.alt])
+            qual = np.array(["." for x in self.loci_indices])
+            fltr = np.array(["PASS" for x in self.loci_indices])
+            info_result = np.array(["." for x in self.loci_indices])
+            fmt = np.array(["GT"])
+            calldata = {"calldata/GT": np.array(snp_data).T}
+            gt = self._snpdata2gtarray(calldata["calldata/GT"])
+            gt = np.transpose(gt, (1, 0, 2))
+            gt = self._convert_alleles(gt, ref, tmp)
+
+            tmp = np.expand_dims(tmp, axis=1)
+            alt = np.empty(shape=(tmp.shape[0], 3), dtype=object)
+            for i in range(tmp.shape[0]):
+                alt[i, 0] = tmp[i, 0]
+                alt[i, 1] = ""
+                alt[i, 2] = ""
+
+            vcf_attributes = None
 
         if genotype_data is not None:
             snp_data = genotype_data.snp_data
@@ -1390,13 +1538,18 @@ class GenotypeData:
             fmt = vcf_attributes["fmt"]
             calldata = vcf_attributes["calldata"]
 
-        gt = self._snpdata2gtarray(snp_data)
+        if vcf_attributes is not None:
+            gt = self._snpdata2gtarray(snp_data)
+
+        if vcf_attributes is not None:
+            pass
 
         # Convert the data to numpy arrays outside the loop
         snp_data = np.array(snp_data)
         alt = np.array(alt)
         calldata = {k: np.array(v) for k, v in calldata.items()}
-        info = {k: np.array(v) for k, v in info.items()}
+        if vcf_attributes is not None:
+            info = {k: np.array(v) for k, v in info.items()}
 
         # Transpose the data to loop over columns instead of rows
         snp_data = snp_data.T
@@ -1414,20 +1567,22 @@ class GenotypeData:
         alt = alt.T
         calldata = {k: v.T for k, v in calldata.items()}
 
-        info_arrays = {
-            key: np.char.add(f"{key}=", value.astype(str))
-            for key, value in info.items()
-        }
+        if vcf_attributes is not None:
+            info_arrays = {
+                key: np.char.add(f"{key}=", value.astype(str))
+                for key, value in info.items()
+            }
 
-        info_arrays = np.array(list(info_arrays.values()))
+            info_arrays = np.array(list(info_arrays.values()))
 
-        # Join the elements along the last axis
-        info_result = np.apply_along_axis(
-            lambda x: ";".join(x), 0, info_arrays
-        )
+            # Join the elements along the last axis
+            info_result = np.apply_along_axis(
+                lambda x: ";".join(x), 0, info_arrays
+            )
 
-        fltr = fltr.astype(str)
-        fltr = np.where(fltr == "True", "PASS", "FAIL")
+        if vcf_attributes is not None:
+            fltr = fltr.astype(str)
+            fltr = np.where(fltr == "True", "PASS", "FAIL")
 
         # Preallocate a numpy array for the lines
         lines = np.empty((snp_data.shape[0],), dtype=object)
@@ -1438,25 +1593,32 @@ class GenotypeData:
             gt_joined = np.char.add(gt_joined, gt[i, :, 1].astype(str))
             gt_joined = np.char.replace(gt_joined, "N/N", "./.")
 
-            fmt_data = [
-                calldata[f"calldata/{v}"][:, i]
-                for v in fmt
-                if v not in ["calldata/GT", "GT"]
-            ]
+            if vcf_attributes is not None:
+                fmt_data = [
+                    calldata[f"calldata/{v}"][:, i]
+                    for v in fmt
+                    if v not in ["calldata/GT", "GT"]
+                ]
 
-            # Convert fmt_data into a 2D numpy array
-            fmt_data = np.array(fmt_data)
+                # Convert fmt_data into a 2D numpy array
+                fmt_data = np.array(fmt_data)
 
-            def concat_arr2strings(arr2d):
-                return np.array(":".join([a for a in arr2d]), dtype="U32")
+                def concat_arr2strings(arr2d):
+                    return np.array(":".join([a for a in arr2d]), dtype="U32")
 
-            # Join the elements along the first axis
-            fmt_data = np.apply_along_axis(concat_arr2strings, 0, fmt_data)
+                # Join the elements along the first axis
+                fmt_data = np.apply_along_axis(concat_arr2strings, 0, fmt_data)
 
-            # Add a delimiter between gt_joined and fmt_data
-            gt_joined = np.char.add(gt_joined, ":")
-            # Now you can add fmt_data to gt_joined
-            gt_joined = np.char.add(gt_joined, fmt_data)
+                # Add a delimiter between gt_joined and fmt_data
+                gt_joined = np.char.add(gt_joined, ":")
+                # Now you can add fmt_data to gt_joined
+                gt_joined = np.char.add(gt_joined, fmt_data)
+
+            try:
+                alt2 = ",".join(alt[alt[:, i].astype(bool), i])
+            except ValueError:
+                alt_non_empty = alt[:, i] != ""
+                alt2 = ",".join(alt[alt_non_empty, i])
 
             line = "\t".join(
                 [
@@ -1464,7 +1626,7 @@ class GenotypeData:
                     pos[i].astype(str),
                     vcf_id[i],
                     ref[i],
-                    ",".join(alt[alt[:, i].astype(bool), i]),
+                    alt2,
                     qual[i].astype(str),
                     fltr[i],
                     ":".join(fmt),
@@ -1489,7 +1651,7 @@ class GenotypeData:
         Read 012-encoded comma-delimited file.
 
         Raises:
-            ValueError: Sequences differ in length.
+            **ValueError**: Sequences differ in length.
         """
         if self.verbose:
             print(f"\nReading 012-encoded file {self.filename}...")
@@ -1545,11 +1707,11 @@ class GenotypeData:
         Encode IUPAC nucleotides as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles.
 
         Args:
-            snps (List[List[str]]): 2D list of genotypes of shape (n_samples, n_sites).
+            **snps** (List[List[str]]): 2D list of genotypes of shape (n_samples, n_sites).
 
-            vcf (bool, optional): Whether or not VCF file input is provided. Not yet supported. Defaults to False.
+            **vcf** (bool, optional): Whether or not VCF file input is provided. Not yet supported. Defaults to False.
 
-            impute_mode (bool, optional): Whether or not convert_012() is called in impute mode. If True, then returns the 012-encoded genotypes and does not set the ``self.snp_data`` property. If False, it does the opposite. Defaults to False.
+            **impute_mode** (bool, optional): Whether or not ``convert_012()`` is called in impute mode. If True, then returns the 012-encoded genotypes and does not set the ``self.snp_data`` property. If False, it does the opposite. Defaults to False.
 
         Returns:
             List[List[int]], optional: 012-encoded genotypes as a 2D list of shape (n_samples, n_sites). Only returns value if ``impute_mode`` is True.
@@ -1559,8 +1721,8 @@ class GenotypeData:
             int, optional: Number of remaining valid sites.
 
         Warnings:
-            UserWarning: If site is monomorphic.
-            UserWarning: If site has >2 alleles.
+            **UserWarning**: If site is monomorphic.
+            **UserWarning**: If site has >2 alleles.
 
         Todo:
             skip and impute_mode are now deprecated.
@@ -1599,6 +1761,13 @@ class GenotypeData:
                 if num_alleles < 2:
                     monomorphic_sites.append(j)
                     try:
+                        ref = list(
+                            map(
+                                sequence_tools.get_major_allele,
+                                loc,
+                                [vcf for x in loc],
+                            )
+                        )
                         ref = str(ref[0])
                     except IndexError:
                         ref = list(
@@ -1722,10 +1891,6 @@ class GenotypeData:
                         else:
                             new_snps[i].append(1)
 
-            # Set the ref and alt alleles for each column
-            self._ref.append(ref)
-            self._alt.append(alt)
-
         if monomorphic_sites:
             # TODO: Check here if column is all missing. What to do in this
             # case? Error out?
@@ -1774,6 +1939,44 @@ class GenotypeData:
         else:
             return snps_012
 
+    def _convert_alleles(
+        self,
+        data: np.ndarray,
+        ref_alleles: np.ndarray,
+        alt_alleles: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Replaces the values of a 3D numpy array according to provided conditions.
+
+        This method replaces the values in the array where the values "A", "G", "T", "C" equal to the ref allele are set to "0", the values "A", "T", "G", "C" that are equal to the alt allele should be "1", and the values equal to "N" are set to "N".
+
+        Args:
+            **data** (np.ndarray): A 3D numpy array holding the original data of shape (n_loci, n_samples, 2).
+
+            **ref_alleles** (np.ndarray): A numpy array holding the reference alleles for each column in ``data``\.
+
+            **alt_alleles** (np.ndarray): A numpy array holding the alternate alleles for each column in ``data``\.
+
+        Returns:
+            np.ndarray: A new 3D numpy array with values replaced according to the provided conditions.
+        """
+
+        # Create a new array to hold the output, initially filled with 'N'
+        new_data = np.full_like(data, "N")
+
+        # Set locations matching the ref allele to '0' and alt allele to '1'
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                new_data[i, j, :] = np.where(
+                    data[i, j, :] == ref_alleles[i], "0", new_data[i, j, :]
+                )
+
+                new_data[i, j, :] = np.where(
+                    data[i, j, :] == alt_alleles[i], "1", new_data[i, j, :]
+                )
+
+        return new_data
+
     def _make_snpsdict(
         self, samples: List[str] = None, snp_data: List[List[str]] = None
     ) -> Dict[str, List[str]]:
@@ -1781,9 +1984,9 @@ class GenotypeData:
         Make a dictionary with SampleIDs as keys and a list of SNPs associated with the sample as the values.
 
         Args:
-            samples (List[str], optional): List of sample IDs. If not provided, uses self.samples.
+            **samples** (List[str], optional): List of sample IDs. If not provided, uses self.samples.
 
-            snp_data (List[List[str]], optional): 2D list of genotypes. If not provided, uses self.snp_data.
+            **snp_data** (List[List[str]], optional): 2D list of genotypes. If not provided, uses self.snp_data.
 
         Returns:
             Dict[str, List[str]]: Dictionary with sample IDs as keys and a list of SNPs as values.
@@ -1807,13 +2010,13 @@ class GenotypeData:
         This method defines the format of warning messages printed by the warnings module when using `warnings.warn()`.
 
         Args:
-            message (str): Warning message to be printed.
+            **message** (str): Warning message to be printed.
 
-            category (str): Type of warning.
+            **category** (str): Type of warning.
 
-            filename (str): Name of the Python file where the warning was raised.
+            **filename** (str): Name of the Python file where the warning was raised.
 
-            lineno (str): Line number where the warning occurred.
+            **lineno** (str): Line number where the warning occurred.
 
         Returns:
             str: Formatted warning message.
@@ -1832,9 +2035,9 @@ class GenotypeData:
         Convert input data to one-hot encoded format.
 
         Args:
-            snp_data (Union[np.ndarray, List[List[int]]]): Input 012-encoded data of shape (n_samples, n_SNPs).
+            **snp_data** (Union[np.ndarray, List[List[int]]]): Input 012-encoded data of shape (n_samples, n_SNPs).
 
-            encodings_dict (Optional[Dict[str, int]]): Encodings to convert structure to phylip format. Defaults to None.
+            **encodings_dict** (Optional[Dict[str, int]]): Encodings to convert structure to phylip format. Defaults to None.
 
         Returns:
             np.ndarray: One-hot encoded data.
@@ -1847,10 +2050,10 @@ class GenotypeData:
             Otherwise, if `encodings_dict` is provided, it will be used for conversion.
 
         Warnings:
-            If the data file type is "phylip" or "structure" and `encodings_dict` is not provided, a default encoding will be used. It is recommended to provide custom encodings for accurate conversion.
+            If the data file type is "phylip" or "structure" and ``encodings_dict`` is not provided, a default encoding will be used. It is recommended to provide custom encodings for accurate conversion.
         """
 
-        if self.filetype in ["vcf", "phylip"] and encodings_dict is None:
+        if encodings_dict is None:
             onehot_dict = {
                 "A": [1.0, 0.0, 0.0, 0.0],
                 "T": [0.0, 1.0, 0.0, 0.0],
@@ -1864,40 +2067,17 @@ class GenotypeData:
                 "Y": [0.0, 0.5, 0.0, 0.5],
                 "S": [0.0, 0.0, 0.5, 0.5],
                 "-": [0.0, 0.0, 0.0, 0.0],
+                "N": [0.0, 0.0, 0.0, 0.0],
+                "?": [0.0, 0.0, 0.0, 0.0],
+                ".": [0.0, 0.0, 0.0, 0.0],
             }
-
-        elif self.filetype == "structure" and encodings_dict is None:
-            onehot_dict = {
-                "1/1": [1.0, 0.0, 0.0, 0.0],
-                "2/2": [0.0, 1.0, 0.0, 0.0],
-                "3/3": [0.0, 0.0, 1.0, 0.0],
-                "4/4": [0.0, 0.0, 0.0, 1.0],
-                "-9/-9": [0.0, 0.0, 0.0, 0.0],
-                "1/2": [0.5, 0.5, 0.0, 0.0],
-                "2/1": [0.5, 0.5, 0.0, 0.0],
-                "1/3": [0.5, 0.0, 0.5, 0.0],
-                "3/1": [0.5, 0.0, 0.5, 0.0],
-                "1/4": [0.5, 0.0, 0.0, 0.5],
-                "4/1": [0.5, 0.0, 0.0, 0.5],
-                "2/3": [0.0, 0.5, 0.5, 0.0],
-                "3/2": [0.0, 0.5, 0.5, 0.0],
-                "2/4": [0.0, 0.5, 0.0, 0.5],
-                "4/2": [0.0, 0.5, 0.0, 0.5],
-                "3/4": [0.0, 0.0, 0.5, 0.5],
-                "4/3": [0.0, 0.0, 0.5, 0.5],
-            }
-
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
-
             onehot_dict = encodings_dict
-
         onehot_outer_list = list()
 
-        n_rows = (
-            len(self._samples) if encodings_dict is None else len(snp_data)
-        )
+        n_rows = len(self.samples) if encodings_dict is None else len(snp_data)
 
         for i in range(n_rows):
             onehot_list = list()
@@ -1916,8 +2096,8 @@ class GenotypeData:
         Convert input data to integer-encoded format (0-9) based on IUPAC codes.
 
         Args:
-            snp_data (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input 012-encoded data.
-            encodings_dict (Dict[str, int] or None): Encodings to convert structure to phylip format.
+            **snp_data** (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input 012-encoded data.
+            **encodings_dict** (Dict[str, int] or None): Encodings to convert structure to phylip format.
 
         Returns:
             numpy.ndarray: Integer-encoded data.
@@ -1930,7 +2110,7 @@ class GenotypeData:
             Otherwise, if `encodings_dict` is provided, it will be used for conversion.
         """
 
-        if (self.filetype in ["phylip", "vcf"]) and encodings_dict is None:
+        if encodings_dict is None:
             onehot_dict = {
                 "A": 0,
                 "T": 1,
@@ -1944,29 +2124,9 @@ class GenotypeData:
                 "S": 9,
                 "-": -9,
                 "N": -9,
+                "?": -9,
+                ".": -9,
             }
-
-        elif self.filetype == "structure" and encodings_dict is None:
-            onehot_dict = {
-                "1/1": 0,
-                "2/2": 1,
-                "3/3": 2,
-                "4/4": 3,
-                "1/2": 4,
-                "2/1": 4,
-                "1/3": 5,
-                "3/1": 5,
-                "1/4": 6,
-                "4/1": 6,
-                "2/3": 7,
-                "3/2": 7,
-                "2/4": 8,
-                "4/2": 8,
-                "3/4": 9,
-                "4/3": 9,
-                "-9/-9": -9,
-            }
-
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
@@ -1998,30 +2158,31 @@ class GenotypeData:
         Read population map from file and associate samples with populations.
 
         Args:
-            popmapfile (str): Path to the population map file.
-            force (bool): If True, return a subset dictionary without the keys that weren't found. If False, raise an error if not all samples are present in the population map file.
+            **popmapfile** (str): Path to the population map file.
 
-            include_pops (Optional[List[str]]): List of populations to include. If provided, only samples belonging to these populations will be included in the popmap and alignment.
+            **force** (bool): If True, return a subset dictionary without the keys that weren't found. If False, raise an error if not all samples are present in the population map file.
 
-            exclude_pops (Optional[List[str]]): List of populations to exclude. If provided, samples belonging to these populations will be excluded from the popmap and alignment.
+            **include_pops** (Optional[List[str]]): List of populations to include. If provided, only samples belonging to these populations will be included in the popmap and alignment.
+
+            **exclude_pops** (Optional[List[str]]): List of populations to exclude. If provided, samples belonging to these populations will be excluded from the popmap and alignment.
 
         Raises:
-            ValueError: No samples were found in the GenotypeData object.
+            **ValueError**: No samples were found in the GenotypeData object.
 
-            ValueError: Samples are missing from the population map file.
+            **ValueError**: Samples are missing from the population map file.
 
-            ValueError: The number of individuals in the population map file differs from the number of samples in the GenotypeData object.
+            **ValueError**: The number of individuals in the population map file differs from the number of samples in the GenotypeData object.
         """
         self.popmapfile = popmapfile
         # Join popmap file with main object.
-        if len(self._samples) < 1:
+        if len(self.samples) < 1:
             raise ValueError("No samples in GenotypeData\n")
 
         # Instantiate popmap object
-        my_popmap = ReadPopmap(popmapfile)
-        popmap_ok = my_popmap.validate_popmap(self._samples, force=force)
+        my_popmap = ReadPopmap(popmapfile, verbose=self.verbose)
+        popmap_ok = my_popmap.validate_popmap(self.samples, force=force)
         my_popmap.subset_popmap(include_pops, exclude_pops)
-        self._sample_indices = my_popmap.sample_indices
+        indices = my_popmap.sample_indices
 
         if not force and not popmap_ok:
             raise ValueError(
@@ -2030,19 +2191,19 @@ class GenotypeData:
             )
 
         if not force and include_pops is None and exclude_pops is None:
-            if len(my_popmap.popmap) != len(self._samples):
+            if len(my_popmap.popmap) != len(self.samples):
                 raise ValueError(
                     f"The number of individuals in the popmap file "
                     f"({len(my_popmap)}) differs from the number of samples "
-                    f"({len(self._samples)})\n"
+                    f"({len(self.samples)})\n"
                 )
 
-            for sample in self._samples:
+            for sample in self.samples:
                 if sample in my_popmap:
-                    self._populations.append(my_popmap.popmap[sample])
+                    self.populations.append(my_popmap.popmap[sample])
         else:
             new_samples_set = set(
-                [x for x in self._samples if x in my_popmap.popmap]
+                [x for x in self.samples if x in my_popmap.popmap]
             )
             if not new_samples_set:
                 raise ValueError(
@@ -2050,10 +2211,10 @@ class GenotypeData:
                 )
 
             indices = [
-                i for i, x in enumerate(self._samples) if x in new_samples_set
+                i for i, x in enumerate(self.samples) if x in new_samples_set
             ]
 
-            self._samples = [self._samples[i] for i in indices]
+            self.samples = [self.samples[i] for i in indices]
             self._snp_data = [self._snp_data[i] for i in indices]
             self._populations = [
                 my_popmap.popmap[x]
@@ -2075,13 +2236,13 @@ class GenotypeData:
         Decode 012-encoded or 0-9 integer-encoded imputed data to STRUCTURE or PHYLIP format.
 
         Args:
-            X (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
+            **X** (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
 
-            write_output (bool, optional): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
+            **write_output** (bool, optional): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
 
-            prefix (str, optional): Prefix to append to the output file name. Defaults to "output".
+            **prefix** (str, optional): Prefix to append to the output file name. Defaults to "output".
 
-            is_nuc (bool, optional): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
+            **is_nuc** (bool, optional): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
 
         Returns:
             str or pandas.DataFrame: If write_output is True, returns the filename where the imputed data was written. If write_output is False, returns the decoded data as a DataFrame.
@@ -2265,7 +2426,7 @@ class GenotypeData:
         vertical_space=0.6,
         bar_color="gray",
         heatmap_palette="magma",
-        plot_format="pdf",
+        plot_format="png",
         dpi=300,
     ):
         """
@@ -2298,20 +2459,20 @@ class GenotypeData:
         If popmapfile was not passed to GenotypeData, then the subplots and report files that require populations are not included.
 
         Args:
-            zoom (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
+            **zoom** (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
 
-            prefix (str, optional): Prefix for output directory and files. Plots and files will be written to a directory called <prefix>_reports. The report directory will be created if it does not already exist. Defaults to 'imputer'.
+            **prefix** (str, optional): Prefix for output directory and files. Plots and files will be written to a directory called <prefix>_reports. The report directory will be created if it does not already exist. Defaults to 'imputer'.
 
-            horizontal_space (float, optional): Set the width spacing between subplots. If your plots are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
+            **horizontal_space** (float, optional): Set the width spacing between subplots. If your plots are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
 
-            vertical_space (float, optional): Set the height spacing between subplots. If your plots are overlapping vertically, increase vertical_space. If your plots are too far apart, decrease it. Defaults to 0.6.
+            **vertical_space** (float, optional): Set the height spacing between subplots. If your plots are overlapping vertically, increase vertical_space. If your plots are too far apart, decrease it. Defaults to 0.6.
 
-            bar_color (str, optional): Color of the bars on the non-stacked bar plots. Can be any color supported by matplotlib. See the matplotlib.pyplot.colors documentation. Defaults to 'gray'.
-            heatmap_palette (str, optional): Palette to use for the heatmap plot. Can be any palette supported by seaborn. See the seaborn documentation. Defaults to 'magma'.
+            **bar_color** (str, optional): Color of the bars on the non-stacked bar plots. Can be any color supported by matplotlib. See the matplotlib.pyplot.colors documentation. Defaults to 'gray'.
+            **heatmap_palette** (str, optional): Palette to use for the heatmap plot. Can be any palette supported by seaborn. See the seaborn documentation. Defaults to 'magma'.
 
-            plot_format (str, optional): Format to save the plots. Can be any of the following: "pdf", "png", "svg", "ps", "eps". Defaults to "pdf".
+            **plot_format** (str, optional): Format to save the plots. Can be any of the following: "pdf", "png", "svg", "ps", "eps". Defaults to "png".
 
-            dpi (int): The resolution in dots per inch. Defaults to 300.
+            **dpi** (int): The resolution in dots per inch. Defaults to 300.
         """
         params = dict(
             zoom=zoom,
@@ -2324,8 +2485,12 @@ class GenotypeData:
             dpi=dpi,
         )
 
-        df = pd.DataFrame(self._snp_data)
-        df.replace(-9, np.nan, inplace=True)
+        df = pd.DataFrame(self.snp_data)
+        df.replace(
+            ["N", "-", ".", "?"],
+            [np.nan, np.nan, np.nan, np.nan],
+            inplace=True,
+        )
 
         report_path = os.path.join(f"{prefix}_output", "reports")
         os.makedirs(report_path, exist_ok=True)
@@ -2362,12 +2527,13 @@ class GenotypeData:
         Write a DataFrame to a CSV file.
 
         Args:
-            df (pandas.DataFrame): DataFrame to be written to the file.
-            report_path (str): Path to the report directory.
+            **df** (pandas.DataFrame): DataFrame to be written to the file.
 
-            mypath (str): Name of the file to write.
+            **report_path** (str): Path to the report directory.
 
-            header (bool, optional): Whether to include the header row in the file. Defaults to False.
+            **mypath** (str): Name of the file to write.
+
+            **header** (bool, optional): Whether to include the header row in the file. Defaults to False.
         """
         df.to_csv(
             os.path.join(report_path, mypath), header=header, index=False
@@ -2385,15 +2551,15 @@ class GenotypeData:
         Subsets the data in the GenotypeData object based on the provided lists of locus and sample indices.
 
         Args:
-            loci_indices (List[int]): Indices of loci to include.
+            **loci_indices** (List[int]): Indices of loci to include.
 
-            sample_indices (List[int]): Indices of samples to include.
+            **sample_indices** (List[int]): Indices of samples to include.
 
-            vcf_attributes (Dict[str, Any]): Dictionary of VCF attributes.
+            **vcf_attributes** (Dict[str, Any]): Dictionary of VCF attributes.
 
-            num_snps (int): Total number of SNPs.
+            **num_snps** (int): Total number of SNPs.
 
-            num_inds (int): Total number of individuals.
+            **num_inds** (int): Total number of individuals.
 
         Returns:
             Dict[str, Union[Dict[str, np.ndarray], np.ndarray]]: Dictionary of subsetted VCF attributes.
@@ -2459,9 +2625,9 @@ class GenotypeData:
         Subset the VCF header based on the provided sample indices.
 
         Args:
-            vcf_header (str): VCF header string.
+            **vcf_header** (str): VCF header string.
 
-            sample_indices (List[int]): Indices of samples to include.
+            **sample_indices** (List[int]): Indices of samples to include.
 
         Returns:
             str: Subsetted VCF header.
@@ -2487,7 +2653,7 @@ class GenotypeData:
         Convert a genotype string to its corresponding IUPAC code.
 
         Args:
-            genotype (str): Genotype string in the format "x/y".
+            **genotype** (str): Genotype string in the format "x/y".
 
         Returns:
             str: Corresponding IUPAC code for the input genotype. Returns 'N' if the genotype is not in the lookup dictionary.
@@ -2512,7 +2678,7 @@ class GenotypeData:
         Convert an IUPAC code to its corresponding genotype string.
 
         Args:
-            iupac_code (str): IUPAC code.
+            **iupac_code** (str): IUPAC code.
 
         Returns:
             str: Corresponding genotype string for the input IUPAC code. Returns '-9/-9' if the IUPAC code is not in the lookup dictionary.
@@ -2545,9 +2711,9 @@ class GenotypeData:
         Calculate missing value statistics based on a DataFrame.
 
         Args:
-            df (pd.DataFrame): Input DataFrame containing genotype data.
+            **df** (pd.DataFrame): Input DataFrame containing genotype data.
 
-            use_pops (bool, optional): If True, calculate statistics per population. Defaults to True.
+            **use_pops** (bool, optional): If True, calculate statistics per population. Defaults to True.
 
         Returns:
             Tuple[pd.Series, pd.Series, Optional[pd.DataFrame], Optional[pd.Series], Optional[pd.DataFrame]]: A tuple of missing value statistics:
@@ -2591,9 +2757,9 @@ class GenotypeData:
             Initialize the _DataFormat012 class.
 
             Args:
-                instance: An instance of the GenotypeData class.
+                **instance**: An instance of the GenotypeData class.
 
-                is_structure (bool, optional): Specify whether the data is in STRUCTURE format. Defaults to False.
+                **is_structure** (bool, optional): Specify whether the data is in STRUCTURE format. Defaults to False.
             """
             self.instance = instance
             self.is_structure = is_structure
@@ -2644,18 +2810,18 @@ class GenotypeData:
         Takes a dictionary of performance data and plots the metrics for each of the methods. The resulting plot is saved in a .png file in the ``tests`` directory.
 
         Args:
-            resource_data (dict): Dictionary with performance data. Keys are method names, and values are dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
+            **resource_data** (dict): Dictionary with performance data. Keys are method names, and values are dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
 
-            fontsize (int, optional): Font size to be used in the plot. Defaults to 14.
+            **fontsize** (int, optional): Font size to be used in the plot. Defaults to 14.
 
-            color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
+            **color** (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
 
-            figsize (tuple, optional): Size of the figure. Should be a tuple of two integers. Defaults to (16, 9).
+            **figsize** (tuple, optional): Size of the figure. Should be a tuple of two integers. Defaults to (16, 9).
 
         Returns:
             None. The function saves the plot as a .png file.
         """
-        Plotting2.plot_performance(
+        Plotting.plot_performance(
             cls.resource_data, fontsize=fontsize, color=color, figsize=figsize
         )
 
@@ -2715,10 +2881,12 @@ class GenotypeData:
 
     @property
     def popmap_inverse(self) -> None:
+        """Inverse popmap dictionary with populationIDs as keys and lists of sampleIDs as values."""
         return self._popmap_inverse
 
     @popmap_inverse.setter
-    def popmap_inverse(self, value) -> Dict[str, str]:
+    def popmap_inverse(self, value) -> Dict[str, List[str]]:
+        """Setter for popmap_inverse. Should have populationIDs as keys and lists of corresponding sampleIDs as values."""
         if not isinstance(value, dict):
             raise TypeError(
                 f"popmap_inverse must be a dictionary object, but got {type(value)}"
@@ -2742,6 +2910,7 @@ class GenotypeData:
 
     @samples.setter
     def samples(self, value) -> None:
+        """Get the sampleIDs as a list of strings."""
         self._samples = value
 
     @property
@@ -2759,10 +2928,12 @@ class GenotypeData:
 
     @property
     def snp_data(self) -> List[List[str]]:
+        """Get the genotypes as a 2D list of shape (n_samples, n_loci)."""
         return self._snp_data
 
     @snp_data.setter
     def snp_data(self, value) -> None:
+        """Set snp_data. Input can be a 2D list, numpy array, pandas DataFrame, or MultipleSeqAlignment object."""
         if not isinstance(value, list):
             if isinstance(value, np.ndarray):
                 value = value.tolist()
@@ -2790,7 +2961,7 @@ class GenotypeData:
 
         Examples:
             >>># Get a 2D list.
-            >>>gt_list = GenotypeData.genotypes_012
+            >>>gt_list = GenotypeData.genotypes_012(fmt="list")
             >>>
             >>># Get a numpy array.
             >>>gt_array = GenotypeData.genotypes_012(fmt="numpy")
@@ -2798,19 +2969,25 @@ class GenotypeData:
             >>># Get a pandas DataFrame.
             >>>gt_df = GenotypeData.genotypes_012(fmt="pandas")
         """
-        is_str = True if self.filetype.startswith("structure") else False
-        return self._DataFormat012(self, is_structure=is_str)
+        # TODO: Remove deprecated 'vcf' and 'is_structure' arguments.
+        # # is_str = True if self.filetype.startswith("structure") else False
+        return self._DataFormat012(self, is_structure=False)
 
     @genotypes_012.setter
     def genotypes_012(self, value) -> List[List[int]]:
+        """Set the 012 genotypes. They will be decoded back to a 2D list of genotypes as ``snp_data``\.
+
+        Args:
+            **value** (np.ndarray): 2D numpy array with 012-encoded genotypes.
+        """
         self._snp_data = self.decode_012(value, write_output=False)
 
     @property
     def genotypes_onehot(self) -> Union[np.ndarray, List[List[List[float]]]]:
-        """One-hot encoded snps format.
+        """One-hot encoded snps format of shape (n_samples, n_loci, 4).
 
         Returns:
-            numpy.ndarray: One-hot encoded numpy array of shape (n_samples, n_sites).
+            numpy.ndarray: One-hot encoded numpy array of shape (n_samples, n_loci, 4).
         """
         return self.convert_onehot(self._snp_data)
 
@@ -2819,7 +2996,7 @@ class GenotypeData:
         """Integer-encoded (0-9 including IUPAC characters) snps format.
 
         Returns:
-            numpy.ndarray: Array of shape (n_samples, n_sites), integer-encoded from 0-9 with IUPAC characters.
+            numpy.ndarray: 2D array of shape (n_samples, n_sites), integer-encoded from 0-9 with IUPAC characters.
         """
         arr = self.convert_int_iupac(self._snp_data)
         return arr
@@ -2828,22 +3005,12 @@ class GenotypeData:
     def alignment(self) -> List[MultipleSeqAlignment]:
         """Get alignment as a biopython MultipleSeqAlignment object.
 
-        This is good for printing and visualizing the alignment. If you want the alignment as a List[List[str]] object, then use the ``snp_data`` property instead.
+        This is good for printing and visualizing the alignment. If you want the alignment as a 2D list object, then use the ``snp_data`` property instead.
         """
-        is_str = True if self.filetype.startswith("structure") else False
-
-        if is_str:
-            snp_data = [
-                [self._genotype_to_iupac(g) for g in row]
-                for row in self._snp_data
-            ]
-        else:
-            snp_data = self._snp_data
-
         return MultipleSeqAlignment(
             [
                 SeqRecord(Seq("".join(row)), id=sample)
-                for sample, row in zip(self._samples, snp_data)
+                for sample, row in zip(self._samples, self._snp_data)
             ]
         )
 
@@ -2853,7 +3020,7 @@ class GenotypeData:
         Setter method for the alignment.
 
         Args:
-            value (Bio.MultipleSeqAlignment, list, np.ndarray, pd.DataFrame): The MultipleSeqAlignment object to set as the alignment.
+            **value** (Bio.MultipleSeqAlignment, list, np.ndarray, pd.DataFrame): The MultipleSeqAlignment object to set as the alignment.
 
         Raises:
             TypeError: If the input value is not a MultipleSeqAlignment object, list, numpy array, or pandas DataFrame.
@@ -2895,7 +3062,14 @@ class GenotypeData:
     def vcf_attributes(
         self, value: Dict[str, Union[Dict[str, np.ndarray], np.ndarray]]
     ) -> None:
-        """Setter method for VCF file attributes dictionary."""
+        """Setter method for VCF file attributes dictionary.
+
+        This should be a dictionary with the 9 standard VCF file keys ("chrom", "pos", "id", "ref", "alt", "qual", "filter", "info", "format") plus the calldata object. The "info" object should be another dictionary with each INFO field name as the keys and an associated numpy array as the values. The "format" object should just be a numpy array of shape (n_format_fields,). The calldata object should be another dictionary with each calldata field as keys, prepended by "calldata/{key}. The keys for calldata will be the same as in the "format" field.
+
+        Args:
+            **value** (Dict[str, Union[Dict[str, np.ndarray], np.ndarray]]): Dictionary of numpy arrays.
+
+        """
         self._vcf_attributes = value
 
     @property
@@ -2915,7 +3089,11 @@ class GenotypeData:
 
     @sample_indices.setter
     def sample_indices(self, value: List[int]) -> None:
-        """Row indices for retained samples in alignemnt."""
+        """Row indices for retained samples in alignemnt.
+
+        NOTE: This will also subset the ``samples`` property to the integer values provided in ``sample_indices``\.
+
+        """
         self._sample_indices = value
         self._samples = [x for i, x in enumerate(self._samples) if i in value]
 
@@ -3016,17 +3194,17 @@ def merge_alleles(
     """Merges first and second alleles in a structure file.
 
     Args:
-        first (List[Union[str, int] or None): Alleles on the first line.
+        **first** (List[Union[str, int] or None): Alleles on the first line.
 
-        second (List[Union[str, int]] or None, optional): Second row of alleles. Defaults to None.
+        **second** (List[Union[str, int]] or None, optional): Second row of alleles. Defaults to None.
 
     Returns:
         List[str]: VCF file-style genotypes (i.e., split by "/").
 
     Raises:
-        ValueError: If the first and second lines have differing lengths.
+        **ValueError**: If the first and second lines have differing lengths.
 
-        ValueError: If the line has a non-even number of alleles.
+        **ValueError**: If the line has a non-even number of alleles.
     """
     ret = list()
     if second is not None:
