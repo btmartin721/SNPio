@@ -78,6 +78,7 @@ htmlcov/
             "Monomorphic, Singleton, & Non-Biallelic Filters", fontsize=28
         )
         ax.tick_params(axis="both", labelsize=20)
+
         ax.legend(fontsize=28, loc="upper left")        plt.xlabel("Filter Type", fontsize=28)
         plt.ylabel("Proportion of Missing Data", fontsize=28)
         plt.title(
@@ -196,7 +197,5 @@ dmypy.json
 .pyre/
 
 sfs_*
-plots/
-plots/*
 unfiltered_reports/
 *.csv
