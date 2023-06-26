@@ -16,21 +16,27 @@ import pandas as pd
 
 
 def validate_input_type(X, return_type="array"):
-    """Validate input type and return as numpy array.
+    """
+    Validates the input type and returns it as a specified type.
+
+    This function checks if the input `X` is a pandas DataFrame, numpy array, or a list of lists. It then converts `X` to the specified `return_type` and returns it.
 
     Args:
-        X (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Input data.
+        X (pandas.DataFrame, numpy.ndarray, or List[List[int]]): The input data to validate and convert.
 
-        return_type (str): Type of returned object. Supported options include: "df", "array", and "list". Defaults to "array".
+        return_type (str, optional): The type of the returned object. Supported options include: "df" (DataFrame), "array" (numpy array), and "list". Defaults to "array".
 
     Returns:
-        pandas.DataFrame, numpy.ndarray, or List[List[int]]: Input data desired return_type.
+        pandas.DataFrame, numpy.ndarray, or List[List[int]]: The input data converted to the desired return type.
 
     Raises:
-        TypeError: X must be of type pandas.DataFrame, numpy.ndarray, or List[List[int]].
+        TypeError: If `X` is not of type pandas.DataFrame, numpy.ndarray, or List[List[int]].
 
-        ValueError: Unsupported return_type provided. Supported types are "df", "array", and "list".
+        ValueError: If an unsupported `return_type` is provided. Supported types are "df", "array", and "list".
 
+    Example:
+        X = [[1, 2, 3], [4, 5, 6]]
+        print(validate_input_type(X, "df"))  # Outputs: a DataFrame with the data from `X`.
     """
     if not isinstance(X, (pd.DataFrame, np.ndarray, list)):
         raise TypeError(
@@ -75,25 +81,28 @@ def generate_random_dataset(
     min_missing_rate=0.15,
     max_missing_rate=0.5,
 ):
-    """Generate a random integer dataset that can be used for testing.
+    """
+    Generate a random integer dataset that can be used for testing.
 
-    Will also add randomly missing values of random proportions between ``min_missing_rate`` and ``max_missing_rate``.
+    This function generates a 2D numpy array of random integers between `min_value` and `max_value` (inclusive). It also adds randomly missing values of random proportions between `min_missing_rate` and `max_missing_rate`.
 
     Args:
         min_value (int, optional): Minimum value to use. Defaults to 0.
-
-        max_value (int, optional): Maxiumum value to use. Defaults to 2.
-
+        max_value (int, optional): Maximum value to use. Defaults to 2.
         nrows (int, optional): Number of rows to use. Defaults to 35.
-
         ncols (int, optional): Number of columns to use. Defaults to 20.
-
         min_missing_rate (float, optional): Minimum proportion of missing data per column. Defaults to 0.15.
-
-        max_missing_rate (float, optional): Maximum proportion of missing data per column.
+        max_missing_rate (float, optional): Maximum proportion of missing data per column. Defaults to 0.5.
 
     Returns:
-        numpy.ndarray: Numpy array with randomly generated dataset.
+        numpy.ndarray: A 2D numpy array of shape (nrows, ncols) containing the randomly generated dataset.
+
+    Raises:
+        AssertionError: If any of the input parameters are out of their expected ranges.
+
+    Example:
+        print(generate_random_dataset(0, 5, 5, 5, 0.1, 0.3))
+        # Outputs: a 5x5 numpy array with random integers between 0 and 5 and some missing values.
     """
     assert (
         min_missing_rate >= 0 and min_missing_rate < 1.0
@@ -141,9 +150,10 @@ def generate_012_genotypes(
     min_alt_rate=0.001,
     max_alt_rate=0.3,
 ):
-    """Generate random 012-encoded genotypes.
+    """
+    Generates a 2D numpy array of random 012-encoded genotypes.
 
-    Allows users to control the rate of reference, heterozygote, and alternate alleles. Will insert a random proportion between ``min_het_rate`` and ``max_het_rate`` and ``min_alt_rate`` and ``max_alt_rate`` and from no misssing data to a proportion of ``max_missing_rate``.
+    Allows users to control the rate of reference (0's), heterozygote (1's), and alternate alleles (2's). Will insert a random proportion between `min_het_rate` and `max_het_rate` and `min_alt_rate` and `max_alt_rate` and from no missing data to a proportion of `max_missing_rate`.
 
     Args:
         nrows (int, optional): Number of rows to generate. Defaults to 35.
@@ -159,6 +169,16 @@ def generate_012_genotypes(
         min_alt_rate (float, optional): Minimum proportion of alternate alleles (2's) to insert. Defaults to 0.001.
 
         max_alt_rate (float, optional): Maximum proportion of alternate alleles (2's) to insert. Defaults to 0.3.
+
+    Returns:
+        numpy.ndarray: A 2D numpy array of shape (nrows, ncols) containing the generated 012-encoded genotypes.
+
+    Raises:
+        AssertionError: If any of the input parameters are out of their expected ranges.
+
+    Example:
+        print(generate_012_genotypes(5, 5, 0.2, 0.1, 0.3, 0.1, 0.3))
+        # Outputs: a 5x5 numpy array with 012-encoded genotypes.
     """
     assert (
         min_het_rate > 0 and min_het_rate <= 1.0
@@ -254,78 +274,42 @@ def generate_012_genotypes(
 
 
 def unique2D_subarray(a):
-    """Get unique subarrays for each column from numpy array."""
+    """
+    Returns unique subarrays for each column from a 2D numpy array.
+
+    Args:
+        a (numpy.ndarray): The 2D numpy array to process.
+
+    Returns:
+        numpy.ndarray: A 2D numpy array containing only the unique subarrays from the input array.
+
+    Example:
+        a = np.array([[1, 2, 3], [1, 2, 3], [4, 5, 6]])
+        print(unique2D_subarray(a))  # Outputs: [[1, 2, 3], [4, 5, 6]]
+
+    Note:
+        The function first views the input array as a 1D array with a custom data type, then uses numpy's unique function to find the unique elements.
+    """
     dtype1 = np.dtype((np.void, a.dtype.itemsize * np.prod(a.shape[1:])))
     b = np.ascontiguousarray(a.reshape(a.shape[0], -1)).view(dtype1)
     return a[np.unique(b, return_index=1, axis=-1)[1]]
 
 
-def _remove_nonbiallelic(df, cv=5):
-    """Remove non-biallelic sites from pandas.DataFrame.
-
-    Remove sites that do not have both 0 and 2 encoded values in a column and if any of the allele counts is less than the number of cross-validation folds.
+def get_indices(l):
+    """
+    Takes a list and returns a dictionary where keys are the unique elements in the list and values are lists of indices where each element appears.
 
     Args:
-        df (pandas.DataFrame): DataFrame with 012-encoded genotypes.
+        l (List[Any]): The list to process.
 
     Returns:
-        pandas.DataFrame: DataFrame with non-biallelic sites dropped.
-    """
-    df_cp = df.copy()
-    bad_cols = list()
-    if pd.__version__[0] == 0:
-        for col in df_cp.columns:
-            if (
-                not df_cp[col].isin([0.0]).any()
-                or not df_cp[col].isin([2.0]).any()
-            ):
-                bad_cols.append(col)
-
-            elif len(df_cp[df_cp[col] == 0.0]) < cv:
-                bad_cols.append(col)
-
-            elif df_cp[col].isin([1.0]).any():
-                if len(df_cp[df_cp[col] == 1]) < cv:
-                    bad_cols.append(col)
-
-            elif len(df_cp[df_cp[col] == 2.0]) < cv:
-                bad_cols.append(col)
-
-    # pandas 1.X.X
-    else:
-        for col in df_cp.columns:
-            if 0.0 not in df[col].unique() and 2.0 not in df[col].unique():
-                bad_cols.append(col)
-
-            elif len(df_cp[df_cp[col] == 0.0]) < cv:
-                bad_cols.append(col)
-
-            elif 1.0 in df_cp[col].unique():
-                if len(df_cp[df_cp[col] == 1.0]) < cv:
-                    bad_cols.append(col)
-
-            elif len(df_cp[df_cp[col] == 2.0]) < cv:
-                bad_cols.append(col)
-
-    if bad_cols:
-        df_cp.drop(bad_cols, axis=1, inplace=True)
-
-        print(
-            f"{len(bad_cols)} columns removed for being non-biallelic or "
-            f"having genotype counts < number of cross-validation "
-            f"folds\nSubsetting from {len(df_cp.columns)} remaining columns\n"
-        )
-
-    return df_cp
-
-
-def get_indices(l):
-    """Takes a list and returns dict giving indices matching each possible
-    list member.
+        dict: A dictionary where keys are the unique elements in the list and values are lists of indices where each element appears.
 
     Example:
-            Input [0, 1, 1, 0, 0]
-            Output {0:[0,3,4], 1:[1,2]}
+        print(get_indices([0, 1, 1, 0, 0]))  # Outputs: {0: [0, 3, 4], 1: [1, 2]}
+
+    Note:
+        The function uses a set to get the unique elements in the list, and then iterates over the list to get the indices.
     """
     ret = dict()
     for member in set(l):
@@ -338,17 +322,22 @@ def get_indices(l):
 
 
 def all_zero(l):
-    """Check whether list consists of all zeros.
+    """
+    Checks whether a list consists of all zeros.
 
-    Returns TRUE if supplied list contains all zeros
-    Returns FALSE if list contains ANY non-zero values
-    Returns FALSE if list is empty.
+    This function returns True if the supplied list contains only zeros (integer, float, or string representations).
+    It returns False if the list contains any non-zero values or if the list is empty.
 
     Args:
-        l (List[int]): List to check.
+        l (List[Union[int, float, str]]): The list to check.
 
     Returns:
-        bool: True if all zeros, False otherwise.
+        bool: True if all elements in the list are zeros, False otherwise.
+
+    Example:
+        print(all_zero([0, 0.0, '0', '0.0']))  # Outputs: True
+        print(all_zero([0, 1, 2]))  # Outputs: False
+        print(all_zero([]))  # Outputs: False
     """
     values = set(l)
     if len(values) > 1:
@@ -360,12 +349,45 @@ def all_zero(l):
 
 
 def weighted_draw(d, num_samples=1):
+    """
+    Draws samples from a dictionary where keys are choices and values are their corresponding weights.
+
+    Args:
+        d (dict): The dictionary from which to draw samples. Keys are the choices and values are the corresponding weights.
+        num_samples (int, optional): The number of samples to draw. Defaults to 1.
+
+    Returns:
+        numpy.ndarray: An array of drawn samples.
+
+    Example:
+        d = {'a': 0.5, 'b': 0.3, 'c': 0.2}
+        print(weighted_draw(d, 10))  # Outputs: array(['a', 'b', 'a', 'a', 'b', 'a', 'c', 'a', 'a', 'b'])
+
+    Note:
+        The function uses numpy's random.choice function for drawing samples.
+    """
     choices = list(d.keys())
     weights = list(d.values())
     return np.random.choice(choices, num_samples, p=weights)
 
 
 def get_attributes(cls):
+    """
+    Retrieves the attributes of a class or an instance.
+
+    Args:
+        cls (object): The class or instance from which to retrieve attributes.
+
+    Returns:
+        dict: A dictionary where the keys are the attribute names and the values are the attribute values. Only includes attributes that do not start with "__" and are not callable.
+
+    Example:
+        class MyClass:
+            x = 1
+            y = 2
+
+        print(get_attributes(MyClass))  # Outputs: {'x': 1, 'y': 2}
+    """
     return {
         k: v
         for k, v in cls.__dict__.items()
@@ -373,11 +395,20 @@ def get_attributes(cls):
     }
 
 
-def timer(func):
-    """print the runtime of the decorated function in the format HH:MM:SS."""
-
-
 def measure_performance_for_instance_method(func):
+    """
+    Decorator for measuring the performance of an instance method. The performance metrics include CPU load, memory footprint, and execution time.
+
+    Args:
+        func (callable): The instance method to be measured.
+
+    Returns:
+        callable: The decorated instance method that measures its performance when called.
+
+    Note:
+        The performance data is stored in the `resource_data` attribute of the instance, under a key with the name of the method. The data is a dictionary with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
+    """
+
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
         # Create nested dictionary for function's resource data
@@ -409,6 +440,16 @@ def measure_performance_for_instance_method(func):
 
 
 def measure_performance_for_class_method(func):
+    """
+    Decorator for measuring the performance of a class method. The performance metrics include CPU load, memory footprint, and execution time.
+
+    Args:
+        func (callable): The class method to be measured.
+
+    Returns:
+        callable: The decorated class method that measures its performance when called.
+    """
+
     @functools.wraps(func)
     def wrapper(cls, *args, **kwargs):
         # Create nested dictionary for function's resource data
@@ -440,6 +481,16 @@ def measure_performance_for_class_method(func):
 
 
 def class_performance_decorator(measure=True):
+    """
+    Decorator for applying performance measurement to all callable attributes of a class that do not start with an underscore. The performance metrics include CPU load, memory footprint, and execution time.
+
+    Args:
+        measure (bool, optional): If True, apply performance measurement. If False, return the class unchanged. Defaults to True.
+
+    Returns:
+        callable: The decorated class with performance measurement applied to its callable attributes, or the original class if measure is False.
+    """
+
     def measure_decorator(cls):
         for attr_name, attr_value in cls.__dict__.items():
             if callable(attr_value) and not attr_name.startswith("_"):
@@ -458,47 +509,56 @@ def class_performance_decorator(measure=True):
     return measure_decorator if measure else lambda cls: cls
 
 
-def progressbar(it, prefix="", size=60, file=sys.stdout):
+def progressbar(it, prefix="", size=60, f=sys.stdout):
+    """
+    Generator that prints a progress bar to the console for an iterable.
+
+    Args:
+        it (iterable): The iterable to iterate over.
+
+        prefix (str, optional): The prefix string to be printed before the progress bar. Defaults to an empty string.
+
+        size (int, optional): The total width of the progress bar in characters. Defaults to 60.
+
+        f (file-like object, optional): The file-like object to which the progress bar is printed. Defaults to sys.stdout.
+
+    Yields:
+        The next item from the iterable.
+
+    Note:
+        The progress bar is printed in the format: "{prefix}[{# * progress}{. * (size - progress)}] {progress}/{total}"
+    """
     count = len(it)
 
     def show(j):
         x = int(size * j / count)
-        file.write(
+        f.write(
             "%s[%s%s] %i/%i\r" % (prefix, "#" * x, "." * (size - x), j, count)
         )
-        file.flush()
+        f.flush()
 
     show(0)
     for i, item in enumerate(it):
         yield item
         show(i + 1)
-    file.write("\n")
-    file.flush()
-
-
-# def isnotebook():
-#     """Checks whether in Jupyter notebook.
-
-#     Returns:
-#         bool: True if in Jupyter notebook, False otherwise.
-#     """
-#     try:
-#         shell = get_ipython().__class__.__name__
-#         if shell == "ZMQInteractiveShell":
-#             # Jupyter notebook or qtconsole
-#             return True
-#         elif shell == "TerminalInteractiveShell":
-#             # Terminal running IPython
-#             return False
-#         else:
-#             # Other type (?)
-#             return False
-#     except NameError:
-#         # Probably standard Python interpreter
-#         return False
+    f.write("\n")
+    f.flush()
 
 
 def get_processor_name():
+    """
+    Retrieves the name of the processor of the system.
+
+    Returns:
+        str: The name of the processor. If the system is not recognized (not Windows, Darwin, or Linux), an empty string is returned.
+
+    Note:
+        For Windows, it uses the platform.processor() function.
+
+        For Darwin (Mac OS), it returns 'Intel' if the architecture starts with 'i', otherwise it returns the architecture.
+
+        For Linux, it reads from /proc/cpuinfo to get the model name of the processor.
+    """
     if platform.system() == "Windows":
         return platform.processor()
     elif platform.system() == "Darwin":
@@ -518,62 +578,87 @@ def get_processor_name():
     return ""
 
 
-# class tqdm_linux(tqdm):
-#     """Adds a dynamically updating progress bar.
-
-#     Decorate an iterable object, with a dynamically updating progressbar every time a value is requested.
-#     """
-
-#     @staticmethod
-#     def status_printer(self, file):
-#         """Manage the printing and in-place updating of a line of characters.
-
-#         NOTE: If the string is longer than a line, then in-place updating may not work (it will print a new line at each refresh).
-
-#         Overridden to work with linux HPC clusters. Replaced carriage return with linux newline in fp_write function.
-
-#         Args:
-#             file (str): Path of file to print status to.
-#         """
-
-#         fp = file
-#         fp_flush = getattr(fp, "flush", lambda: None)
-
-#         def fp_write(s):
-#             fp.write(_unicode(s))
-#             fp_flush()
-
-#         last_len = [0]
-
-#         def print_status(s):
-#             len_s = disp_len(s)
-#             fp_write("\n" + s + (" " * max(last_len[0] - len_s, 0)))
-#             last_len[0] = len_s
-
-#         return print_status
-
-
 class HiddenPrints:
-    """Class to supress printing within a with statement."""
+    """
+    Context manager for suppressing print statements within its scope.
+
+    This class redirects stdout to os.devnull within its scope, effectively suppressing all print statements. When the scope is exited, stdout is restored to its original state.
+
+    Example:
+        with HiddenPrints():
+            print("This will not be printed.")
+
+    Attributes:
+        _original_stdout (file-like object): The original stdout stream, stored before it is redirected.
+
+    Note:
+        This class does not suppress output from sys.stderr.
+    """
 
     def __enter__(self):
+        """
+        Enter the runtime context. Redirects stdout to os.devnull.
+
+        Returns:
+            self
+        """
         self._original_stdout = sys.stdout
         sys.stdout = open(os.devnull, "w")
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        """
+        Exit the runtime context. Restores stdout to its original state.
+
+        Args:
+            exc_type (Type[BaseException], optional): The type of the exception that caused the context to be exited, if any.
+            exc_val (BaseException, optional): The instance of the exception that caused the context to be exited, if any.
+            exc_tb (traceback, optional): A traceback object encapsulating the call stack at the point where the exception was raised, if any.
+
+        Returns:
+            None
+        """
         sys.stdout.close()
         sys.stdout = self._original_stdout
 
 
 class StreamToLogger(object):
-    """Fake file-like stream object that redirects writes to a logger instance."""
+    """
+    File-like stream object that redirects writes to a logger instance.
+
+    This class is designed to redirect stdout or stderr to a logging object. It has a write method that splits input on newlines and logs each line separately, and a flush method that logs any remaining input.
+
+    Attributes:
+        logger (logging.Logger): The logger instance to which writes are redirected.
+        log_level (int, optional): The log level at which messages are logged. Defaults to logging.INFO.
+        linebuf (str): A buffer for storing partial lines.
+
+    Example:
+        logger = logging.getLogger('my_logger')
+        sys.stdout = StreamToLogger(logger, logging.INFO)
+
+    Note:
+        This class does not close the logger when it is garbage collected.
+    """
 
     def __init__(self, logger, log_level=logging.INFO):
+        """
+        Initialize the StreamToLogger instance.
+
+        Args:
+            logger (logging.Logger): The logger instance to which writes are redirected.
+            log_level (int, optional): The log level at which messages are logged. Defaults to logging.INFO.
+        """
         self.logger = logger
         self.log_level = log_level
         self.linebuf = ""
 
     def write(self, buf):
+        """
+        Write the specified string to the stream.
+
+        Args:
+            buf (str): The string to write to the stream.
+        """
         temp_linebuf = self.linebuf + buf
         self.linebuf = ""
         for line in temp_linebuf.splitlines(True):
@@ -588,6 +673,11 @@ class StreamToLogger(object):
                 self.linebuf += line
 
     def flush(self):
+        """
+        Flush the stream.
+
+        If the stream buffer is not empty, logs its contents and then clears it.
+        """
         if self.linebuf != "":
             self.logger.log(self.log_level, self.linebuf.rstrip())
         self.linebuf = ""
