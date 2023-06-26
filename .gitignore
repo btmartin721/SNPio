@@ -198,6 +198,5 @@ dmypy.json
 sfs_*
 plots/
 plots/*
-sankey_*
-*.html
+unfiltered_reports/
 *.csv
