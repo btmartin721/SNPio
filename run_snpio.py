@@ -1,35 +1,47 @@
 import argparse
 from snpio.read_input.genotype_data import GenotypeData
 from snpio.filtering import nremover2
+from snpio.plotting.plotting import Plotting
 
 
 def main():
     # Read the alignment, popmap, and tree files
     gd = GenotypeData(
         filename="example_data/phylip_files/phylogen_nomx.u.snps.phy",
-        popmapfile="example_data/popmaps/test.nomx.popmap",
+        popmapfile="example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,
         filetype="auto",
         qmatrix_iqtree="example_data/trees/test.qmat",
         siterates_iqtree="example_data/trees/test.rate",
         guidetree="example_data/trees/test.tre",
+        exclude_pops=["DS", "ON"],
     )
 
-    # gd.plot_performance()
+    # Make missingness report plots.
+    gd.missingness_reports(prefix="unfiltered")
+
+    # Run a PCA and make a scatterplot on the unfiltered data.
+    Plotting.run_pca(gd, prefix="unfiltered", plot_format="png")
 
     # Run the NRemover class to filter out missing data.
     nrm = nremover2.NRemover2(gd)
     gd_filtered = nrm.nremover(
         max_missing_global=0.5,
         max_missing_pop=0.5,
-        max_missing_sample=0.9,
+        max_missing_sample=0.8,
         singletons=True,
         biallelic=True,
         monomorphic=True,
         min_maf=0.01,
-        plot_missingness_report=True,
+        search_thresholds=False,
         plot_dir="plots",
     )
+
+    # Make another missingness report plot for filtered data.
+    gd_filtered.missingness_reports(prefix="filtered")
+
+    # Run a PCA on the filtered data and make a scatterplot.
+    Plotting.run_pca(gd_filtered, prefix="filtered", plot_format="png")
 
     gd_filtered.write_vcf("example_data/vcf_files/nremover_test.vcf")
     gd_filtered.write_phylip("example_data/phylip_files/nremover_test.phy")
