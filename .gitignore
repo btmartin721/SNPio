@@ -200,3 +200,4 @@ plots/
 plots/*
 sankey_*
 *.html
+*.csv
