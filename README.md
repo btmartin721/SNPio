@@ -2,7 +2,6 @@
 
 # SNPio
 API to read, write, and filter PHYLIP, STRUCTURE, and VCF files using a GenotypeData object.
-Sure, here's your reStructuredText file converted to GitHub-flavored Markdown:
 
 # Getting Started
 
