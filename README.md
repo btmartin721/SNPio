@@ -254,7 +254,7 @@ The below two plots show the missingness proportion variance among all the thres
 
 First, the missing data filter report:
 
-<img src="https://github.com/btmartin721/SNPio/blob/master/plots/missingness_report.png" width="50%" alt="Plots showing missingness proportion variance for each filtering step">
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/missingness_report.png" width="75%" alt="Plots showing missingness proportion variance for each filtering step">
 
 And now the MAF, biallelic, singleton, and monomorphic filter report:
 
