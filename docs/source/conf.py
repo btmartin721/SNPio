@@ -51,11 +51,7 @@ exclude_patterns = ["**/setup.rst", "**/tests.rst"]
 html_theme = "sphinx_rtd_theme"
 html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
-html_context = {
-    "source_url_prefix": "https://github.com/btmartin721/SNPio/tree/master",
-}
-
-html_show_sourcelink = True
+github_url = "https://github.com/btmartin721/SNPio"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
