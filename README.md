@@ -3,7 +3,7 @@
 # SNPio
 API to read, write, and filter PHYLIP, STRUCTURE, and VCF files using a GenotypeData object.
 
-In addition to the below tutorial, see our ![API Documentation](https://snpio.readthedocs.io/en/latest/#) for more information.
+In addition to the below tutorial, see our [API Documentation](https://snpio.readthedocs.io/en/latest/#) for more information.
 
 # Getting Started
 
