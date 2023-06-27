@@ -240,11 +240,11 @@ Running the above code makes a number of informative plots. See below.
 
 Here is a Sankey diagram showing the number of loci removed at each filtering step.
 
-<img src="https://github.com/btmartin721/SNPio/blob/master/plots/sankey_filtering_report.png" width="50%" alt="Sankey filtering report for loci removed at each filtering step">
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/sankey_filtering_report.png" width="75%" alt="Sankey filtering report for loci removed at each filtering step">
 
 Here is the proportions of missing data for the filter missingness report:
 
-![Missingness filtering report plot](../../plots/filtered_missingness.png)
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/filtered_missingness.png" width="75%" alt="Missingness filtering report plot">
 
 Here is the PCA we ran on the filtered data, with colors being a gradient corresponding to the proportion of missing data in each sample:
 
