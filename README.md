@@ -181,11 +181,11 @@ There are a number of informative plots that GenotypeData makes.
 
 Here is a plot describing the counts of each found population:
 
-![Barplot with counts per population](../../plots/population_counts.png)
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/population_counts.png" width="50%" alt="Barplot with counts per population">
 
 Here is a plot showing the distribution of genotypes in the alignment:
 
-![Sankey filtering report for loci removed at each filtering step](../../plots/genotype_distributions.png)
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/genotype_distributions.png" width="50%" alt="Plot showing IUPAC genotype distributions">
 
 ## Alignment Filtering
 
@@ -240,25 +240,25 @@ Running the above code makes a number of informative plots. See below.
 
 Here is a Sankey diagram showing the number of loci removed at each filtering step.
 
-![Sankey filtering report for loci removed at each filtering step](../../plots/sankey_filtering_report.png)
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/sankey_filtering_report.png" width="50%" alt="Sankey filtering report for loci removed at each filtering step">
 
-Here is the proportions of missing data for the filtered missingness report:
+Here is the proportions of missing data for the filter missingness report:
 
 ![Missingness filtering report plot](../../plots/filtered_missingness.png)
 
 Here is the PCA we ran on the filtered data, with colors being a gradient corresponding to the proportion of missing data in each sample:
 
-![Principal Component Analysis scatterplot for filtered data](../../plots/filtered_pca.png)
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/filtered_pca.png" width="50%" alt="Principal Component Analysis scatterplot for filtered data">
 
 The below two plots show the missingness proportion variance among all the thresholds if you used set `search_thresholds=True` when you ran the `nremover()` function. The first makes plots for the missing data filters, and the second for the MAF, biallelic, monomorphic, and singleton filters. they are shown for both globally and per-population.
 
 First, the missing data filter report:
 
-![Plots showing missingness proportion variance for each filtering step](../../plots/missingness_report.png)
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/missingness_report.png" width="50%" alt="Plots showing missingness proportion variance for each filtering step">
 
 And now the MAF, biallelic, singleton, and monomorphic filter report:
 
-![Plots showing missingness proportion variance among the MAF thresholds and singleton, biallelic, and monomorphic filters (toggled off and on)](../../plots/maf_missingness_report.png)
+<img src="https://github.com/btmartin721/SNPio/blob/master/plots/maf_missingness_report.png" width="50%" alt="Plots showing missingness proportion variance among the MAF thresholds and singleton, biallelic, and monomorphic filters (toggled off and on)">
 
 If you do not want to use some of the filtering options, just leave them at default for the ones you don't want to run.
 
@@ -279,5 +279,3 @@ For detailed information about the available methods and attributes, refer to th
 That's it! You have successfully completed the basic steps to get started with SNPio. Explore the library further to discover more functionality and advanced features.
 
 For detailed information about the available methods and attributes, refer to the API Reference.
-
-Please note that the links in the "Indices and Tables" section are placeholders as I don't have the actual URLs. You'll need to replace them with the correct URLs.
