@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name="snpio",
@@ -24,7 +24,7 @@ setup(
         "biallelic",
     ],
     platforms=["Any"],
-    packages=["snpio"],  # Specify the top-level package.
+    packages=find_packages(),
     include_package_data=True,
     python_requires=">=3.8",
     install_requires=[
