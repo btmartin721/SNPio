@@ -1,0 +1,1 @@
+from .genotype_data import GenotypeData

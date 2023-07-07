@@ -19,8 +19,9 @@ To start using SNPio, import the necessary modules:
 
 .. code-block:: python
 
-   from snpio.read_input.genotype_data import GenotypeData
-   from snpio.plotting.plotting import Plotting
+   from snpio import GenotypeData
+   from snpio import Plotting
+   from snpio import NRemover2
 
 .. note::
 
@@ -223,7 +224,7 @@ To illustrate how to use the `NRemover2` class, here's an example:
 
 .. code-block:: python
 
-   from snpio.filtering.nremover2 import NRemover2
+   from snpio import NRemover2
 
    # Create an instance of NRemover2
    # Provide it the GenotypeData instance from above.

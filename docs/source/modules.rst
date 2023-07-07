@@ -1,4 +1,4 @@
-SNPio
+snpio
 =====
 
 .. toctree::

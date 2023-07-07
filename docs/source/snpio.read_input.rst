@@ -19,3 +19,11 @@ snpio.read\_input.popmap\_file module
    :members:
    :undoc-members:
    :show-inheritance:
+
+Module contents
+---------------
+
+.. automodule:: snpio.read_input
+   :members:
+   :undoc-members:
+   :show-inheritance:

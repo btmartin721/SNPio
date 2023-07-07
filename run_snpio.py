@@ -1,7 +1,7 @@
 import argparse
-from snpio.read_input.genotype_data import GenotypeData
-from snpio.filtering import nremover2
-from snpio.plotting.plotting import Plotting
+from snpio import GenotypeData
+from snpio import NRemover2
+from snpio import Plotting
 
 
 def main():
@@ -24,7 +24,7 @@ def main():
     Plotting.run_pca(gd, prefix="unfiltered", plot_format="png")
 
     # Run the NRemover class to filter out missing data.
-    nrm = nremover2.NRemover2(gd)
+    nrm = NRemover2(gd)
     gd_filtered = nrm.nremover(
         max_missing_global=0.5,
         max_missing_pop=0.5,
