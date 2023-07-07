@@ -22,8 +22,8 @@ pip install .
 To start using SNPio, import the necessary modules:
 
 ```
-from snpio.read_input.genotype_data import GenotypeData
-from snpio.plotting.plotting import Plotting
+from snpio import GenotypeData
+from snpio import Plotting
 ```
 
 > **Important Notes:** GenotypeData and NRemover2 treat gap ('-', '?', '.') and 'N' characters as missing data. Also, if your input file is PHYLIP or STRUCTURE, they will be forced to be biallelic. If you need more than two alleles per site, then you must use the VCF file format, and even then some of the transformations force all sites to be biallelic.
@@ -57,8 +57,8 @@ The files referenced in the code blocks below can be found in the provided `exam
 The `GenotypeData` class provides methods to read and write data in various formats, such as VCF, PHYLIP, STRUCTURE, and custom formats. Here's an example of reading genotype data from a VCF file:
 
 ```
-from snpio.read_input.genotype_data import GenotypeData
-from snpio.plotting.plotting import Plotting
+from snpio import GenotypeData
+from snpio import Plotting
 
 # Read the alignment, popmap, and tree files
 gd = GenotypeData(
@@ -209,7 +209,7 @@ The `NRemover2` class provides methods for filtering genetic alignments based on
 To illustrate how to use the `NRemover2` class, here's an example:
 
 ```
-from snpio.filtering.nremover2 import NRemover2
+from snpio import NRemover2
 
 # Create an instance of NRemover2
 # Provide it the GenotypeData instance from above.
