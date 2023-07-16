@@ -2007,6 +2007,56 @@ class GenotypeData:
 
         return np.array(onehot_outer_list)
 
+    def inverse_onehot(
+        self,
+        onehot_data: Union[np.ndarray, List[List[float]]],
+        encodings_dict: Optional[Dict[str, List[float]]] = None,
+    ) -> np.ndarray:
+        """
+        Convert one-hot encoded data back to original format.
+        Args:
+            **onehot_data** (Union[np.ndarray, List[List[float]]]): Input one-hot encoded data of shape (n_samples, n_SNPs).
+            **encodings_dict** (Optional[Dict[str, List[float]]]): Encodings to convert from one-hot encoding to original format. Defaults to None.
+        Returns:
+            np.ndarray: Original format data.
+        """
+
+        if encodings_dict is None:
+            onehot_dict = {
+                "A": [1.0, 0.0, 0.0, 0.0],
+                "T": [0.0, 1.0, 0.0, 0.0],
+                "G": [0.0, 0.0, 1.0, 0.0],
+                "C": [0.0, 0.0, 0.0, 1.0],
+                "W": [0.5, 0.5, 0.0, 0.0],
+                "R": [0.5, 0.0, 0.5, 0.0],
+                "M": [0.5, 0.0, 0.0, 0.5],
+                "K": [0.0, 0.5, 0.5, 0.0],
+                "Y": [0.0, 0.5, 0.0, 0.5],
+                "S": [0.0, 0.0, 0.5, 0.5],
+                "N": [0.0, 0.0, 0.0, 0.0],
+            }
+        else:
+            onehot_dict = encodings_dict
+
+        # Create inverse dictionary (from list to key)
+        inverse_onehot_dict = {tuple(v): k for k, v in onehot_dict.items()}
+
+        if isinstance(onehot_data, np.ndarray):
+            onehot_data = onehot_data.tolist()
+
+        decoded_outer_list = []
+
+        for i in range(len(onehot_data)):
+            decoded_list = []
+            for j in range(len(onehot_data[0])):
+                # Look up original key using one-hot encoded list
+                decoded_list.append(
+                    inverse_onehot_dict[tuple(onehot_data[i][j])]
+                )
+            decoded_outer_list.append(decoded_list)
+
+        return np.array(decoded_outer_list)
+
     def convert_int_iupac(
         self,
         snp_data: Union[np.ndarray, List[List[int]]],
@@ -2066,6 +2116,61 @@ class GenotypeData:
             onehot_outer_list.append(onehot_list)
 
         return np.array(onehot_outer_list)
+
+    def inverse_int_iupac(
+        self,
+        int_encoded_data: Union[np.ndarray, List[List[int]]],
+        encodings_dict: Optional[Dict[str, int]] = None,
+    ) -> np.ndarray:
+        """
+        Convert integer-encoded data back to original format.
+        Args:
+            **int_encoded_data** (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input integer-encoded data.
+            **encodings_dict** (Dict[str, int] or None): Encodings to convert from integer encoding to original format.
+        Returns:
+            numpy.ndarray: Original format data.
+        """
+
+        if encodings_dict is None:
+            int_encodings_dict = {
+                "A": 0,
+                "T": 1,
+                "G": 2,
+                "C": 3,
+                "W": 4,
+                "R": 5,
+                "M": 6,
+                "K": 7,
+                "Y": 8,
+                "S": 9,
+                "-": -9,
+                "N": -9,
+                "?": -9,
+                ".": -9,
+            }
+        else:
+            int_encodings_dict = encodings_dict
+
+        # Create inverse dictionary (from integer to key)
+        inverse_int_encodings_dict = {
+            v: k for k, v in int_encodings_dict.items()
+        }
+
+        if isinstance(int_encoded_data, np.ndarray):
+            int_encoded_data = int_encoded_data.tolist()
+
+        decoded_outer_list = []
+
+        for i in range(len(int_encoded_data)):
+            decoded_list = []
+            for j in range(len(int_encoded_data[0])):
+                # Look up original key using integer encoding
+                decoded_list.append(
+                    inverse_int_encodings_dict[int_encoded_data[i][j]]
+                )
+            decoded_outer_list.append(decoded_list)
+
+        return np.array(decoded_outer_list)
 
     def read_popmap(
         self,
@@ -2199,6 +2304,7 @@ class GenotypeData:
             is_phylip = True
 
         df_decoded = df.copy()
+        df_decoded = df.copy().astype(object)
 
         # VAE uses [A,T,G,C] encodings. The other NN methods use [0,1,2] encodings.
         if is_nuc:
@@ -2912,6 +3018,23 @@ class GenotypeData:
             numpy.ndarray: One-hot encoded numpy array of shape (n_samples, n_loci, 4).
         """
         return self.convert_onehot(self._snp_data)
+    
+    @genotypes_onehot.setter
+    def genotypes_onehot(self, value) -> List[List[int]]:
+        """Set the onehot-encoded genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
+        if isinstance(value, pd.DataFrame):
+            X = value.to_numpy()
+        elif isinstance(value, list):
+            X = np.array(value)
+        elif isinstance(value, np.ndarray):
+            X = value
+        else:
+            raise TypeError(
+                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
+            )
+
+        Xt = self.inverse_onehot(X)
+        self._snp_data = Xt.tolist()
 
     @property
     def genotypes_int(self) -> np.ndarray:
@@ -2922,6 +3045,23 @@ class GenotypeData:
         """
         arr = self.convert_int_iupac(self._snp_data)
         return arr
+    
+    @genotypes_int.setter
+    def genotypes_int(self, value) -> List[List[int]]:
+        """Set the integer-encoded (0-9) genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
+        if isinstance(value, pd.DataFrame):
+            X = value.to_numpy()
+        elif isinstance(value, list):
+            X = np.array(value)
+        elif isinstance(value, np.ndarray):
+            X = value
+        else:
+            raise TypeError(
+                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
+            )
+
+        Xt = self.inverse_int_iupac(X)
+        self._snp_data = Xt.tolist()
 
     @property
     def alignment(self) -> List[MultipleSeqAlignment]:
