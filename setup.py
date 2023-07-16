@@ -39,7 +39,7 @@ setup(
         "panel",
         "plotly",
         "requests",
-        "scikit-allel",
+        "cyvcf2",
         "scikit-learn",
         "scipy",
         "seaborn",
