@@ -2256,7 +2256,7 @@ class GenotypeData:
             )
 
         if ft.startswith("structure"):
-            of = f"{outfile}.str"
+                
             if ft.startswith("structure2row"):
                 for col in df_decoded.columns:
                     df_decoded[col] = (
@@ -2306,6 +2306,7 @@ class GenotypeData:
                 )
 
             if write_output:
+                of = f"{outfile}.str"
                 df_decoded.insert(0, "sampleID", self._samples)
                 df_decoded.insert(1, "popID", self._populations)
 
@@ -2317,10 +2318,9 @@ class GenotypeData:
                 )
 
         elif ft.startswith("phylip"):
-            of = f"{outfile}.phy"
-            header = f"{self.num_inds} {self.num_snps}\n"
-
             if write_output:
+                of = f"{outfile}.phy"
+                header = f"{self.num_inds} {self.num_snps}\n"
                 with open(of, "w") as fout:
                     fout.write(header)
 
