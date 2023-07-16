@@ -263,6 +263,7 @@ def get_iupac_caseless(char):
         "D": ["N", "N"],
         "H": ["N", "N"],
         "V": ["N", "N"],
+        "-9": ["N", "N"],
     }
     ret = iupac[char]
     if lower:
