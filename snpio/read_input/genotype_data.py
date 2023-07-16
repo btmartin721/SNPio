@@ -2419,6 +2419,8 @@ class GenotypeData:
                     1: het2,
                     "2": alt2,
                     2: alt2,
+                    "-9": "N",
+                    -9: "N",
                 }
                 dreplace[col] = d
 
