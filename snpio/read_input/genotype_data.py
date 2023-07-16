@@ -76,7 +76,7 @@ TreeParser.get_data_from_intree = patched_get_data_from_intree
 from Bio.Align import MultipleSeqAlignment
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
-import allel
+from cyvcf2 import VCF
 
 try:
     from .popmap_file import ReadPopmap
@@ -128,6 +128,7 @@ class GenotypeData:
         include_pops (List[str] or None): List of population IDs to include in the alignment. Populations not present in the include_pops list will be excluded. Defaults to None.
 
         guidetree (str or None): Path to input treefile. Defaults to None.
+        
         qmatrix_iqtree (str or None): Path to iqtree output file containing Q rate matrix. Defaults to None.
 
         qmatrix (str or None): Path to file containing only Q rate matrix, and not the full iqtree file. Defaults to None.
@@ -167,6 +168,7 @@ class GenotypeData:
         alignment (Bio.MultipleSeqAlignment): Genotype data as a Biopython MultipleSeqAlignment object.
 
         vcf_attributes (dict): Attributes read in from VCF file.
+        
         loci_indices (List[int]): Column indices for retained loci in filtered alignment.
 
         sample_indices (List[int]): Row indices for retained samples in the alignment.
@@ -1024,85 +1026,44 @@ class GenotypeData:
             print(f"\nReading VCF file {self.filename}...")
 
         self._check_filetype("vcf")
-        (
-            vcf_header,
-            vcf_colnames,
-            compressed,
-        ) = self._read_vcf_header(self.filename)
+        vcf_header, vcf_colnames, compressed = self._read_vcf_header(self.filename)
 
-        # Load the VCF file using scikit-allel
-        callset = allel.read_vcf(
-            self.filename,
-            fields=["*", "variants/INFO/*"],
-            numbers={"calldata/CATG": 4},
-        )
+        # Load the VCF file using cyvcf2
+        vcf = VCF(self.filename)
 
-        # df = pd.read_csv(self.filename, sep="\t", )
+        chrom, pos, vcf_id, ref, alt, qual, fmt, vcf_filter, snp_data = [], [], [], [], [], [], [], [], []
+        samples = vcf.samples
+        info_fields = [field['ID'] for field in vcf.header_iter() if field['HeaderType'] == 'INFO']
+        format_fields = [field['ID'] for field in vcf.header_iter() if field['HeaderType'] == 'FORMAT' and field['ID'] != 'GT']
+        calldata = {"calldata/" + k: [] for k in format_fields}
+        info = {k: [] for k in info_fields}
 
-        # Extract the VCF data
-        self._samples = callset["samples"]
-        chrom = callset["variants/CHROM"]
-        pos = callset["variants/POS"]
-        vcf_id = callset["variants/ID"]
-        ref = callset["variants/REF"]
-        alt = callset["variants/ALT"]
-        qual = callset["variants/QUAL"]
-        vcf_filter = callset["variants/FILTER_PASS"]
+        # Loop through variants 
+        for variant in vcf:
+            chrom.append(variant.CHROM)
+            pos.append(variant.POS)
+            vcf_id.append('.' if variant.ID is None else variant.ID)
+            ref.append(variant.REF)
+            alt.append(variant.ALT)
+            qual.append(variant.QUAL)
+            vcf_filter.append(variant.FILTER)
+            snp_data.append(self._load_gt_calldata(variant))
+            for field in format_fields:
+                calldata["calldata/" + field].append(np.squeeze(variant.format(field)))
+            for k in info_fields:
+                info[k].append(variant.INFO.get(k))
 
-        info_fields = [
-            key
-            for key in callset.keys()
-            if key.startswith("variants/")
-            and not key.endswith(
-                (
-                    "samples",
-                    "CHROM",
-                    "POS",
-                    "ID",
-                    "REF",
-                    "ALT",
-                    "QUAL",
-                    "FILTER_PASS",
-                    "is_snp",
-                    "numalt",
-                    "altlen",
-                )
-            )
-        ]
-
-        format_fields = [
-            key for key in callset.keys() if key.startswith("calldata/")
-        ]
-
-        info = {}
-        for field in info_fields:
-            info[field.split("/")[1]] = callset[field]
-
-        fmt = []
-        for field in format_fields:
-            fmt.append(field.split("/")[1])
-
-        def concat_arr2strings(arr2d):
-            return np.array(",".join([a for a in arr2d]), dtype="U32")
-
-        calldata = {
-            k: v.astype(str)
-            for k, v in callset.items()
-            if k.startswith("calldata/") and not k.endswith("/GT")
-        }
-
-        calldata = {
-            k: np.apply_along_axis(
-                concat_arr2strings, 0, np.transpose(v, (2, 0, 1))
-            )
-            if len(v.shape) == 3
-            else v
-            for k, v in calldata.items()
-        }
-
-        self._snp_data = self._load_gt_calldata(callset)
+        # set data 
+        self._samples = samples
+        self._snp_data = np.array(snp_data).T.tolist()
         self._loci_indices = list(range(self.num_snps))
         self._sample_indices = list(range(self.num_inds))
+
+        # Convert lists to numpy arrays
+        info = {k: np.array(v, dtype='U32') for k, v in info.items()}
+        calldata = {k: np.array(v, dtype='U32') for k, v in calldata.items()}
+        M = max(len(alleles) for alleles in alt)
+        alt = np.array([np.pad(allele, (0, M - len(allele)), constant_values='') for allele in alt])
 
         self._vcf_attributes = {
             "chrom": chrom,
@@ -1113,8 +1074,8 @@ class GenotypeData:
             "qual": qual,
             "filter": vcf_filter,
             "info": info,
-            "fmt": fmt,
-            "calldata": calldata,  # Everything except GT
+            "fmt": format_fields,
+            "calldata": calldata,
             "vcf_header": vcf_header,
         }
 
@@ -1122,10 +1083,8 @@ class GenotypeData:
 
         if self.verbose:
             print(f"VCF file successfully loaded!")
-            print(
-                f"\nFound {self.num_snps} SNPs and {self.num_inds} "
-                f"individuals...\n"
-            )
+            print(f"\nFound {self.num_snps} SNPs and {self.num_inds} individuals...\n")
+
 
     def _read_vcf_header(self, filename):
         """
@@ -1161,17 +1120,16 @@ class GenotypeData:
             compressed = True
         return header, colnames, compressed
 
-    def _load_gt_calldata(self, callset) -> List[List[str]]:
+    def _load_gt_calldata(self, variant) -> List[str]:
         """
-        Load calldata/GT (genotypes) from a scikit-allel object.
+        Load genotypes from a cyvcf2 variant.
 
         Args:
-            **callset** (Dict[str, Union[List[int], List[str], np.ndarray]]): Callset from scikit-allel `read_vcf()` function.
+            **variant** (cyvcf2.Variant): Variant from cyvcf2 `VCF()` iterator.
 
         Returns:
-            List[List[str]]: 2D list of shape (n_samples, n_loci) with single IUPAC base characters (including IUPAC ambiguity codes) as values.
+            List[str]: List of IUPAC base characters (including IUPAC ambiguity codes) for a single variant.
         """
-
         # Define a mapping from pairs of nucleotides to IUPAC codes
         iupac_tups = {
             ("A", "C"): "M",
@@ -1201,56 +1159,14 @@ class GenotypeData:
             ("N", "G"): "G",
         }
 
-        # Convert genotypes to IUPAC codes
-        gt = allel.GenotypeArray(callset["calldata/GT"])
+        # Extract the genotypes for the variant
+        gt_bases = variant.gt_bases
 
-        # Identify missing calls
-        is_missing = gt.is_missing()
+        # Convert the genotypes to IUPAC codes
+        iupac_codes = [iupac_tups.get((gt[0], gt[2]), "N") for gt in gt_bases]
 
-        # Get the reference and alternate alleles
-        ref = callset["variants/REF"]
-        alt = callset["variants/ALT"]
+        return iupac_codes
 
-        # Initialize arrays to hold the IUPAC codes for each allele
-        iupac_array1 = np.empty(gt.shape[:-1], dtype="U1")
-        iupac_array2 = np.empty(gt.shape[:-1], dtype="U1")
-
-        # Expand dimensions of ref and alt to match the shape of the boolean mask
-        ref_expanded = np.repeat(ref[:, np.newaxis], gt.shape[1], axis=1)
-        alt_expanded = np.repeat(alt[:, :, np.newaxis], gt.shape[1], axis=2)
-
-        # Fill in the IUPAC codes for homozygous reference calls
-        iupac_array1[gt[:, :, 0] == 0] = ref_expanded[gt[:, :, 0] == 0]
-        iupac_array2[gt[:, :, 1] == 0] = ref_expanded[gt[:, :, 1] == 0]
-
-        # Fill in the IUPAC codes for homozygous alternate calls
-        for i in range(1, alt.shape[1] + 1):
-            iupac_array1[gt[:, :, 0] == i] = alt_expanded[:, i - 1][
-                gt[:, :, 0] == i
-            ]
-            iupac_array2[gt[:, :, 1] == i] = alt_expanded[:, i - 1][
-                gt[:, :, 1] == i
-            ]
-
-        # Replace missing values with 'N'
-        iupac_array1[is_missing] = "N"
-        iupac_array2[is_missing] = "N"
-
-        # Combine the two alleles into tuples
-        iupac_tuples = list(
-            zip(iupac_array1.flatten(), iupac_array2.flatten())
-        )
-
-        # Map to IUPAC codes
-        iupac_array = np.array(
-            [iupac_tups[tuple(row)] for row in iupac_tuples]
-        )
-
-        # If you need to reshape the result back to the original shape:
-        iupac_array = iupac_array.reshape(gt.shape[:-1])
-        iupac_array = iupac_array.T
-
-        return iupac_array.tolist()
 
     def _get_ref_alt_alleles(
         self,
@@ -1742,14 +1658,6 @@ class GenotypeData:
         for i in range(0, len(snps)):
             new_snps.append([])
 
-        snps = [
-            [
-                str(element) if not isinstance(element, str) else element
-                for element in sublst
-            ]
-            for sublst in snps
-        ]
-
         # TODO: valid_sites is now deprecated.
         valid_sites = np.ones(len(snps[0]))
         for j in range(0, len(snps[0])):
@@ -1903,7 +1811,7 @@ class GenotypeData:
             # TODO: Check here if column is all missing. What to do in this
             # case? Error out?
             warnings.warn(
-                f"Monomorphic sites detected at the following locus indices: {','.join([str(x) for x in monomorphic_sites])}"
+                f"Monomorphic sites detected at the following locus indices: {','.join([str(x) for x in monomorphic_sites])}\n"
             )
 
         if non_biallelic_sites:
@@ -1915,7 +1823,7 @@ class GenotypeData:
 
         if all_missing:
             warnings.warn(
-                f" SNP column indices {','.join([str(x) for x in all_missing])} had all missing data and were excluded from the alignment."
+                f" SNP column indices {','.join([str(x) for x in all_missing])} had all missing data and were excluded from the alignment.\n"
             )
 
             # Get elements in loci_indices that are not in all_missing
@@ -2095,59 +2003,6 @@ class GenotypeData:
 
         return np.array(onehot_outer_list)
 
-    def inverse_onehot(
-        self,
-        onehot_data: Union[np.ndarray, List[List[float]]],
-        encodings_dict: Optional[Dict[str, List[float]]] = None,
-    ) -> np.ndarray:
-        """
-        Convert one-hot encoded data back to original format.
-
-        Args:
-            **onehot_data** (Union[np.ndarray, List[List[float]]]): Input one-hot encoded data of shape (n_samples, n_SNPs).
-
-            **encodings_dict** (Optional[Dict[str, List[float]]]): Encodings to convert from one-hot encoding to original format. Defaults to None.
-
-        Returns:
-            np.ndarray: Original format data.
-        """
-
-        if encodings_dict is None:
-            onehot_dict = {
-                "A": [1.0, 0.0, 0.0, 0.0],
-                "T": [0.0, 1.0, 0.0, 0.0],
-                "G": [0.0, 0.0, 1.0, 0.0],
-                "C": [0.0, 0.0, 0.0, 1.0],
-                "W": [0.5, 0.5, 0.0, 0.0],
-                "R": [0.5, 0.0, 0.5, 0.0],
-                "M": [0.5, 0.0, 0.0, 0.5],
-                "K": [0.0, 0.5, 0.5, 0.0],
-                "Y": [0.0, 0.5, 0.0, 0.5],
-                "S": [0.0, 0.0, 0.5, 0.5],
-                "N": [0.0, 0.0, 0.0, 0.0],
-            }
-        else:
-            onehot_dict = encodings_dict
-
-        # Create inverse dictionary (from list to key)
-        inverse_onehot_dict = {tuple(v): k for k, v in onehot_dict.items()}
-
-        if isinstance(onehot_data, np.ndarray):
-            onehot_data = onehot_data.tolist()
-
-        decoded_outer_list = []
-
-        for i in range(len(onehot_data)):
-            decoded_list = []
-            for j in range(len(onehot_data[0])):
-                # Look up original key using one-hot encoded list
-                decoded_list.append(
-                    inverse_onehot_dict[tuple(onehot_data[i][j])]
-                )
-            decoded_outer_list.append(decoded_list)
-
-        return np.array(decoded_outer_list)
-
     def convert_int_iupac(
         self,
         snp_data: Union[np.ndarray, List[List[int]]],
@@ -2207,63 +2062,6 @@ class GenotypeData:
             onehot_outer_list.append(onehot_list)
 
         return np.array(onehot_outer_list)
-
-    def inverse_int_iupac(
-        self,
-        int_encoded_data: Union[np.ndarray, List[List[int]]],
-        encodings_dict: Optional[Dict[str, int]] = None,
-    ) -> np.ndarray:
-        """
-        Convert integer-encoded data back to original format.
-
-        Args:
-            **int_encoded_data** (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input integer-encoded data.
-            **encodings_dict** (Dict[str, int] or None): Encodings to convert from integer encoding to original format.
-
-        Returns:
-            numpy.ndarray: Original format data.
-        """
-
-        if encodings_dict is None:
-            int_encodings_dict = {
-                "A": 0,
-                "T": 1,
-                "G": 2,
-                "C": 3,
-                "W": 4,
-                "R": 5,
-                "M": 6,
-                "K": 7,
-                "Y": 8,
-                "S": 9,
-                "-": -9,
-                "N": -9,
-                "?": -9,
-                ".": -9,
-            }
-        else:
-            int_encodings_dict = encodings_dict
-
-        # Create inverse dictionary (from integer to key)
-        inverse_int_encodings_dict = {
-            v: k for k, v in int_encodings_dict.items()
-        }
-
-        if isinstance(int_encoded_data, np.ndarray):
-            int_encoded_data = int_encoded_data.tolist()
-
-        decoded_outer_list = []
-
-        for i in range(len(int_encoded_data)):
-            decoded_list = []
-            for j in range(len(int_encoded_data[0])):
-                # Look up original key using integer encoding
-                decoded_list.append(
-                    inverse_int_encodings_dict[int_encoded_data[i][j]]
-                )
-            decoded_outer_list.append(decoded_list)
-
-        return np.array(decoded_outer_list)
 
     def read_popmap(
         self,
@@ -2346,6 +2144,8 @@ class GenotypeData:
     def decode_012(
         self,
         X,
+        write_output=True,
+        prefix="imputer",
         is_nuc=False,
     ):
         """
@@ -2354,10 +2154,14 @@ class GenotypeData:
         Args:
             **X** (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
 
+            **write_output** (bool, optional): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
+
+            **prefix** (str, optional): Prefix to append to the output file name. Defaults to "output".
+
             **is_nuc** (bool, optional): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
 
         Returns:
-            pandas.DataFrame: Returns the decoded data as a DataFrame.
+            str or pandas.DataFrame: If write_output is True, returns the filename where the imputed data was written. If write_output is False, returns the decoded data as a DataFrame.
         """
         if isinstance(X, pd.DataFrame):
             df = X.copy()
@@ -2386,13 +2190,32 @@ class GenotypeData:
 
         ft = self.filetype.lower()
 
-        df_decoded = df.copy().astype(object)
+        is_phylip = False
+        if ft == "phylip" or ft == "vcf":
+            is_phylip = True
+
+        df_decoded = df.copy()
 
         # VAE uses [A,T,G,C] encodings. The other NN methods use [0,1,2] encodings.
         if is_nuc:
             classes_int = range(10)
             classes_string = [str(x) for x in classes_int]
-            gt = ["A", "T", "G", "C", "W", "R", "M", "K", "Y", "S", "N"]
+            if is_phylip:
+                gt = ["A", "T", "G", "C", "W", "R", "M", "K", "Y", "S", "N"]
+            else:
+                gt = [
+                    "1/1",
+                    "2/2",
+                    "3/3",
+                    "4/4",
+                    "1/2",
+                    "1/3",
+                    "1/4",
+                    "2/3",
+                    "2/4",
+                    "3/4",
+                    "-9/-9",
+                ]
             d = dict(zip(classes_int, gt))
             dstr = dict(zip(classes_string, gt))
             d.update(dstr)
@@ -2408,9 +2231,10 @@ class GenotypeData:
                 alt2 = f"{alt}/{alt}"
                 het2 = f"{ref}/{alt}"
 
-                ref2 = nuc[ref2]
-                alt2 = nuc[alt2]
-                het2 = nuc[het2]
+                if is_phylip:
+                    ref2 = nuc[ref2]
+                    alt2 = nuc[alt2]
+                    het2 = nuc[het2]
 
                 d = {
                     "0": ref2,
@@ -2423,7 +2247,92 @@ class GenotypeData:
                 dreplace[col] = d
 
         df_decoded.replace(dreplace, inplace=True)
-        return df_decoded.values.tolist()
+
+        if write_output:
+            outfile = os.path.join(
+                f"{self.prefix}_output", "alignments", "imputed"
+            )
+
+        if ft.startswith("structure"):
+            of = f"{outfile}.str"
+            if ft.startswith("structure2row"):
+                for col in df_decoded.columns:
+                    df_decoded[col] = (
+                        df_decoded[col]
+                        .str.split("/")
+                        .apply(lambda x: list(map(int, x)))
+                    )
+
+                df_decoded.insert(0, "sampleID", self._samples)
+                df_decoded.insert(1, "popID", self._populations)
+
+                # Transform each element to a separate row.
+                df_decoded = (
+                    df_decoded.set_index(["sampleID", "popID"])
+                    .apply(pd.Series.explode)
+                    .reset_index()
+                )
+
+            elif ft.startswith("structure1row"):
+                df_decoded = pd.concat(
+                    [
+                        df_decoded[c]
+                        .astype(str)
+                        .str.split("/", expand=True)
+                        .add_prefix(f"{c}_")
+                        for c in df_decoded.columns
+                    ],
+                    axis=1,
+                )
+
+            elif ft == "structure":
+                for col in df_decoded.columns:
+                    df_decoded[col] = (
+                        df_decoded[col]
+                        .str.split("/")
+                        .apply(lambda x: list(map(int, x)))
+                    )
+
+                df_decoded.insert(0, "sampleID", self._samples)
+                df_decoded.insert(1, "popID", self._populations)
+
+                # Transform each element to a separate row.
+                df_decoded = (
+                    df_decoded.set_index(["sampleID", "popID"])
+                    .apply(pd.Series.explode)
+                    .reset_index()
+                )
+
+            if write_output:
+                df_decoded.insert(0, "sampleID", self._samples)
+                df_decoded.insert(1, "popID", self._populations)
+
+                df_decoded.to_csv(
+                    of,
+                    sep="\t",
+                    header=False,
+                    index=False,
+                )
+
+        elif ft.startswith("phylip"):
+            of = f"{outfile}.phy"
+            header = f"{self.num_inds} {self.num_snps}\n"
+
+            if write_output:
+                with open(of, "w") as fout:
+                    fout.write(header)
+
+                lst_decoded = df_decoded.values.tolist()
+
+                with open(of, "a") as fout:
+                    for sample, row in zip(self._samples, lst_decoded):
+                        seqs = "".join([str(x) for x in row])
+                        fout.write(f"{sample}\t{seqs}\n")
+
+        if write_output:
+            return of
+        else:
+            return df_decoded.values.tolist()
 
     def missingness_reports(
         self,
@@ -2982,12 +2891,12 @@ class GenotypeData:
 
     @genotypes_012.setter
     def genotypes_012(self, value) -> List[List[int]]:
-        """Set the 012 genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\.
+        """Set the 012 genotypes. They will be decoded back to a 2D list of genotypes as ``snp_data``\.
 
         Args:
             **value** (np.ndarray): 2D numpy array with 012-encoded genotypes.
         """
-        self._snp_data = self.decode_012(value)
+        self._snp_data = self.decode_012(value, write_output=False)
 
     @property
     def genotypes_onehot(self) -> Union[np.ndarray, List[List[List[float]]]]:
@@ -2998,23 +2907,6 @@ class GenotypeData:
         """
         return self.convert_onehot(self._snp_data)
 
-    @genotypes_onehot.setter
-    def genotypes_onehot(self, value) -> List[List[int]]:
-        """Set the onehot-encoded genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
-        if isinstance(value, pd.DataFrame):
-            X = value.to_numpy()
-        elif isinstance(value, list):
-            X = np.array(value)
-        elif isinstance(value, np.ndarray):
-            X = value
-        else:
-            raise TypeError(
-                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
-            )
-
-        Xt = self.inverse_onehot(X)
-        self._snp_data = Xt.tolist()
-
     @property
     def genotypes_int(self) -> np.ndarray:
         """Integer-encoded (0-9 including IUPAC characters) snps format.
@@ -3024,23 +2916,6 @@ class GenotypeData:
         """
         arr = self.convert_int_iupac(self._snp_data)
         return arr
-
-    @genotypes_int.setter
-    def genotypes_int(self, value) -> List[List[int]]:
-        """Set the integer-encoded (0-9) genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
-        if isinstance(value, pd.DataFrame):
-            X = value.to_numpy()
-        elif isinstance(value, list):
-            X = np.array(value)
-        elif isinstance(value, np.ndarray):
-            X = value
-        else:
-            raise TypeError(
-                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
-            )
-
-        Xt = self.inverse_int_iupac(X)
-        self._snp_data = Xt.tolist()
 
     @property
     def alignment(self) -> List[MultipleSeqAlignment]:
