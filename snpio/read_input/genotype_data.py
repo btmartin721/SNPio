@@ -652,6 +652,10 @@ class GenotypeData:
         except (IOError, FileNotFoundError):
             raise FileNotFoundError(f"Could not open IQ-TREE file {iqfile}")
 
+        # Check that the Q matrix was found and read
+        if not qlines:
+            raise IOError(f"Rate matrix Q not found in IQ-TREE file {iqfile}")
+
         # Populate q matrix with values from the IQ-TREE file
         order = [l[0] for l in qlines]
         for l in qlines:
