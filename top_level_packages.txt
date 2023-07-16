@@ -1,5 +1,6 @@
 biopython
 bokeh
+cyvcf2
 ete3
 holoviews
 kneed
@@ -9,7 +10,6 @@ pandas
 panel
 plotly
 requests
-scikit-allel
 scikit-learn
 scikit-learn-intelex
 scipy

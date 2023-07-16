@@ -74,8 +74,6 @@ class NRemover2:
         plot_sankey_filtering_report: Makes a Sankey plot showing the number of loci removed at each filtering step.
 
         print_filtering_report: Prints a summary of the filtering results.
-
-        print_cletus: Prints ASCII art of Cletus (a silly inside joke).
     """
 
     def __init__(self, popgenio):
@@ -102,7 +100,7 @@ class NRemover2:
         singletons=False,
         search_thresholds=True,
         plot_outfile="missingness_report.png",
-        suppress_cletus=False,
+        suppress_cletus=True,
         plot_dir="plots",
         included_steps=None,
     ):
@@ -127,8 +125,6 @@ class NRemover2:
             search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
 
             plot_outfile (str, optional): The filename for the missingness report plot. Defaults to "missingness_report.png".
-
-            suppress_cletus (bool, optional): Whether to suppress printing Cletus ASCII art. Defaults to False.
 
             plot_dir (str, optional): The directory to save the plots. Defaults to "plots".
 
