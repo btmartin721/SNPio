@@ -1742,6 +1742,14 @@ class GenotypeData:
         for i in range(0, len(snps)):
             new_snps.append([])
 
+        snps = [
+            [
+                str(element) if not isinstance(element, str) else element
+                for element in sublst
+            ]
+            for sublst in snps
+        ]
+
         # TODO: valid_sites is now deprecated.
         valid_sites = np.ones(len(snps[0]))
         for j in range(0, len(snps[0])):
@@ -2087,6 +2095,59 @@ class GenotypeData:
 
         return np.array(onehot_outer_list)
 
+    def inverse_onehot(
+        self,
+        onehot_data: Union[np.ndarray, List[List[float]]],
+        encodings_dict: Optional[Dict[str, List[float]]] = None,
+    ) -> np.ndarray:
+        """
+        Convert one-hot encoded data back to original format.
+
+        Args:
+            **onehot_data** (Union[np.ndarray, List[List[float]]]): Input one-hot encoded data of shape (n_samples, n_SNPs).
+
+            **encodings_dict** (Optional[Dict[str, List[float]]]): Encodings to convert from one-hot encoding to original format. Defaults to None.
+
+        Returns:
+            np.ndarray: Original format data.
+        """
+
+        if encodings_dict is None:
+            onehot_dict = {
+                "A": [1.0, 0.0, 0.0, 0.0],
+                "T": [0.0, 1.0, 0.0, 0.0],
+                "G": [0.0, 0.0, 1.0, 0.0],
+                "C": [0.0, 0.0, 0.0, 1.0],
+                "W": [0.5, 0.5, 0.0, 0.0],
+                "R": [0.5, 0.0, 0.5, 0.0],
+                "M": [0.5, 0.0, 0.0, 0.5],
+                "K": [0.0, 0.5, 0.5, 0.0],
+                "Y": [0.0, 0.5, 0.0, 0.5],
+                "S": [0.0, 0.0, 0.5, 0.5],
+                "N": [0.0, 0.0, 0.0, 0.0],
+            }
+        else:
+            onehot_dict = encodings_dict
+
+        # Create inverse dictionary (from list to key)
+        inverse_onehot_dict = {tuple(v): k for k, v in onehot_dict.items()}
+
+        if isinstance(onehot_data, np.ndarray):
+            onehot_data = onehot_data.tolist()
+
+        decoded_outer_list = []
+
+        for i in range(len(onehot_data)):
+            decoded_list = []
+            for j in range(len(onehot_data[0])):
+                # Look up original key using one-hot encoded list
+                decoded_list.append(
+                    inverse_onehot_dict[tuple(onehot_data[i][j])]
+                )
+            decoded_outer_list.append(decoded_list)
+
+        return np.array(decoded_outer_list)
+
     def convert_int_iupac(
         self,
         snp_data: Union[np.ndarray, List[List[int]]],
@@ -2146,6 +2207,63 @@ class GenotypeData:
             onehot_outer_list.append(onehot_list)
 
         return np.array(onehot_outer_list)
+
+    def inverse_int_iupac(
+        self,
+        int_encoded_data: Union[np.ndarray, List[List[int]]],
+        encodings_dict: Optional[Dict[str, int]] = None,
+    ) -> np.ndarray:
+        """
+        Convert integer-encoded data back to original format.
+
+        Args:
+            **int_encoded_data** (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input integer-encoded data.
+            **encodings_dict** (Dict[str, int] or None): Encodings to convert from integer encoding to original format.
+
+        Returns:
+            numpy.ndarray: Original format data.
+        """
+
+        if encodings_dict is None:
+            int_encodings_dict = {
+                "A": 0,
+                "T": 1,
+                "G": 2,
+                "C": 3,
+                "W": 4,
+                "R": 5,
+                "M": 6,
+                "K": 7,
+                "Y": 8,
+                "S": 9,
+                "-": -9,
+                "N": -9,
+                "?": -9,
+                ".": -9,
+            }
+        else:
+            int_encodings_dict = encodings_dict
+
+        # Create inverse dictionary (from integer to key)
+        inverse_int_encodings_dict = {
+            v: k for k, v in int_encodings_dict.items()
+        }
+
+        if isinstance(int_encoded_data, np.ndarray):
+            int_encoded_data = int_encoded_data.tolist()
+
+        decoded_outer_list = []
+
+        for i in range(len(int_encoded_data)):
+            decoded_list = []
+            for j in range(len(int_encoded_data[0])):
+                # Look up original key using integer encoding
+                decoded_list.append(
+                    inverse_int_encodings_dict[int_encoded_data[i][j]]
+                )
+            decoded_outer_list.append(decoded_list)
+
+        return np.array(decoded_outer_list)
 
     def read_popmap(
         self,
@@ -2228,8 +2346,6 @@ class GenotypeData:
     def decode_012(
         self,
         X,
-        write_output=True,
-        prefix="imputer",
         is_nuc=False,
     ):
         """
@@ -2238,14 +2354,10 @@ class GenotypeData:
         Args:
             **X** (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
 
-            **write_output** (bool, optional): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
-
-            **prefix** (str, optional): Prefix to append to the output file name. Defaults to "output".
-
             **is_nuc** (bool, optional): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
 
         Returns:
-            str or pandas.DataFrame: If write_output is True, returns the filename where the imputed data was written. If write_output is False, returns the decoded data as a DataFrame.
+            pandas.DataFrame: Returns the decoded data as a DataFrame.
         """
         if isinstance(X, pd.DataFrame):
             df = X.copy()
@@ -2274,32 +2386,13 @@ class GenotypeData:
 
         ft = self.filetype.lower()
 
-        is_phylip = False
-        if ft == "phylip" or ft == "vcf":
-            is_phylip = True
-
-        df_decoded = df.copy()
+        df_decoded = df.copy().astype(object)
 
         # VAE uses [A,T,G,C] encodings. The other NN methods use [0,1,2] encodings.
         if is_nuc:
             classes_int = range(10)
             classes_string = [str(x) for x in classes_int]
-            if is_phylip:
-                gt = ["A", "T", "G", "C", "W", "R", "M", "K", "Y", "S", "N"]
-            else:
-                gt = [
-                    "1/1",
-                    "2/2",
-                    "3/3",
-                    "4/4",
-                    "1/2",
-                    "1/3",
-                    "1/4",
-                    "2/3",
-                    "2/4",
-                    "3/4",
-                    "-9/-9",
-                ]
+            gt = ["A", "T", "G", "C", "W", "R", "M", "K", "Y", "S", "N"]
             d = dict(zip(classes_int, gt))
             dstr = dict(zip(classes_string, gt))
             d.update(dstr)
@@ -2315,10 +2408,9 @@ class GenotypeData:
                 alt2 = f"{alt}/{alt}"
                 het2 = f"{ref}/{alt}"
 
-                if is_phylip:
-                    ref2 = nuc[ref2]
-                    alt2 = nuc[alt2]
-                    het2 = nuc[het2]
+                ref2 = nuc[ref2]
+                alt2 = nuc[alt2]
+                het2 = nuc[het2]
 
                 d = {
                     "0": ref2,
@@ -2331,92 +2423,7 @@ class GenotypeData:
                 dreplace[col] = d
 
         df_decoded.replace(dreplace, inplace=True)
-
-        if write_output:
-            outfile = os.path.join(
-                f"{self.prefix}_output", "alignments", "imputed"
-            )
-
-        if ft.startswith("structure"):
-            of = f"{outfile}.str"
-            if ft.startswith("structure2row"):
-                for col in df_decoded.columns:
-                    df_decoded[col] = (
-                        df_decoded[col]
-                        .str.split("/")
-                        .apply(lambda x: list(map(int, x)))
-                    )
-
-                df_decoded.insert(0, "sampleID", self._samples)
-                df_decoded.insert(1, "popID", self._populations)
-
-                # Transform each element to a separate row.
-                df_decoded = (
-                    df_decoded.set_index(["sampleID", "popID"])
-                    .apply(pd.Series.explode)
-                    .reset_index()
-                )
-
-            elif ft.startswith("structure1row"):
-                df_decoded = pd.concat(
-                    [
-                        df_decoded[c]
-                        .astype(str)
-                        .str.split("/", expand=True)
-                        .add_prefix(f"{c}_")
-                        for c in df_decoded.columns
-                    ],
-                    axis=1,
-                )
-
-            elif ft == "structure":
-                for col in df_decoded.columns:
-                    df_decoded[col] = (
-                        df_decoded[col]
-                        .str.split("/")
-                        .apply(lambda x: list(map(int, x)))
-                    )
-
-                df_decoded.insert(0, "sampleID", self._samples)
-                df_decoded.insert(1, "popID", self._populations)
-
-                # Transform each element to a separate row.
-                df_decoded = (
-                    df_decoded.set_index(["sampleID", "popID"])
-                    .apply(pd.Series.explode)
-                    .reset_index()
-                )
-
-            if write_output:
-                df_decoded.insert(0, "sampleID", self._samples)
-                df_decoded.insert(1, "popID", self._populations)
-
-                df_decoded.to_csv(
-                    of,
-                    sep="\t",
-                    header=False,
-                    index=False,
-                )
-
-        elif ft.startswith("phylip"):
-            of = f"{outfile}.phy"
-            header = f"{self.num_inds} {self.num_snps}\n"
-
-            if write_output:
-                with open(of, "w") as fout:
-                    fout.write(header)
-
-                lst_decoded = df_decoded.values.tolist()
-
-                with open(of, "a") as fout:
-                    for sample, row in zip(self._samples, lst_decoded):
-                        seqs = "".join([str(x) for x in row])
-                        fout.write(f"{sample}\t{seqs}\n")
-
-        if write_output:
-            return of
-        else:
-            return df_decoded.values.tolist()
+        return df_decoded.values.tolist()
 
     def missingness_reports(
         self,
@@ -2975,12 +2982,12 @@ class GenotypeData:
 
     @genotypes_012.setter
     def genotypes_012(self, value) -> List[List[int]]:
-        """Set the 012 genotypes. They will be decoded back to a 2D list of genotypes as ``snp_data``\.
+        """Set the 012 genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\.
 
         Args:
             **value** (np.ndarray): 2D numpy array with 012-encoded genotypes.
         """
-        self._snp_data = self.decode_012(value, write_output=False)
+        self._snp_data = self.decode_012(value)
 
     @property
     def genotypes_onehot(self) -> Union[np.ndarray, List[List[List[float]]]]:
@@ -2991,6 +2998,23 @@ class GenotypeData:
         """
         return self.convert_onehot(self._snp_data)
 
+    @genotypes_onehot.setter
+    def genotypes_onehot(self, value) -> List[List[int]]:
+        """Set the onehot-encoded genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
+        if isinstance(value, pd.DataFrame):
+            X = value.to_numpy()
+        elif isinstance(value, list):
+            X = np.array(value)
+        elif isinstance(value, np.ndarray):
+            X = value
+        else:
+            raise TypeError(
+                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
+            )
+
+        Xt = self.inverse_onehot(X)
+        self._snp_data = Xt.tolist()
+
     @property
     def genotypes_int(self) -> np.ndarray:
         """Integer-encoded (0-9 including IUPAC characters) snps format.
@@ -3000,6 +3024,23 @@ class GenotypeData:
         """
         arr = self.convert_int_iupac(self._snp_data)
         return arr
+
+    @genotypes_int.setter
+    def genotypes_int(self, value) -> List[List[int]]:
+        """Set the integer-encoded (0-9) genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
+        if isinstance(value, pd.DataFrame):
+            X = value.to_numpy()
+        elif isinstance(value, list):
+            X = np.array(value)
+        elif isinstance(value, np.ndarray):
+            X = value
+        else:
+            raise TypeError(
+                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
+            )
+
+        Xt = self.inverse_int_iupac(X)
+        self._snp_data = Xt.tolist()
 
     @property
     def alignment(self) -> List[MultipleSeqAlignment]:
