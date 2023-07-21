@@ -14,11 +14,9 @@ import os
 import sys
 import sphinx_rtd_theme
 
-autodoc_mock_imports = ["cyvcf2"]
-
 
 sys.path.insert(0, os.path.abspath("../.."))
-sys.path.insert(0, os.path.abspath("../../snpio"))
+autodoc_mock_imports = ["cyvcf2"]
 
 
 # -- Project information -----------------------------------------------------

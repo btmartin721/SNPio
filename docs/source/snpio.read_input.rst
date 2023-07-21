@@ -10,7 +10,6 @@ snpio.read\_input.genotype\_data module
 .. automodule:: snpio.read_input.genotype_data
    :members:
    :show-inheritance:
-   :noindex:
 
 snpio.read\_input.popmap\_file module
 -------------------------------------
