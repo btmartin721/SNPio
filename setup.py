@@ -45,6 +45,7 @@ setup(
         "seaborn",
         "toytree",
         "kaleido",
+        "psutil",
     ],
     extras_require={
         "docs": ["sphinx", "sphinx-rtd_theme", "sphinx-autodoc-typehints"],

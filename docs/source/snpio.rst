@@ -5,7 +5,7 @@ Subpackages
 -----------
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
 
    snpio.filtering
    snpio.plotting
@@ -18,5 +18,4 @@ Module contents
 
 .. automodule:: snpio
    :members:
-   :undoc-members:
    :show-inheritance:
