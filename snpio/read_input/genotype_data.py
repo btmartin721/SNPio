@@ -1157,7 +1157,7 @@ class GenotypeData:
         Load genotypes from a cyvcf2 variant.
 
         Args:
-            variant (cyvcf2.Variant): Variant from cyvcf2 `VCF()` iterator.
+            variant (cyvcf2.Variant): Variant from cyvcf2 ``VCF`` iterator.
 
         Returns:
             List[str]: List of IUPAC base characters (including IUPAC ambiguity codes) for a single variant.
