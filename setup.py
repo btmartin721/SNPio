@@ -48,7 +48,7 @@ setup(
         "psutil",
     ],
     extras_require={
-        "docs": ["sphinx", "sphinx-rtd_theme", "sphinx-autodoc-typehints"],
+        "docs": ["sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"],
         "intel": ["scikit-learn-intelex"],
     },
     entry_points={"console_scripts": ["snpio=run_snpio.py:main"]},
