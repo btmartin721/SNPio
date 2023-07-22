@@ -5,10 +5,6 @@
 # Specify the version of the ReadTheDocs configuration file
 version: 2
 
-# Build configuration
-sphinx:
-  configuration: docs/source/conf.py
-
 # Python version to use
 # Set the version of Python and other tools you might need
 build:
@@ -20,7 +16,7 @@ build:
 sphinx:
   configuration: docs/source/conf.py
   builder: html
-  fail_on_warning: false
+  fail_on_warning: true
 
 python:
   install:
