@@ -17,8 +17,8 @@ from functools import partial
 import sys
 from collections import Counter
 
-from ..plotting.plotting import Plotting
-from ..filtering.nremover2 import NRemover2 as NRemover
+from snpio.plotting.plotting import Plotting
+from snpio.filtering.nremover2 import NRemover2 as NRemover
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
 

@@ -8,8 +8,8 @@ from Bio.Align import MultipleSeqAlignment
 from Bio import SeqUtils
 from copy import deepcopy
 
-from ..plotting.plotting import Plotting
-from ..read_input.genotype_data import GenotypeData
+from snpio.plotting.plotting import Plotting
+from snpio.read_input.genotype_data import GenotypeData
 
 
 class NRemover2:

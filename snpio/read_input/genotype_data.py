@@ -78,16 +78,10 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from cyvcf2 import VCF
 
-try:
-    from .popmap_file import ReadPopmap
-    from ..plotting.plotting import Plotting as Plotting
-    from ..utils import sequence_tools
-    from ..utils.misc import class_performance_decorator
-except (ModuleNotFoundError, ValueError):
-    from read_input.popmap_file import ReadPopmap
-    from plotting.plotting import Plotting as Plotting
-    from utils import sequence_tools
-    from utils.misc import class_performance_decorator
+from snpio.read_input.popmap_file import ReadPopmap
+from snpio.plotting.plotting import Plotting as Plotting
+from snpio.utils import sequence_tools
+from snpio.utils.misc import class_performance_decorator
 
 
 # Global resource data dictionary
