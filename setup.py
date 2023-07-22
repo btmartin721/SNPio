@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="snpio",
-    version="1.0.1",
+    version="1.0.1.1",
     url="https://github.com/btmartin721/SNPio",
     author="Bradley T. Martin and Tyler K. Chafin",
     author_email="evobio721@gmail.com",
@@ -39,7 +39,7 @@ setup(
         "panel",
         "plotly",
         "requests",
-        "cyvcf2",
+        # "cyvcf2",
         "scikit-learn",
         "scipy",
         "seaborn",
@@ -55,7 +55,7 @@ setup(
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",
-        "License :: OSI Approved :: MIT License",
+        "License :: OSI Approved :: GPL3 License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
