@@ -9,7 +9,7 @@ snpio.popgenstats.pop\_gen\_statistics module
 
 .. automodule:: snpio.popgenstats.pop_gen_statistics
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:
 
 Module contents
@@ -17,5 +17,5 @@ Module contents
 
 .. automodule:: snpio.popgenstats
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:

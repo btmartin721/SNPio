@@ -12,7 +12,7 @@ from ete3 import Tree
 from sklearn.model_selection import train_test_split
 
 # from xgboost import XGBClassifier
-import allel
+# import allel
 from functools import partial
 import sys
 from collections import Counter

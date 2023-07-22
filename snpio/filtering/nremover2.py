@@ -22,7 +22,7 @@ class NRemover2:
 
     A number of informative plots are also generated.
 
-    Notes:
+    Note:
         NRemover2 handles the following characters as missing data:
             - 'N'
             - '-'

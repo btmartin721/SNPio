@@ -9,7 +9,6 @@ snpio.utils.misc module
 
 .. automodule:: snpio.utils.misc
    :members:
-   :undoc-members:
    :show-inheritance:
 
 snpio.utils.sequence\_tools module
@@ -17,7 +16,6 @@ snpio.utils.sequence\_tools module
 
 .. automodule:: snpio.utils.sequence_tools
    :members:
-   :undoc-members:
    :show-inheritance:
 
 Module contents
@@ -25,5 +23,4 @@ Module contents
 
 .. automodule:: snpio.utils
    :members:
-   :undoc-members:
    :show-inheritance:

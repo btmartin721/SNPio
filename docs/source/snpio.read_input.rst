@@ -9,7 +9,7 @@ snpio.read\_input.genotype\_data module
 
 .. automodule:: snpio.read_input.genotype_data
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:
 
 snpio.read\_input.popmap\_file module
@@ -17,7 +17,7 @@ snpio.read\_input.popmap\_file module
 
 .. automodule:: snpio.read_input.popmap_file
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:
 
 Module contents
@@ -25,5 +25,5 @@ Module contents
 
 .. automodule:: snpio.read_input
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:

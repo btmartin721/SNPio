@@ -9,7 +9,7 @@ snpio.filtering.nremover2 module
 
 .. automodule:: snpio.filtering.nremover2
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:
 
 Module contents
@@ -17,5 +17,5 @@ Module contents
 
 .. automodule:: snpio.filtering
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:

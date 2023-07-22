@@ -9,7 +9,7 @@ snpio.plotting.plotting module
 
 .. automodule:: snpio.plotting.plotting
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:
 
 Module contents
@@ -17,5 +17,5 @@ Module contents
 
 .. automodule:: snpio.plotting
    :members:
-   :undoc-members:
+   :noindex:
    :show-inheritance:
