@@ -17,11 +17,3 @@ snpio.read\_input.popmap\_file module
 .. automodule:: snpio.read_input.popmap_file
    :members:
    :show-inheritance:
-
-Module contents
----------------
-
-.. automodule:: snpio.read_input
-   :members:
-   :noindex:
-   :show-inheritance:
