@@ -200,3 +200,5 @@ sfs_*
 unfiltered_reports/
 *.csv
 .snpio-release
+.snpio-pypitest
+.snpio-pip

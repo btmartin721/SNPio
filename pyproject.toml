@@ -64,4 +64,8 @@ intel = ["scikit-learn-intelex"]
 [project.urls]
 Repository = "https://github.com/btmartin721/SNPio.git"
 "Bug Tracker" = "https://github.com/btmartin721/SNPio/issues"
+<<<<<<< Updated upstream
 Documentation = "https://snpio.readthedocs.io/en/latest/"
+=======
+Documentation = "https://snpio.readthedocs.io/en/latest/#
+>>>>>>> Stashed changes
