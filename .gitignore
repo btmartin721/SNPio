@@ -199,3 +199,4 @@ dmypy.json
 sfs_*
 unfiltered_reports/
 *.csv
+.snpio-release
