@@ -16,4 +16,5 @@ Module contents
 
 .. automodule:: snpio.filtering
    :members:
+   :noindex:
    :show-inheritance:
