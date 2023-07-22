@@ -39,7 +39,7 @@ setup(
         "panel",
         "plotly",
         "requests",
-        "cyvcf2",
+        # "cyvcf2",
         "scikit-learn",
         "scipy",
         "seaborn",
