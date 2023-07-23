@@ -10,7 +10,7 @@ Before using SNPio, make sure it is installed in your Python environment. You ca
 
 .. code-block:: shell
 
-   pip install .
+   pip install snpio
 
 Importing SNPio
 --------------------

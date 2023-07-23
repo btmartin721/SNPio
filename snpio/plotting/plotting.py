@@ -29,7 +29,7 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import KNNImputer
 
-from ..utils import misc
+from snpio.utils import misc
 
 
 class Plotting:

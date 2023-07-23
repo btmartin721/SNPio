@@ -4,7 +4,7 @@ from collections import Counter
 from typing import List, Dict, Union
 from pathlib import Path
 
-from ..plotting.plotting import Plotting
+from snpio.plotting.plotting import Plotting
 
 
 class ReadPopmap:

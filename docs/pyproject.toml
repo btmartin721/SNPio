@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "SNPio"
-version = "1.0.1"
+version = "1.0.1.2"
 authors = [
     { name="Bradley T. Martin", email="evobio721@gmail.com" }, 
     { name="Tyler K. Chafin", email="tylerkchafin@gmail.com" } 
@@ -29,7 +29,7 @@ license = {text = "GPL3 License"}
 classifiers=[
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: GPL3 License",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",

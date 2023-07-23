@@ -14,7 +14,7 @@ This guide provides an overview of how to get started with the SNPio library. It
 Before using SNPio, make sure it is installed in your Python environment. You can install it using pip. In the project root directory (the directory containing setup.py), type the following command into your terminal:
 
 ```
-pip install .
+pip install snpio
 ```
 
 ## Importing SNPio
