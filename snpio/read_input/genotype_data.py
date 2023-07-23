@@ -2530,6 +2530,7 @@ class GenotypeData:
             bar_color=bar_color,
             heatmap_palette=heatmap_palette,
             plot_format=plot_format,
+            plot_dir=os.path.join(f"{prefix}_output", "plots"),
             dpi=dpi,
         )
 

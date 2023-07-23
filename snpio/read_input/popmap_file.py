@@ -106,8 +106,8 @@ class ReadPopmap:
             for value, count in value_counts.items():
                 print(f"{value:<10}{count:<10}")
 
-        Path("plots").mkdir(exist_ok=True, parents=True)
-        Plotting.plot_pop_counts(list(self._popdict.values()), "plots")
+        #Path("plots").mkdir(exist_ok=True, parents=True)
+        #Plotting.plot_pop_counts(list(self._popdict.values()), "plots")
 
     def validate_popmap(
         self, samples: List[str], force: bool = False
