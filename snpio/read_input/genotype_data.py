@@ -1568,8 +1568,8 @@ class GenotypeData:
                     alt2,
                     qual[i].astype(str),
                     fltr[i],
-                    ":".join(fmt),
                     info_result[i].astype(str),
+                    ":".join(fmt),
                     "\t".join(gt_joined),
                 ]
             )
