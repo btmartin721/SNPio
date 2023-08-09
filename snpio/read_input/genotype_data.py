@@ -388,6 +388,7 @@ class GenotypeData:
                     self._vcf_attributes,
                     self.num_snps,
                     self.num_inds,
+                    samples=self.samples,
                 )
 
     def _detect_file_format(self, filename: str) -> str:
@@ -1482,9 +1483,6 @@ class GenotypeData:
         if vcf_attributes is not None:
             gt = self._snpdata2gtarray(snp_data)
 
-        if vcf_attributes is not None:
-            pass
-
         # Convert the data to numpy arrays outside the loop
         snp_data = np.array(snp_data)
         alt = np.array(alt)
@@ -1533,7 +1531,7 @@ class GenotypeData:
             gt_joined = np.char.add(gt[i, :, 0].astype(str), "/")
             gt_joined = np.char.add(gt_joined, gt[i, :, 1].astype(str))
             gt_joined = np.char.replace(gt_joined, "N/N", "./.")
-
+            
             if vcf_attributes is not None:
                 fmt_data = [
                     calldata[f"calldata/{v}"][:, i]
@@ -1575,9 +1573,11 @@ class GenotypeData:
                     "\t".join(gt_joined),
                 ]
             )
-
+            
             # Write the line to the VCF file
             lines[i] = line + "\n"
+
+        lines = self._vcf_iupac2int(lines)
 
         # Write the lines to the file
         with open(output_filename, "w") as f:
@@ -1586,6 +1586,33 @@ class GenotypeData:
 
         if verbose:
             print("Successfully wrote VCF file!")
+
+    def _vcf_iupac2int(self, lines):
+        """Convert IUPAC nucleotide GT field into 0/0, 0/1, 1/0, and 1/1.
+        
+        Args:
+            lines (List[str]): List of lines.
+
+        Returns:
+            List[str]: Modified list of lines with genotypes replaced.
+        """
+        new_lines = []
+        for line in lines:
+            columns = line.strip().split("\t")
+            ref = columns[3]
+            alt = columns[4]
+            alt = alt.strip().split(",")
+
+            for i in range(9, len(columns)):
+                genotype, rest = columns[i].split(":", 1)
+                genotype = genotype.replace(ref, "0")
+                
+                for a in alt:
+                    genotype = genotype.replace(a, "1")
+                columns[i] = genotype + ":" + rest
+            line = "\t".join(columns) + "\n"
+            new_lines.append(line)
+        return new_lines
 
     def read_012(self) -> None:
         """
@@ -2594,6 +2621,7 @@ class GenotypeData:
         vcf_attributes: Dict[str, Any],
         num_snps: int,
         num_inds: int,
+        samples=None,
     ) -> Dict[str, Union[Dict[str, np.ndarray], np.ndarray]]:
         """
         Subsets the data in the GenotypeData object based on the provided lists of locus and sample indices.
@@ -2608,6 +2636,8 @@ class GenotypeData:
             num_snps (int): Total number of SNPs.
 
             num_inds (int): Total number of individuals.
+
+            samples (List[str]: SampleIDs to use in VCF header).
 
         Returns:
             Dict[str, Union[Dict[str, np.ndarray], np.ndarray]]: Dictionary of subsetted VCF attributes.
@@ -2661,13 +2691,13 @@ class GenotypeData:
 
         subsetted_vcf_attributes["fmt"] = vcf_attributes["fmt"]
         subsetted_vcf_attributes["vcf_header"] = self._subset_vcf_header(
-            vcf_attributes["vcf_header"], sample_indices
-        )
+            vcf_attributes["vcf_header"], sample_indices, samples
+        )       
 
         return subsetted_vcf_attributes
 
     def _subset_vcf_header(
-        self, vcf_header: str, sample_indices: List[int]
+        self, vcf_header: str, sample_indices: List[int], samples
     ) -> str:
         """
         Subset the VCF header based on the provided sample indices.
@@ -2677,6 +2707,8 @@ class GenotypeData:
 
             sample_indices (List[int]): Indices of samples to include.
 
+            samples (List[int]): SampleIDs to use for VCF header line.
+
         Returns:
             str: Subsetted VCF header.
         """
@@ -2684,16 +2716,20 @@ class GenotypeData:
         chrom_idx = header.index("#CHROM")
         fmt_idx = header.index("FORMAT")
         sample_idx = fmt_idx + 1
-        subset_samples = header[sample_idx:]
+        if samples is not None:
+            subset_samples = samples
+        else:
+            subset_samples = header[sample_idx:]
+            subset_samples = [x for x in subset_samples if x.strip()]
+            subset_samples = [subset_samples[i] for i in sample_indices]
         subset_chrom = header[chrom_idx : fmt_idx + 1]
         subset_chrom[-1] = subset_chrom[-1] + "\t"
         desc = header[:chrom_idx]
-        subset_samples = [subset_samples[i] for i in sample_indices]
         subset_samples = "\t".join(subset_samples)
         subset_chrom = "\t".join(subset_chrom)
         desc = "\n".join(desc)
         desc = desc.strip()
-        new_header = desc + "\n" + subset_chrom + subset_samples
+        new_header = desc + "\n" + subset_chrom + subset_samples + "\n"
         return new_header
 
     def _genotype_to_iupac(self, genotype: str) -> str:

@@ -294,6 +294,7 @@ class NRemover2:
                 self.popgenio.vcf_attributes,
                 self.popgenio.num_snps,
                 self.popgenio.num_inds,
+                samples=samples,
             )
         else:
             vcf_attributes = self.popgenio._vcf_attributes
