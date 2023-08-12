@@ -1220,6 +1220,9 @@ class Plotting:
 
             show (bool): Whether to show the plots or not.
         """
+        df["Threshold"] = df["Threshold"].astype(float)
+        df.sort_values(by="Threshold", inplace=True)
+
         # plot the boxplots
         fig, axs = plt.subplots(3, 2, figsize=(48, 27))
         ax1 = sns.boxplot(
