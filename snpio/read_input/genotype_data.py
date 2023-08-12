@@ -8,6 +8,7 @@ import requests
 import textwrap
 from datetime import datetime
 from collections import Counter
+from pathlib import Path
 
 from typing import Optional, Union, List, Dict, Any, Tuple
 
@@ -40,7 +41,10 @@ def patched_get_data_from_intree(self):
     newick strings in a multiline NEXUS format. In any case, we will read
     in the data as a list on lines.
 
-    NOTE: This method is monkey patched from the toytree package (v2.0.5) because there is a bug that appears in Python 11 where it tries to open a file using 'rU'. 'rU' is is deprecated in Python 11, so I changed it to just ``with open(self.intree, 'r')``\. This has been fixed on the GitHub version of toytree, but it is not at present fixed in the pip or conda versions.
+    NOTE: This method is monkey patched from the toytree package (v2.0.5) because there is a bug that appears in 
+    Python 11 where it tries to open a file using 'rU'. 'rU' is is deprecated in Python 11, so I changed it to just 
+    ``with open(self.intree, 'r')``\. This has been fixed on the GitHub version of toytree, 
+    but it is not at present fixed in the pip or conda versions.
     """
 
     # load string: filename or data stream
@@ -77,6 +81,7 @@ from Bio.Align import MultipleSeqAlignment
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 from cyvcf2 import VCF
+import vcfio
 
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.plotting.plotting import Plotting as Plotting
@@ -132,7 +137,8 @@ class GenotypeData:
         siterates_iqtree (str or None): Path to \*.rates file output from IQ-TREE, containing a per-site rate table. Cannot be used in conjunction with siterates argument. Not required if the siterates or siterates_iqtree options were used with the GenotypeData object. Defaults to None.
 
         plot_format (str): Format to save report plots. Valid options include: 'pdf', 'svg', 'png', and 'jpeg'. Defaults to 'pdf'.
-        prefix (str): Prefix to use for output directory.
+        
+        prefix (str): Prefix to use for output directory. Defaults to "gtdata".
 
     Attributes:
         inputs (dict): GenotypeData keyword arguments as a dictionary.
@@ -256,6 +262,7 @@ class GenotypeData:
         genotype_data.q = q_matrix # Set q-matrix for phylogenetic tree
 
         q_matrix = genotype_data.q # Get q-matrix object
+
         genotype_data.site_rates = site_rates # Set site rate data for phylogenetic tree
 
         site_rates = genotype_data.site_rates # Get site rate data
@@ -281,7 +288,7 @@ class GenotypeData:
         siterates: Optional[str] = None,
         siterates_iqtree: Optional[str] = None,
         plot_format: Optional[str] = "pdf",
-        prefix="imputer",
+        prefix="snpio",
         verbose: bool = True,
         **kwargs,
     ) -> None:
@@ -379,7 +386,7 @@ class GenotypeData:
                 exclude_pops=exclude_pops,
             )
 
-        if force_popmap:
+        if not all(x is None for x in self._vcf_attributes.values()):
             # Subset VCF attributes in case samples were not in popmap file.
             if self.filetype == "vcf":
                 self._vcf_attributes = self.subset_vcf_data(
@@ -1025,7 +1032,7 @@ class GenotypeData:
             print(f"\nReading VCF file {self.filename}...")
 
         self._check_filetype("vcf")
-        vcf_header, vcf_colnames, compressed = self._read_vcf_header(
+        vcf_header, _, __ = self._read_vcf_header(
             self.filename
         )
 
@@ -2257,6 +2264,10 @@ class GenotypeData:
         my_popmap.subset_popmap(include_pops, exclude_pops)
         indices = my_popmap.sample_indices
 
+        if self.verbose:
+            print("Found the following populations:\nPopulation\tCount\n")
+        my_popmap.get_pop_counts(self.prefix)
+
         if not force and not popmap_ok:
             raise ValueError(
                 f"Not all samples are present in supplied popmap "
@@ -2297,6 +2308,22 @@ class GenotypeData:
 
         self._popmap = my_popmap.popmap
         self._popmap_inverse = my_popmap.popmap_flipped
+
+    def write_popmap(self, filename: str) -> None:
+        """Write the population map to a file.
+        
+        Args:
+            filename (str): Output file path.
+        """
+        if not self.samples or self.samples is None:
+            raise ValueError("samples attribute is not defined.")
+        
+        if not self.populations or self.populations is None:
+            raise ValueError("populations attribute is not defined.")
+
+        with open(filename, "w") as fout:
+            for s, p in zip(self.samples, self.populations):
+                fout.write(f"{s}\t{p}\n")
 
     def decode_012(
         self,
@@ -2496,7 +2523,6 @@ class GenotypeData:
     def missingness_reports(
         self,
         zoom=True,
-        prefix=None,
         horizontal_space=0.6,
         vertical_space=0.6,
         bar_color="gray",
@@ -2536,8 +2562,6 @@ class GenotypeData:
         Args:
             zoom (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
 
-            prefix (str, optional): Prefix for output directory and files. Plots and files will be written to a directory called <prefix>_reports. The report directory will be created if it does not already exist. Defaults to 'imputer'.
-
             horizontal_space (float, optional): Set the width spacing between subplots. If your plots are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
 
             vertical_space (float, optional): Set the height spacing between subplots. If your plots are overlapping vertically, increase vertical_space. If your plots are too far apart, decrease it. Defaults to 0.6.
@@ -2551,7 +2575,6 @@ class GenotypeData:
         """
         params = dict(
             zoom=zoom,
-            prefix=prefix,
             horizontal_space=horizontal_space,
             vertical_space=vertical_space,
             bar_color=bar_color,
@@ -2567,8 +2590,12 @@ class GenotypeData:
             inplace=True,
         )
 
-        report_path = os.path.join(f"{prefix}_output", "reports")
-        os.makedirs(report_path, exist_ok=True)
+        report_path = os.path.join(f"{self.prefix}_output", "reports")
+        Path(report_path).mkdir(exist_ok=True, parents=True)
+
+        plot_dir = os.path.join(f"{self.prefix}_plots", "gtdata")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+        params["plot_dir"] = plot_dir
 
         loc, ind, poploc, poptotal, indpop = Plotting.visualize_missingness(
             self, df, **params
@@ -2905,8 +2932,11 @@ class GenotypeData:
         Returns:
             None. The function saves the plot as a .png file.
         """
+        plot_dir = os.path.join(f"{cls.prefix}_plots", "gtdata")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+
         Plotting.plot_performance(
-            cls.resource_data, fontsize=fontsize, color=color, figsize=figsize
+            cls.resource_data, fontsize=fontsize, color=color, figsize=figsize, plot_dir=plot_dir,
         )
 
     @property

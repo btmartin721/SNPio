@@ -7,6 +7,7 @@ import numpy as np
 from Bio.Align import MultipleSeqAlignment
 from Bio import SeqUtils
 from copy import deepcopy
+from pathlib import Path
 
 from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data import GenotypeData
@@ -85,6 +86,7 @@ class NRemover2:
         self.populations = list(set(popgenio.populations))
         self.samples = popgenio.samples
         self.poplist = popgenio.populations
+        self.prefix = popgenio.prefix
 
         self.loci_indices = None
         self.sample_indices = None
@@ -99,9 +101,8 @@ class NRemover2:
         monomorphic=False,
         singletons=False,
         search_thresholds=True,
-        plot_outfile="missingness_report.png",
+        plot_outfile="filtering_report.png",
         suppress_cletus=True,
-        plot_dir="plots",
         included_steps=None,
     ):
         """
@@ -124,9 +125,7 @@ class NRemover2:
 
             search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
 
-            plot_outfile (str, optional): The filename for the missingness report plot. Defaults to "missingness_report.png".
-
-            plot_dir (str, optional): The directory to save the plots. Defaults to "plots".
+            plot_outfile (str, optional): The filename for the missingness report plot. Defaults to "filtering_report.png".
 
             included_steps (list, optional): The steps to include in the Sankey plot. If None, all steps will be included. Defaults to None.
 
@@ -141,6 +140,9 @@ class NRemover2:
 
         aln_before = deepcopy(self.alignment)
         indices_loci_before = range(len(aln_before[0]))
+
+        plot_dir = os.path.join(f"{self.prefix}_plots", "nremover")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
 
         Plotting.plot_gt_distribution(
             self.popgenio.genotypes_int, plot_dir=plot_dir

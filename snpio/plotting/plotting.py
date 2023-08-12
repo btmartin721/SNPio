@@ -1464,7 +1464,7 @@ class Plotting:
 
     @staticmethod
     def plot_performance(
-        resource_data, fontsize=14, color="#8C56E3", figsize=(16, 9)
+        resource_data, fontsize=14, color="#8C56E3", figsize=(16, 9), plot_dir="plots",
     ):
         """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time.
 
@@ -1478,6 +1478,8 @@ class Plotting:
             color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
 
             figsize (tuple, optional): Size of the figure. Should be a tuple of 2 integers. Defaults to (16, 9).
+
+            plot_dir (str, optional): Directory to save plots to. Defaults to "plots".
 
         Returns:
             None. The function saves the plot as a .png file.
@@ -1540,7 +1542,8 @@ class Plotting:
         plt.yticks(fontsize=fontsize)
         plt.tight_layout()
 
-        fig.savefig(f"tests/benchmarking_plot.png", facecolor="white")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+        fig.savefig(os.path.join(plot_dir, "benchmarking_plot.png"), facecolor="white")
 
     @staticmethod
     def run_pca(

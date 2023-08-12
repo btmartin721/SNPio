@@ -482,7 +482,9 @@ def measure_performance_for_class_method(func):
 
 def class_performance_decorator(measure=True):
     """
-    Decorator for applying performance measurement to all callable attributes of a class that do not start with an underscore. The performance metrics include CPU load, memory footprint, and execution time.
+    Decorator for applying performance measurement to all callable attributes of a class that do not start with an underscore. 
+    
+    The performance metrics include CPU load, memory footprint, and execution time.
 
     Args:
         measure (bool, optional): If True, apply performance measurement. If False, return the class unchanged. Defaults to True.

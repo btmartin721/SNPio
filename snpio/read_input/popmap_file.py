@@ -1,4 +1,5 @@
 import sys
+import os
 
 from collections import Counter
 from typing import List, Dict, Union
@@ -71,10 +72,6 @@ class ReadPopmap:
                 "file is a two-column, tab-delimited file with no header line."
             )
 
-        if self.verbose:
-            print("Found the following populations:\nPopulation\tCount\n")
-        self.get_pop_counts()
-
     def write_popmap(self, output_file: str) -> None:
         """Write the population map dictionary to a file.
 
@@ -94,10 +91,13 @@ class ReadPopmap:
             for key, value in sorted_dict.items():
                 f.write(f"{key}: {value}\n")
 
-    def get_pop_counts(self) -> None:
+    def get_pop_counts(self, prefix: str) -> None:
         """Print out unique population IDs and their counts.
 
         Prints the unique population IDs along with their respective counts. It also generates a plot of the population counts.
+        
+        Args:
+            prefix (str): Prefix for output directory.
         """
         # Count the occurrences of each unique value
         value_counts = Counter(self._popdict.values())
@@ -106,8 +106,9 @@ class ReadPopmap:
             for value, count in value_counts.items():
                 print(f"{value:<10}{count:<10}")
 
-        Path("plots").mkdir(exist_ok=True, parents=True)
-        Plotting.plot_pop_counts(list(self._popdict.values()), "plots")
+        outdir = os.path.join(f"{prefix}_plots", "gtdata")
+        Path(outdir).mkdir(exist_ok=True, parents=True)
+        Plotting.plot_pop_counts(list(self._popdict.values()), outdir)
 
     def validate_popmap(
         self, samples: List[str], force: bool = False
