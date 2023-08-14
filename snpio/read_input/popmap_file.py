@@ -137,7 +137,7 @@ class ReadPopmap:
 
             sample_indices = [
                 i
-                for i, x in enumerate(self._popdict.keys())
+                for i, x in enumerate(samples)
                 if x in self._popdict
             ]
 
@@ -210,7 +210,7 @@ class ReadPopmap:
             popmap = {k: v for k, v in popmap.items() if v not in exclude}
 
             exc_idx = [
-                i for i, x in enumerate(self._popdict.values()) if x in exclude
+                i for i, x in enumerate(self._popdict.values()) if x not in exclude
             ]
         else:
             exc_idx = list(range(len(self._popdict)))
@@ -228,10 +228,9 @@ class ReadPopmap:
         if self._sample_indices is None:
             self._sample_indices = indices
         else:
-            indices += self._sample_indices
-            indices = list(set(indices))
-            indices.sort()
-            self._sample_indices = indices
+            indices_uniq = list(set(indices) & set(self._sample_indices))
+            indices_uniq.sort()
+            self._sample_indices = indices_uniq
 
     def _flip_dictionary(self, input_dict):
         """Flip the keys and values of a dictionary.
