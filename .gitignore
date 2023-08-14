@@ -202,3 +202,4 @@ unfiltered_reports/
 .snpio-release
 .snpio-pypitest
 .snpio-pip
+.snpio-test
