@@ -39,6 +39,7 @@ setup(
         "panel",
         "plotly",
         "requests",
+        "versioned-hdf5",
         "cyvcf2",
         "scikit-learn",
         "scipy",
@@ -50,6 +51,7 @@ setup(
     extras_require={
         "docs": ["sphinx<7", "sphinx-rtd-theme", "sphinx-autodoc-typehints"],
         "intel": ["scikit-learn-intelex"],
+        "dev": ["memory-profiler"]
     },
     entry_points={"console_scripts": ["snpio=run_snpio.py:main"]},
     classifiers=[

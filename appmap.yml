@@ -1,0 +1,10 @@
+appmap_dir: tmp/appmap
+language: python
+name: SNPio
+packages:
+- path: popmaps
+- path: phylip_files
+- path: trees
+- path: structure_files
+- path: snpio
+- path: tests

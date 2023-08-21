@@ -59,7 +59,7 @@ class ReadPopmap:
                 if len(cols) > 2:
                     raise AssertionError(
                         f"Invalid number of columns in tab-delimited popmap "
-                        "file. Expected 2, but got {len(cols)}"
+                        f"file. Expected 2, but got {len(cols)}"
                     )
 
                 ind = cols[0]
@@ -84,20 +84,18 @@ class ReadPopmap:
             IOError: Raises an exception if there is an error writing to the output file.
         """
         with open(output_file, "w") as f:
-            sorted_dict = dict(
-                sorted(self._popdict.items(), key=lambda item: item[1])
-            )
+            sorted_dict = dict(sorted(self._popdict.items(), key=lambda item: item[1]))
 
             for key, value in sorted_dict.items():
                 f.write(f"{key}: {value}\n")
 
-    def get_pop_counts(self, prefix: str) -> None:
+    def get_pop_counts(self, plot_dir_prefix: str) -> None:
         """Print out unique population IDs and their counts.
 
         Prints the unique population IDs along with their respective counts. It also generates a plot of the population counts.
-        
+
         Args:
-            prefix (str): Prefix for output directory.
+            plot_dir_prefix (str): Prefix for output directory.
         """
         # Count the occurrences of each unique value
         value_counts = Counter(self._popdict.values())
@@ -106,9 +104,7 @@ class ReadPopmap:
             for value, count in value_counts.items():
                 print(f"{value:<10}{count:<10}")
 
-        outdir = os.path.join(f"{prefix}_plots", "gtdata")
-        Path(outdir).mkdir(exist_ok=True, parents=True)
-        Plotting.plot_pop_counts(list(self._popdict.values()), outdir)
+        Plotting.plot_pop_counts(list(self._popdict.values()), plot_dir_prefix)
 
     def validate_popmap(
         self, samples: List[str], force: bool = False
@@ -127,38 +123,24 @@ class ReadPopmap:
         """
         # Make sure all sampleIDs are unique.
         samples = list(set(samples))
-        if force:
-            # Create a subset dictionary containing only the samples present in the alignment
-            subset_dict = {
-                samp: self._popdict[samp]
-                for samp in samples
-                if samp in self._popdict
-            }
+        for samp in samples:
+            if samp not in self._popdict:
+                return False
+        for samp in self._popdict.keys():
+            if samp not in samples:
+                return False
+        return True
 
-            sample_indices = [
-                i
-                for i, x in enumerate(samples)
-                if x in self._popdict
-            ]
-
-            self._popdict = subset_dict
-            self._sample_indices = sample_indices
-            return True
-        else:
-            for samp in samples:
-                if samp not in self._popdict:
-                    return False
-            for samp in self._popdict.keys():
-                if samp not in samples:
-                    return False
-            return True
-
-    def subset_popmap(self, include: List[str], exclude: List[str]) -> None:
+    def subset_popmap(
+        self, samples: List[str], include: List[str], exclude: List[str]
+    ) -> None:
         """Subset the population map based on inclusion and exclusion criteria.
 
         Subsets the population map by including only the specified populations (include) and excluding the specified populations (exclude).
 
         Args:
+            samples (List[str]): List of samples from alignment.
+
             include (List[str]): List of populations to include in the subset.
                 The populations to include in the subset of the population map.
 
@@ -192,11 +174,9 @@ class ReadPopmap:
                 )
 
             popmap = {k: v for k, v in self._popdict.items() if v in include}
-            inc_idx = [
-                i for i, x in enumerate(self._popdict.values()) if x in include
-            ]
+            inc_idx = [i for i, x in enumerate(samples) if x in popmap]
         else:
-            inc_idx = list(range(len(self._popdict)))
+            inc_idx = list(range(len(samples)))
 
         if exclude is not None:
             if not isinstance(exclude, list):
@@ -208,29 +188,26 @@ class ReadPopmap:
                 popmap = self._popdict
 
             popmap = {k: v for k, v in popmap.items() if v not in exclude}
+            exc_idx = [i for i, x in enumerate(samples) if x in popmap]
 
-            exc_idx = [
-                i for i, x in enumerate(self._popdict.values()) if x not in exclude
-            ]
         else:
-            exc_idx = list(range(len(self._popdict)))
+            exc_idx = list(range(len(samples)))
 
         if not popmap:
             raise ValueError(
                 "popmap was empty after subseting with 'include_pops' and 'exclude_pops'"
             )
 
-        indices = inc_idx + exc_idx
-        indices = list(set(indices))
+        indices = list(set(inc_idx) & set(exc_idx))
         indices.sort()
 
-        self._popdict = popmap
         if self._sample_indices is None:
             self._sample_indices = indices
         else:
             indices_uniq = list(set(indices) & set(self._sample_indices))
             indices_uniq.sort()
             self._sample_indices = indices_uniq
+        self._popdict = popmap
 
     def _flip_dictionary(self, input_dict):
         """Flip the keys and values of a dictionary.

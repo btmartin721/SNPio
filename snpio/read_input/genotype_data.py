@@ -7,10 +7,13 @@ import random
 import requests
 import textwrap
 from datetime import datetime
-from collections import Counter, OrderedDict
+from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
 import cProfile
 from memory_profiler import profile
+import gc
+
+import h5py
 
 from typing import Optional, Union, List, Dict, Any, Tuple
 
@@ -82,9 +85,11 @@ TreeParser.get_data_from_intree = patched_get_data_from_intree
 from Bio.Align import MultipleSeqAlignment
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
-from cyvcf2 import VCF
-import vcfio
-from vcfio.utils.easy_dict import EasyDict
+
+# from cyvcf2 import VCF
+
+from pysam import VariantFile
+import pysam
 
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.plotting.plotting import Plotting as Plotting
@@ -139,7 +144,7 @@ class GenotypeData:
 
         siterates_iqtree (str or None): Path to \*.rates file output from IQ-TREE, containing a per-site rate table. Cannot be used in conjunction with siterates argument. Not required if the siterates or siterates_iqtree options were used with the GenotypeData object. Defaults to None.
 
-        plot_format (str): Format to save report plots. Valid options include: 'pdf', 'svg', 'png', and 'jpeg'. Defaults to 'pdf'.
+        plot_format (str): Format to save report plots. Valid options include: 'pdf', 'svg', 'png', and 'jpeg'. Defaults to 'png'.
 
         prefix (str): Prefix to use for output directory. Defaults to "gtdata".
 
@@ -290,19 +295,14 @@ class GenotypeData:
         qmatrix: Optional[str] = None,
         siterates: Optional[str] = None,
         siterates_iqtree: Optional[str] = None,
-        plot_format: Optional[str] = "pdf",
+        plot_format: Optional[str] = "png",
         prefix="snpio",
+        chunk_size: int = 1000,
         verbose: bool = True,
         **kwargs,
     ) -> None:
         """
         Initialize the GenotypeData object."""
-
-        testing = kwargs.get("testing", False)
-
-        if testing:
-            profiler = cProfile.Profile()
-            profiler.enable()
 
         self.filename = filename
         self.filetype = filetype.lower()
@@ -317,6 +317,7 @@ class GenotypeData:
         self.siterates_iqtree = siterates_iqtree
         self.plot_format = plot_format
         self.prefix = prefix
+        self.chunk_size = chunk_size
         self.verbose = verbose
         self.measure = kwargs.get("measure", False)
 
@@ -389,12 +390,20 @@ class GenotypeData:
             self._sample_indices = list(range(self.num_inds))
 
         if filetype != "vcf" and self.popmapfile is not None:
-            self.read_popmap(
-                popmapfile,
-                force=force_popmap,
-                include_pops=include_pops,
-                exclude_pops=exclude_pops,
+            self._my_popmap = self.read_popmap(popmapfile)
+
+            self.subset_with_popmap(
+                self._my_popmap,
+                self.samples,
+                force=self.force_popmap,
+                include_pops=self.include_pops,
+                exclude_pops=self.exclude_pops,
             )
+
+        if self.popmapfile is not None:
+            if self.verbose:
+                print("Found the following populations:\nPopulation\tCount\n")
+            self._my_popmap.get_pop_counts(plot_dir_prefix=self.prefix)
 
         self._kwargs["filetype"] = self.filetype
         self._kwargs["loci_indices"] = self._loci_indices
@@ -411,10 +420,6 @@ class GenotypeData:
                     self.num_inds,
                     samples=self.samples,
                 )
-
-        if testing:
-            profiler.disable()
-            profiler.print_stats(sort="time")
 
     def _detect_file_format(self, filename: str) -> str:
         """
@@ -523,7 +528,7 @@ class GenotypeData:
                 self.read_012()
             elif filetype == "vcf":
                 self.filetype = filetype
-                self.read_vcf_mod()
+                self.read_vcf_pysam()
             elif filetype is None:
                 raise TypeError("filetype argument must be provided, but got NoneType.")
             else:
@@ -1002,7 +1007,45 @@ class GenotypeData:
                 f"\nFound {self.num_snps} SNPs and {self.num_inds} " f"individuals...\n"
             )
 
-    @profile
+    def read_vcf_pysam(self) -> None:
+        """
+        Read a VCF file into a GenotypeData object.
+
+        Raises:
+            ValueError: If the number of individuals differs from the header line.
+        """
+        if self.verbose:
+            print(f"\nReading VCF file {self.filename}...")
+
+        self._check_filetype("vcf")
+
+        # Load the VCF file using cyvcf2
+        vcf = VariantFile(self.filename, mode="r")
+        self.vcf_reader = vcf
+
+        self._samples = vcf.header.samples
+        self._sample_indices = range(len(self._samples))
+
+        if self.popmapfile is not None:
+            self._my_popmap = self.read_popmap(self.popmapfile)
+
+        (
+            self._vcf_attributes,
+            self._snp_data,
+            self._samples,
+        ) = self.get_vcf_attributes_pysam(
+            vcf, self.sample_indices, self.loci_indices, chunk_size=self.chunk_size
+        )
+
+        vcf.close()
+
+        self._validate_seq_lengths()
+
+        if self.verbose:
+            print(f"VCF file successfully loaded!")
+            print(f"\nFound {self.num_snps} SNPs and {self.num_inds} individuals...\n")
+
+    # @profile
     def read_vcf_mod(self) -> None:
         """
         Read a VCF file into a GenotypeData object.
@@ -1016,19 +1059,14 @@ class GenotypeData:
         self._check_filetype("vcf")
 
         # Load the VCF file using cyvcf2
-        vcf = VCF(self.filename, lazy=True)
+        vcf = VCF(self.filename, lazy=True, threads=1)
         self.vcf_reader = vcf
 
         self._samples = vcf.samples
         self._sample_indices = range(len(self._samples))
 
         if self.popmapfile is not None:
-            self.my_popmap = self.read_popmap(
-                self.popmapfile,
-                force=self.force_popmap,
-                include_pops=self.include_pops,
-                exclude_pops=self.exclude_pops,
-            )
+            self._my_popmap = self.read_popmap(self.popmapfile)
 
         self._vcf_attributes, self._snp_data, self._samples = self.get_vcf_attributes(
             vcf, self.sample_indices, self.loci_indices
@@ -1128,7 +1166,9 @@ class GenotypeData:
             print(f"VCF file successfully loaded!")
             print(f"\nFound {self.num_snps} SNPs and {self.num_inds} individuals...\n")
 
-    def get_vcf_attributes(self, vcf, sample_indices=None, loci_indices=None):
+    def get_vcf_attributes_old(
+        self, vcf, sample_indices=None, loci_indices=None, chunk_size=1000
+    ):
         """Get VCF attributes from cyvcf2 object.
 
         Args:
@@ -1146,8 +1186,8 @@ class GenotypeData:
 
         samples = vcf.samples
 
-        popmap_indices = self.subset_with_popmap(
-            self.my_popmap,
+        sample_indices = self.subset_with_popmap(
+            self._my_popmap,
             samples,
             force=self.force_popmap,
             include_pops=self.include_pops,
@@ -1155,20 +1195,16 @@ class GenotypeData:
             return_indices=True,
         )
 
-        if sample_indices is not None:
-            sample_indices = list(set(sample_indices) & set(popmap_indices))
-            sample_indices.sort()
-        else:
-            sample_indices = popmap_indices
-
         if len(samples) != len(sample_indices):
-            samples = [x for i, x in enumerate(samples) if i in sample_indices]
+            samples = [samples[i] for i in sample_indices]
             header_split = vcf_header.strip().split("\n")
             header = header_split.pop(-1)
             colnames = header.strip().split("\t")
             samplenames = colnames[9:]
+            fmt_cols = colnames[:9]
             samplenames = [x for i, x in enumerate(samplenames) if i in sample_indices]
-            header_split.append(samplenames)
+            full_header = fmt_cols + samplenames
+            header_split.append("\t".join(full_header) + "\n")
             vcf_header = "\n".join(header_split)
 
         chrom, pos, vcf_id, ref, alt, qual, vcf_filter, snp_data = (
@@ -1262,7 +1298,7 @@ class GenotypeData:
         # Convert lists to numpy arrays
         info = {k: np.array(v, dtype="U32")[loci_indices] for k, v in info.items()}
         calldata = {
-            k: np.array(v, dtype="U32")[sample_indices, :] for k, v in calldata.items()
+            k: np.array(v, dtype="U32")[:, sample_indices] for k, v in calldata.items()
         }
 
         M = max(len(alleles) for alleles in alt)
@@ -1285,10 +1321,672 @@ class GenotypeData:
                 "vcf_header": vcf_header,
             }
         )
-
         snp_data = np.array(snp_data)
         snp_data = snp_data[:, sample_indices]
         return vcf_attributes, snp_data.T.tolist(), samples
+
+    # @profile
+    def get_vcf_attributes_pysam(
+        self, vcf, sample_indices=None, loci_indices=None, chunk_size=5000
+    ):
+        """Get VCF attributes from cyvcf2 object.
+
+        Args:
+            vcf (pysam.VariantRecord): pysam object.
+            kwargs (Dict[str, Any]): Supported kwargs: {"loci_indices", "sample_indices"}.
+        """
+
+        if loci_indices is None and self.loci_indices is not None:
+            loci_indices = self.loci_indices
+
+        if sample_indices is None:
+            sample_indices = self.sample_indices
+
+        samples = list((vcf.header.samples))
+
+        sample_indices = self.subset_with_popmap(
+            self._my_popmap,
+            samples,
+            force=self.force_popmap,
+            include_pops=self.include_pops,
+            exclude_pops=self.exclude_pops,
+            return_indices=True,
+        )
+
+        if len(samples) != len(sample_indices):
+            samples = [samples[i] for i in sample_indices]
+            new_header = pysam.VariantHeader()
+
+            for record in vcf.header.records:
+                new_header.add_record(record)
+
+            for sample in samples:
+                new_header.add_sample(sample)
+
+            vcf.subset_samples(samples)
+
+        info_fields = list((vcf.header.info))
+
+        format_fields = list((vcf.header.formats))
+        format_fields = [x for x in format_fields if x != "GT"]
+
+        max_alt_length = 3
+
+        outdir = os.path.join(f"{self.prefix}_output", "alignments", "vcf")
+        Path(outdir).mkdir(exist_ok=True, parents=True)
+        h5_outfile = os.path.join(outdir, "vcf_attributes.h5")
+
+        with h5py.File(h5_outfile, "w") as f:
+            # Create datasets for basic attributes
+            chrom_dset = f.create_dataset("chrom", (0,), maxshape=(None,), dtype="S10")
+            pos_dset = f.create_dataset("pos", (0,), maxshape=(None,), dtype=int)
+            vcf_id_dset = f.create_dataset(
+                "vcf_id", (0,), maxshape=(None,), dtype="S10"
+            )
+            ref_dset = f.create_dataset("ref", (0,), maxshape=(None,), dtype="S10")
+            alt_dset = f.create_dataset(
+                "alt",
+                (0, max_alt_length),
+                maxshape=(None, max_alt_length),
+                dtype="S10",
+            )
+            qual_dset = f.create_dataset("qual", (0,), maxshape=(None,), dtype=float)
+            vcf_filter_dset = f.create_dataset(
+                "filter",
+                (0,),
+                maxshape=(None,),
+                dtype=h5py.string_dtype(),
+            )
+            snp_data_dset = f.create_dataset(
+                "snp_data",
+                (0, len(samples)),
+                maxshape=(None, len(samples)),
+                dtype=h5py.string_dtype(),
+            )
+
+            # Create groups for info and calldata
+            info_group = f.create_group("info")
+            calldata_group = f.create_group("calldata")
+
+            # Create datasets within info and calldata groups
+            info_dsets = {
+                k: info_group.create_dataset(
+                    k,
+                    (0,),  # 1-dimensional shape
+                    maxshape=(None,),  # Allow expansion along the first dimension
+                    dtype=h5py.string_dtype(),
+                )
+                for k in info_fields
+            }
+            calldata_dsets = {
+                f"calldata/{k}": calldata_group.create_dataset(
+                    f"calldata/{k}",
+                    (0, len(samples)),
+                    maxshape=(None, len(samples)),
+                    dtype=h5py.string_dtype(),
+                )
+                for k in format_fields
+            }
+
+            # Define the mapping outside the function
+            IUPAC_MAPPING = {
+                ("A", "A"): "A",
+                ("A", "C"): "M",
+                ("A", "G"): "R",
+                ("A", "T"): "W",
+                ("C", "C"): "C",
+                ("C", "G"): "S",
+                ("C", "T"): "Y",
+                ("G", "G"): "G",
+                ("G", "T"): "K",
+                ("T", "T"): "T",
+                ("N", "N"): "N",
+                ("A", "N"): "A",
+                ("C", "N"): "C",
+                ("T", "N"): "T",
+                ("G", "N"): "G",
+            }
+
+            # Precompute the IUPAC codes for all possible ASCII sums of two characters
+            # IUPAC_LIST = ["N"] * (256 * 2)
+            # for (base1, base2), code in IUPAC_MAPPING.items():
+            #     index = ord(base1) + ord(base2)
+            #     IUPAC_LIST[index] = code
+            #     IUPAC_LIST[index + 256] = code  # To handle the reversed order
+
+            max_alt_length = 0
+
+            for data_type in [
+                "chrom",
+                "pos",
+                "ref",
+                "alt",
+                "qual",
+                "vcf_filter",
+                "info",
+                "calldata",
+                "snp_data",
+            ]:
+                if self.verbose:
+                    print(f"\nLoading {data_type}...")
+
+                for data in self.fetch_data(
+                    vcf,
+                    data_type,
+                    loci_indices,
+                    chunk_size,
+                    info_fields,
+                    IUPAC_MAPPING,
+                ):
+                    # Resize and write to datasets
+                    if data_type == "chrom":
+                        chrom_dset.resize((chrom_dset.shape[0] + len(data),))
+                        chrom_dset[-len(data) :] = data
+                    elif data_type == "pos":
+                        pos_dset.resize((pos_dset.shape[0] + len(data),))
+                        pos_dset[-len(data) :] = data
+                    elif data_type == "vcf_id":
+                        vcf_id_dset.resize((vcf_id_dset.shape[0] + len(data),))
+                        vcf_id_dset[-len(data) :] = data
+                    elif data_type == "ref":
+                        ref_dset.resize((ref_dset.shape[0] + len(data),))
+                        ref_dset[-len(data) :] = data
+                    elif data_type == "alt":
+                        current_alt_length = max(len(t) for t in data)
+                        if current_alt_length > max_alt_length:
+                            max_alt_length = current_alt_length
+                            alt_padded = [
+                                list(a) + [""] * (max_alt_length - len(a)) for a in data
+                            ]
+
+                            # Convert the padded lists to a NumPy array of fixed-size strings
+                            alt_array = np.array(alt_padded, dtype=f"S{max_alt_length}")
+
+                            # Resize and write to the alt_dset dataset
+                            alt_dset.resize(
+                                (alt_dset.shape[0] + len(alt_array), max_alt_length)
+                            )
+                            alt_dset[-len(alt_array) :, :] = alt_array
+                    elif data_type == "qual":
+                        qual_dset.resize((qual_dset.shape[0] + len(data),))
+                        qual_dset[-len(data) :] = data
+                    elif data_type == "vcf_filter":
+                        vcf_filter_dset.resize((vcf_filter_dset.shape[0] + len(data),))
+                        vcf_filter_dset[-len(data) :] = np.squeeze(data)
+
+                    elif data_type == "info":
+                        for k, v in data.items():
+                            v_str = np.array(v, dtype=str)
+                            info_dsets[k].resize((len(v_str),))
+                            info_dsets[k][-len(v_str) :] = v_str
+
+                    elif data_type == "calldata":
+                        for k, v in data.items():
+                            v_str = np.array(v, dtype=str)
+                            calldata_dsets[k].resize(
+                                (
+                                    calldata_dsets[k].shape[0] + len(v_str),
+                                    len(samples),
+                                )
+                            )
+                            calldata_dsets[k][-len(v_str) :, :] = v_str
+
+                    elif data_type == "snp_data":
+                        snp_data = np.array(data, dtype=str)
+                        snp_data_dset.resize(
+                            (snp_data_dset.shape[0] + len(data), len(samples))
+                        )
+                        snp_data_dset[-len(data) :, :] = np.array(data)
+                vcf.reset()
+
+        snp_data = None
+        with h5py.File(h5_outfile, "r") as f:
+            # Load the entire dataset into a NumPy array
+            snp_data = f["snp_data"][:]
+
+        snp_data = np.array(snp_data)
+
+        return f"{self.prefix}_vcf_attributes.h5", snp_data.T.tolist(), samples
+
+    def fetch_data(
+        self,
+        vcf,
+        data_type,
+        loci_indices,
+        chunk_size,
+        info_fields,
+        IUPAC_MAPPING,
+    ):
+        def transform_gt(gt, ref, alt):
+            gt_array = np.array(gt)
+            alt_array = [ref] + list(alt)  # Adding the reference at the beginning
+
+            # Function to apply transformation for each pair
+            def transform_pair(pair):
+                allele1, allele2 = pair
+                if allele1 is None or allele2 is None:
+                    return "N"
+                a1, a2 = alt_array[allele1], alt_array[allele2]
+                a1, a2 = sorted(
+                    [a1, a2]
+                )  # Sort the alleles to ensure the correct mapping
+                return IUPAC_MAPPING[(a1, a2)]
+
+            return list(map(transform_pair, gt_array))
+
+        # Initialize the data containers for each data type
+        data_containers = {
+            "chrom": [],
+            "pos": [],
+            "vcf_id": [],
+            "ref": [],
+            "alt": [],
+            "qual": [],
+            "vcf_filter": [],
+            "snp_data": [],
+            "info": defaultdict(list),
+            "calldata": defaultdict(list),
+        }
+
+        for i, variant in enumerate(vcf.fetch()):
+            # Process only the required variants if loci_indices is provided
+            if loci_indices is not None and i not in loci_indices:
+                continue
+
+            # Process the specific data type
+            if data_type == "chrom":
+                data_containers["chrom"].append(variant.chrom)
+            elif data_type == "pos":
+                data_containers["pos"].append(variant.pos)
+            elif data_type == "vcf_id":
+                data_containers["vcf_id"].append(
+                    "." if variant.id is None else variant.id
+                )
+            elif data_type == "ref":
+                data_containers["ref"].append(variant.ref)
+            elif data_type == "alt":
+                data_containers["alt"].append(variant.alts)
+            elif data_type == "qual":
+                data_containers["qual"].append(variant.qual)
+            elif data_type == "vcf_filter":
+                data_containers["vcf_filter"].append(variant.filter)
+            elif data_type == "snp_data":
+                gt = [
+                    variant.samples[sample].get("GT", "./.")
+                    for sample in variant.samples
+                ]
+
+                snp_data = transform_gt(gt, variant.ref, variant.alts)
+                data_containers["snp_data"].append(snp_data)
+            elif data_type == "info":
+                info = defaultdict(list)
+                for k in info_fields:
+                    value = (
+                        variant.info.get(k, ("."))
+                        if isinstance(variant.info.get(k), tuple)
+                        else variant.info.get(k, ".")
+                    )
+                    processed_value = (
+                        ",".join(list(value)) if isinstance(value, tuple) else value
+                    )
+
+                    info[k].append(processed_value)
+                    data_containers["info"] = info
+
+            elif data_type == "calldata":
+                cd = defaultdict(list)
+                for field in variant.format.keys():
+                    if field != "GT":
+                        key = f"calldata/{field}"
+
+                        cd[key] = [
+                            ",".join(list(variant.samples[sample].get(field, ("."))))
+                            if isinstance(variant.samples[sample].get(field), tuple)
+                            else variant.samples[sample].get(field, ".")
+                            for sample in variant.samples
+                        ]
+
+                        data_containers["calldata"] = cd
+
+            # If reached chunk size, yield and reset current chunk
+            if (i + 1) % chunk_size == 0:
+                yield data_containers[data_type]
+                data_containers[data_type] = []
+
+        # Yield remaining data if any
+        if data_containers[data_type]:
+            yield data_containers[data_type]
+
+    # @profile
+    def get_vcf_attributes(
+        self, vcf, sample_indices=None, loci_indices=None, chunk_size=500
+    ):
+        """Get VCF attributes from cyvcf2 object.
+
+        Args:
+            vcf (cyvcf2.VCF): cyvcf2 object.
+            kwargs (Dict[str, Any]): Supported kwargs: {"loci_indices", "sample_indices"}.
+        """
+
+        if loci_indices is None and self.loci_indices is not None:
+            loci_indices = self.loci_indices
+
+        if sample_indices is None:
+            sample_indices = self.sample_indices
+
+        vcf_header = vcf.raw_header
+
+        samples = vcf.samples
+
+        sample_indices = self.subset_with_popmap(
+            self._my_popmap,
+            samples,
+            force=self.force_popmap,
+            include_pops=self.include_pops,
+            exclude_pops=self.exclude_pops,
+            return_indices=True,
+        )
+
+        if len(samples) != len(sample_indices):
+            samples = [samples[i] for i in sample_indices]
+            header_split = vcf_header.strip().split("\n")
+            header = header_split.pop(-1)
+            colnames = header.strip().split("\t")
+            samplenames = colnames[9:]
+            fmt_cols = colnames[:9]
+            samplenames = [x for i, x in enumerate(samplenames) if i in sample_indices]
+            full_header = fmt_cols + samplenames
+            header_split.append("\t".join(full_header) + "\n")
+            vcf_header = "\n".join(header_split)
+
+        info_fields = [
+            field["ID"] for field in vcf.header_iter() if field["HeaderType"] == "INFO"
+        ]
+
+        format_fields = [
+            field["ID"]
+            for field in vcf.header_iter()
+            if field["HeaderType"] == "FORMAT" and field["ID"] != "GT"
+        ]
+
+        max_alt_length = 3
+
+        # Reset the lists
+        chrom, pos, vcf_id, ref, alt, qual, vcf_filter, snp_data = (
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
+        info = {k: [] for k in info_fields}
+        calldata = {k: [] for k in format_fields}
+
+        with h5py.File("vcf_attributes.h5", "w") as f:
+            # Create datasets for basic attributes
+            chrom_dset = f.create_dataset("chrom", (0,), maxshape=(None,), dtype="S10")
+            pos_dset = f.create_dataset("pos", (0,), maxshape=(None,), dtype=int)
+            vcf_id_dset = f.create_dataset(
+                "vcf_id", (0,), maxshape=(None,), dtype="S10"
+            )
+            ref_dset = f.create_dataset("ref", (0,), maxshape=(None,), dtype="S10")
+            alt_dset = f.create_dataset(
+                "alt",
+                (0, max_alt_length),
+                maxshape=(None, max_alt_length),
+                dtype="S10",
+            )
+            qual_dset = f.create_dataset("qual", (0,), maxshape=(None,), dtype=float)
+            vcf_filter_dset = f.create_dataset(
+                "filter", (0,), maxshape=(None,), dtype="S10"
+            )
+            snp_data_dset = f.create_dataset(
+                "snp_data",
+                (0, len(samples)),
+                maxshape=(None, len(samples)),
+                dtype=h5py.string_dtype(),
+            )
+
+            # Create groups for info and calldata
+            info_group = f.create_group("info")
+            calldata_group = f.create_group("calldata")
+
+            # Create datasets within info and calldata groups
+            info_dsets = {
+                k: info_group.create_dataset(
+                    k,
+                    (0,),  # 1-dimensional shape
+                    maxshape=(None,),  # Allow expansion along the first dimension
+                    dtype=h5py.string_dtype(),
+                )
+                for k in info_fields
+            }
+            calldata_dsets = {
+                f"calldata/{k}": calldata_group.create_dataset(
+                    f"calldata/{k}",
+                    (0, len(samples)),
+                    maxshape=(None, len(samples)),
+                    dtype=h5py.string_dtype(),
+                )
+                for k in format_fields
+            }
+
+            info = defaultdict(list)
+            calldata = defaultdict(list)
+
+            # Define the mapping outside the function
+            IUPAC_MAPPING = {
+                ("A", "A"): "A",
+                ("A", "C"): "M",
+                ("A", "G"): "R",
+                ("A", "T"): "W",
+                ("C", "C"): "C",
+                ("C", "G"): "S",
+                ("C", "T"): "Y",
+                ("G", "G"): "G",
+                ("G", "T"): "K",
+                ("T", "T"): "T",
+                ("N", "N"): "N",
+                ("A", "N"): "A",
+                ("C", "N"): "C",
+                ("T", "N"): "T",
+                ("G", "N"): "G",
+            }
+
+            # Precompute the IUPAC codes for all possible ASCII sums of two characters
+            IUPAC_LIST = ["N"] * (256 * 2)
+            for (base1, base2), code in IUPAC_MAPPING.items():
+                index = ord(base1) + ord(base2)
+                IUPAC_LIST[index] = code
+                IUPAC_LIST[index + 256] = code  # To handle the reversed order
+
+            subset = True
+            if loci_indices is None:
+                subset = False
+
+            max_alt_length = 0  # Initialize max_alt_length
+
+            # Loop through variants (loci)
+            for i, variant in enumerate(vcf):
+                if subset:
+                    if i in loci_indices:
+                        chrom.append(variant.CHROM)
+                        pos.append(variant.POS)
+                        vcf_id.append("." if variant.ID is None else variant.ID)
+                        ref.append(variant.REF)
+                        alt.append(variant.ALT)
+                        qual.append(variant.QUAL)
+                        vcf_filter.append(variant.FILTER)
+                        snp_data.append(self._load_gt_calldata(variant, IUPAC_LIST))
+                        for field in vcf.header_iter():
+                            if field["HeaderType"] == "INFO":
+                                info_fields.append(field["ID"])
+                            elif (
+                                field["HeaderType"] == "FORMAT" and field["ID"] != "GT"
+                            ):
+                                format_fields.append(field["ID"])
+
+                        for field in format_fields:
+                            calldata["calldata/" + field].append(
+                                np.squeeze(variant.format(field))
+                            )
+                        for k in info_fields:
+                            info[k].append(variant.INFO.get(k))
+                else:
+                    chrom.append(variant.CHROM)
+                    pos.append(variant.POS)
+                    vcf_id.append("." if variant.ID is None else variant.ID)
+                    ref.append(variant.REF)
+                    alt.append(variant.ALT)
+                    qual.append(variant.QUAL)
+                    vcf_filter.append(variant.FILTER)
+                    snp_data.append(self._load_gt_calldata(variant, IUPAC_LIST))
+                    for field in vcf.header_iter():
+                        if field["HeaderType"] == "INFO":
+                            info_fields.append(field["ID"])
+                        elif field["HeaderType"] == "FORMAT" and field["ID"] != "GT":
+                            format_fields.append(field["ID"])
+
+                    for field in format_fields:
+                        calldata["calldata/" + field].append(
+                            np.squeeze(variant.format(field))
+                        )
+                    for k in info_fields:
+                        info[k].append(variant.INFO.get(k))
+
+                # Update max_alt_length if the current variant has more alternate alleles
+                current_alt_length = len(variant.ALT)
+                if current_alt_length > max_alt_length:
+                    max_alt_length = current_alt_length
+
+                # If reached chunk size, store and reset current chunk
+                if (i + 1) % chunk_size == 0:
+                    # Resize and write to datasets
+                    chrom_dset.resize((chrom_dset.shape[0] + len(chrom),))
+                    chrom_dset[-len(chrom) :] = chrom
+                    pos_dset.resize((pos_dset.shape[0] + len(pos),))
+                    pos_dset[-len(pos) :] = pos
+                    vcf_id_dset.resize((vcf_id_dset.shape[0] + len(vcf_id),))
+                    vcf_id_dset[-len(vcf_id) :] = vcf_id
+                    ref_dset.resize((ref_dset.shape[0] + len(ref),))
+                    ref_dset[-len(ref) :] = ref
+
+                    # Pad each list in alt with empty strings so they all have length max_alt_length
+                    alt_padded = [a + [""] * (max_alt_length - len(a)) for a in alt]
+
+                    # Convert the padded lists to a NumPy array of fixed-size strings
+                    alt_array = np.array(alt_padded, dtype=f"S{max_alt_length}")
+
+                    # Resize and write to the alt_dset dataset
+                    alt_dset.resize(
+                        (alt_dset.shape[0] + len(alt_array), max_alt_length)
+                    )
+                    alt_dset[-len(alt_array) :, :] = alt_array
+                    qual_dset.resize((qual_dset.shape[0] + len(qual),))
+                    qual_dset[-len(qual) :] = qual
+                    vcf_filter_dset.resize(
+                        (vcf_filter_dset.shape[0] + len(vcf_filter),)
+                    )
+                    vcf_filter_dset[-len(vcf_filter) :] = vcf_filter
+                    snp_data_dset.resize(
+                        (snp_data_dset.shape[0] + len(snp_data), len(samples))
+                    )
+                    snp_data = np.array(snp_data, dtype=str)
+                    snp_data_dset[-len(snp_data) :, :] = np.array(snp_data)[
+                        :, sample_indices
+                    ]
+
+                    # Write info and calldata
+                    for k, v in info.items():
+                        # Convert the values to strings
+                        v_str = np.array(v, dtype=str)
+                        # Resize the dataset to match the length of v
+                        info_dsets[k].resize((len(v_str),))
+
+                        # Write the string data
+                        info_dsets[k][-len(v_str) :] = v_str
+
+                    for k, v in calldata.items():
+                        v_str = np.array(v, dtype=str)
+
+                        calldata_dsets[k].resize(
+                            (calldata_dsets[k].shape[0] + len(v_str), len(samples))
+                        )
+                        calldata_dsets[k][-len(v_str) :, :] = v_str[:, sample_indices]
+
+                    # Reset the lists and dicts
+                    chrom, pos, vcf_id, ref, alt, qual, vcf_filter, snp_data = (
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                    )
+                    info.clear()  # Clear the defaultdict
+                    calldata.clear()  # Clear the defaultdict
+
+            if chrom:
+                # Resize and write to datasets
+                chrom_dset.resize((chrom_dset.shape[0] + len(chrom),))
+                chrom_dset[-len(chrom) :] = chrom
+                pos_dset.resize((pos_dset.shape[0] + len(pos),))
+                pos_dset[-len(pos) :] = pos
+                vcf_id_dset.resize((vcf_id_dset.shape[0] + len(vcf_id),))
+                vcf_id_dset[-len(vcf_id) :] = vcf_id
+                ref_dset.resize((ref_dset.shape[0] + len(ref),))
+                ref_dset[-len(ref) :] = ref
+                alt_dset.resize((alt_dset.shape[0] + len(alt),))
+                alt_dset[-len(alt) :] = alt
+                qual_dset.resize((qual_dset.shape[0] + len(qual),))
+                qual_dset[-len(qual) :] = qual
+                vcf_filter_dset.resize((vcf_filter_dset.shape[0] + len(vcf_filter),))
+                vcf_filter_dset[-len(vcf_filter) :] = vcf_filter
+                snp_data_dset.resize(
+                    (snp_data_dset.shape[0] + len(snp_data), len(samples))
+                )
+
+                snp_data = np.array(snp_data, dtype=str)
+                snp_data_dset[-len(snp_data) :, :] = np.array(snp_data)[
+                    :, sample_indices
+                ]
+
+                # Write info and calldata
+                # Write info and calldata
+                for k, v in info.items():
+                    # Convert the values to strings
+                    v_str = [str(item) for item in v]
+                    # Resize the dataset to match the length of v
+                    info_dsets[k].resize((len(v_str),))
+
+                    # Write the string data
+                    info_dsets[k][-len(v_str) :] = v_str
+
+                for k, v in calldata.items():
+                    v_str = np.array(v, dtype=str)
+
+                    calldata_dsets[k].resize(
+                        (calldata_dsets[k].shape[0] + len(v_str), len(samples))
+                    )
+                    calldata_dsets[k][-len(v_str) :, :] = np.array(v_str)[
+                        :, sample_indices
+                    ]
+
+        print("GOT TO SNPDATA!!!")
+
+        with h5py.File("vcf_attributes.h5", "r") as f:
+            # Load the entire dataset into a NumPy array
+            snp_data = f["snp_data"][:]
+
+        snp_data = np.array(snp_data)
+        snp_data = snp_data[:, sample_indices]
+
+        return f"{self.prefix}_vcf_attributes.h5", snp_data.T.tolist(), samples
 
     def _read_vcf_header(self, filename):
         """
@@ -1404,30 +2102,13 @@ class GenotypeData:
         return np.array(most_common_alleles), np.array(second_most_common_alleles)
 
     def _snpdata2gtarray(self, snpdata):
-        """
-        Converts a 2D list of IUPAC bases to a scikit-allel GenotypeArray.
-
-        Args:
-            snpdata (List[List[str]]): 2D list of shape (n_samples, n_loci) with single IUPAC base characters (including IUPAC ambiguity codes) as values.
-
-        Returns:
-            allel.GenotypeArray: GenotypeArray object of shape (n_loci, n_samples, 2).
-        """
-
-        # Define a mapping from IUPAC codes to pairs of nucleotides
         iupac_codes = {
             "M": ("A", "C"),
             "R": ("A", "G"),
             "W": ("A", "T"),
-            "M": ("C", "A"),
             "S": ("C", "G"),
             "Y": ("C", "T"),
-            "R": ("G", "A"),
-            "S": ("G", "C"),
             "K": ("G", "T"),
-            "W": ("T", "A"),
-            "Y": ("T", "C"),
-            "K": ("T", "G"),
             "A": ("A", "A"),
             "T": ("T", "T"),
             "G": ("G", "G"),
@@ -1437,17 +2118,15 @@ class GenotypeData:
             "?": ("N", "N"),
         }
 
-        # Convert the 2D list to a numpy array
-        snpdata_array = np.array(snpdata)
-        snpdata_array = snpdata_array.T
+        # Convert the 2D list to a numpy array and transpose it
+        snpdata_array = np.array(snpdata).T
 
-        # Map the IUPAC codes to pairs of nucleotides
-        snpdata_tuples = np.array(
-            [iupac_codes[code] for code in snpdata_array.flatten()]
-        )
+        # Use vectorization to map the IUPAC codes to pairs of nucleotides
+        snpdata_tuples = np.vectorize(iupac_codes.get)(snpdata_array)
 
-        # Reshape the array back to the original shape
-        snpdata_tuples = snpdata_tuples.reshape(snpdata_array.shape + (2,))
+        # Convert the tuple of arrays into a 3D array
+        snpdata_tuples = np.stack(snpdata_tuples, axis=-1)
+
         return snpdata_tuples
 
     def write_phylip(
@@ -1606,14 +2285,14 @@ class GenotypeData:
                     "Provided genotype_data object has NoneType vcf_attributes."
                 )
 
-        if vcf_attributes is not None:
+        if self._vcf_attributes is not None:
             gt = self._snpdata2gtarray(snp_data)
 
         # Convert the data to numpy arrays outside the loop
         snp_data = np.array(snp_data)
         alt = np.array(alt)
         calldata = {k: np.array(v) for k, v in calldata.items()}
-        if vcf_attributes is not None:
+        if self._vcf_attributes is not None:
             info = {k: np.array(v) for k, v in info.items()}
 
         # Transpose the data to loop over columns instead of rows
@@ -1629,7 +2308,7 @@ class GenotypeData:
         alt = alt.T
         calldata = {k: v.T for k, v in calldata.items()}
 
-        if vcf_attributes is not None:
+        if self._vcf_attributes is not None:
             info_arrays = {
                 key: np.char.add(f"{key}=", value.astype(str))
                 for key, value in info.items()
@@ -1640,7 +2319,7 @@ class GenotypeData:
             # Join the elements along the last axis
             info_result = np.apply_along_axis(lambda x: ";".join(x), 0, info_arrays)
 
-        if vcf_attributes is not None:
+        if self._vcf_attributes is not None:
             fltr = fltr.astype(str)
             fltr = np.where(fltr == "True", "PASS", "FAIL")
 
@@ -1653,7 +2332,7 @@ class GenotypeData:
             gt_joined = np.char.add(gt_joined, gt[i, :, 1].astype(str))
             gt_joined = np.char.replace(gt_joined, "N/N", "./.")
 
-            if vcf_attributes is not None:
+            if self._vcf_attributes is not None:
                 fmt_data = [
                     calldata[f"calldata/{v}"][:, i]
                     for v in fmt
@@ -1705,17 +2384,17 @@ class GenotypeData:
             f.write(vcf_header)
             f.writelines(lines)
 
-        if verbose:
+        if self.verbose:
             print("Successfully wrote VCF file!")
 
-    @profile
+    # @profile
     def write_vcf(
         self,
         output_filename: str,
         genotype_data=None,
         vcf_attributes=None,
         snp_data=None,
-        verbose: bool = False,
+        chunk_size=1000,
     ) -> None:
         """
         Writes the GenotypeData object to a VCF file.
@@ -1729,7 +2408,7 @@ class GenotypeData:
 
             snp_data (Optional[List[List[str]]]): snp_data property from a GenotypeData object. Only required if genotype_data is None.
 
-            verbose (bool, optional): If True, print progress messages. Defaults to False.
+            chunk_size (int, optional): Chunk size to process the data lines. This reduces memory consumption. You can set it higher if computation is too slow. Defaults to 1000.
 
         Raises:
             TypeError: If both genotype_data and vcf_attributes are provided.
@@ -1742,7 +2421,7 @@ class GenotypeData:
 
             ValueError: If the shape of snp_data does not match the shape of vcf_attributes.
         """
-        if verbose:
+        if self.verbose:
             print(f"\nWriting to VCF file {output_filename}...")
 
         if vcf_attributes is not None and genotype_data is not None:
@@ -1788,10 +2467,9 @@ class GenotypeData:
 
             tmp = np.expand_dims(tmp, axis=1)
             alt = np.empty(shape=(tmp.shape[0], 3), dtype=object)
-            for i in range(tmp.shape[0]):
-                alt[i, 0] = tmp[i, 0]
-                alt[i, 1] = ""
-                alt[i, 2] = ""
+            alt[:, 0] = tmp[:, 0]
+            alt[:, 1] = ""
+            alt[:, 2] = ""
 
             vcf_attributes = None
 
@@ -1844,9 +2522,6 @@ class GenotypeData:
         alt = alt.T
         calldata = {k: v.T for k, v in calldata.items()}
 
-        print({k: v.shape for k, v in calldata.items()})
-        sys.exit()
-
         if vcf_attributes is not None:
             info_arrays = {
                 key: np.char.add(f"{key}=", value.astype(str))
@@ -1870,77 +2545,112 @@ class GenotypeData:
         # Preallocate a numpy array for the lines
         lines = np.empty((snp_data.shape[0],), dtype=object)
 
-        # Loop over columns instead of rows
-        for i in range(snp_data.shape[0]):
-            gt_joined = np.char.add(gt[i, :, 0].astype(str), "/")
-            gt_joined = np.char.add(gt_joined, gt[i, :, 1].astype(str))
-            gt_joined = np.char.replace(gt_joined, "N/N", "./.")
+        # Extracting the relevant slices of gt
+        gt_0 = gt[:, :, 0].astype(str)
+        gt_1 = gt[:, :, 1].astype(str)
 
-            if vcf_attributes is not None:
-                print(
-                    [
-                        calldata[f"calldata/{v}"].shape
-                        for v in fmt
-                        if v not in ["calldata/GT", "GT"]
-                    ]
-                )
-                sys.exit()
+        gt_joined = np.char.add(np.char.add(gt_0, "/"), gt_1)
 
-                fmt_data = [
-                    calldata[f"calldata/{v}"][:, i]
-                    for v in fmt
-                    if v not in ["calldata/GT", "GT"]
-                ]
+        # Replacing "N/N" with "./."
+        gt_joined[gt_joined == "N/N"] = "./."
 
-                # Convert fmt_data into a 2D numpy array
-                fmt_data = np.array(fmt_data)
+        if vcf_attributes is not None:
+            # Filter the keys we want to use from calldata
+            keys_to_use = [k for k in fmt if k not in ["calldata/GT", "GT"]]
 
-                def concat_arr2strings(arr2d):
-                    return np.array(":".join([a for a in arr2d]), dtype="U32")
-
-                # Join the elements along the first axis
-                fmt_data = np.apply_along_axis(concat_arr2strings, 0, fmt_data)
-
-                # Add a delimiter between gt_joined and fmt_data
-                gt_joined = np.char.add(gt_joined, ":")
-                # Now you can add fmt_data to gt_joined
-                gt_joined = np.char.add(gt_joined, fmt_data)
-
-            try:
-                alt2 = ",".join(alt[alt[:, i].astype(bool), i])
-            except ValueError:
-                alt_non_empty = alt[:, i] != ""
-                alt2 = ",".join(alt[alt_non_empty, i])
-
-            gt_joined_str = "\t".join(gt_joined.astype(str))
-
-            line = "\t".join(
-                [
-                    chrom[i],
-                    str(pos[i]),  # Convert to a string, not a NumPy array
-                    vcf_id[i],
-                    ref[i],
-                    alt2,
-                    str(qual[i]),  # Convert to a string instead of a NumPy array
-                    str(fltr[i]),
-                    info_result[i],
-                    "GT" + ":" + ":".join(fmt),
-                    gt_joined_str,
-                ]
+            # Extract the relevant arrays from calldata and stack them along a new axis
+            fmt_data = np.stack(
+                [calldata[f"calldata/{k}"] for k in keys_to_use], axis=-1
             )
 
-            # Write the line to the VCF file
-            lines[i] = line + "\n"
+            # Define a function to apply along the last axis to concatenate the strings with ":"
+            def concat_arr2strings(arr1d):
+                return ":".join(arr1d.astype(str))
 
-        lines = self._vcf_iupac2int(lines)
+            # Apply the function along the last axis
+            fmt_data = np.apply_along_axis(concat_arr2strings, -1, fmt_data)
+            fmt_data = fmt_data.T
+
+            # Add a delimiter between gt_joined and fmt_data
+            gt_joined = np.char.add(gt_joined, ":")
+
+            # Now  add fmt_data to gt_joined
+            gt_joined = np.char.add(gt_joined, fmt_data)
+
+        # gt_joined_str = np.char.join("\t", gt_joined)
+
+        alt2 = [",".join(alt_i[alt_i != ""]) for alt_i in alt.T]
+        alt2 = np.array(alt2)
+
+        # Convert pos and qual to string arrays
+
+        if isinstance(pos, list):
+            pos = np.array(pos)
+        if isinstance(qual, list):
+            qual = np.array(qual)
+        if isinstance(fltr, list):
+            fltr = np.array(fltr)
+
+        pos_str = pos.astype(str)
+        qual_str = qual.astype(str)
+        fltr_str = fltr.astype(str)
+
+        # Concatenating fmt with colons
+        fmt_joined = "GT:" + ":".join(fmt)
+
+        # Copy it n_variants times.
+        fmt_joined_array = np.full((pos_str.shape[0],), fmt_joined)
+
+        # Stacking all the arrays along a new axis
+        lines_data = np.stack(
+            (
+                chrom,
+                pos_str,
+                vcf_id,
+                ref,
+                alt2,
+                qual_str,
+                fltr_str,
+                info_result,
+                fmt_joined_array,
+            ),
+            axis=-1,
+        )
+
+        lines = np.hstack((lines_data, gt_joined))
+
+        # Extract the reference and alternate alleles
+        ref_alleles = lines[:, 3]
+        alt_alleles = [alt_str.strip().split(",") for alt_str in lines[:, 4]]
+
+        # def replace_alleles(row, ref, alt):
+        # Replace the reference allele with "0"
+
+        def replace_alleles(row, ref, alt):
+            for i in range(9, len(row)):
+                # Replace the reference allele with "0"
+                row[i] = row[i].replace(ref, "0")
+                # Replace any alternate allele with "1"
+                for a in alt:
+                    row[i] = row[i].replace(a, "1")
+            return ["\t".join(x) + "\n" for x in row]
+
+        # Example usage:
+        new_lines = [
+            replace_alleles(row, ref, alt)
+            for row, ref, alt in zip(lines, ref_alleles, alt_alleles)
+        ]
+
+        # Return joined list.
+        new_lines = ["\t".join(x) + "\n" for x in lines]
 
         # Write the lines to the file
         with open(output_filename, "w") as f:
             f.write(vcf_header)
-            f.writelines(lines)
+            f.writelines(new_lines)
 
-        if verbose:
-            print("Successfully wrote VCF file!")
+        if self.verbose:
+            print("\nSuccessfully wrote VCF file!\n")
 
     def _vcf_iupac2int(self, lines):
         """Convert IUPAC nucleotide GT field into 0/0, 0/1, 1/0, and 1/1.
@@ -2286,16 +2996,15 @@ class GenotypeData:
         # Create a new array to hold the output, initially filled with 'N'
         new_data = np.full_like(data, "N")
 
-        # Set locations matching the ref allele to '0' and alt allele to '1'
-        for i in range(data.shape[0]):
-            for j in range(data.shape[1]):
-                new_data[i, j, :] = np.where(
-                    data[i, j, :] == ref_alleles[i], "0", new_data[i, j, :]
-                )
+        # Reshape ref_alleles and alt_alleles for broadcasting
+        ref_alleles = ref_alleles[:, None, None]
+        alt_alleles = alt_alleles[:, None, None]
 
-                new_data[i, j, :] = np.where(
-                    data[i, j, :] == alt_alleles[i], "1", new_data[i, j, :]
-                )
+        # Set locations matching the ref allele to '0'
+        new_data[data == ref_alleles] = "0"
+
+        # Set locations matching the alt allele to '1'
+        new_data[data == alt_alleles] = "1"
 
         return new_data
 
@@ -2566,13 +3275,7 @@ class GenotypeData:
 
         return np.array(decoded_outer_list)
 
-    def read_popmap(
-        self,
-        popmapfile: Optional[str],
-        force: bool,
-        include_pops: Optional[List[str]] = None,
-        exclude_pops: Optional[List[str]] = None,
-    ) -> None:
+    def read_popmap(self, popmapfile: Optional[str]) -> None:
         """
         Read population map from file and associate samples with populations.
 
@@ -2618,13 +3321,12 @@ class GenotypeData:
 
 
         """
+        # Checks if all samples present in both popmap and alignment.
         popmap_ok = my_popmap.validate_popmap(samples, force=force)
-        my_popmap.subset_popmap(include_pops, exclude_pops)
-        indices = my_popmap.sample_indices
 
-        if self.verbose:
-            print("Found the following populations:\nPopulation\tCount\n")
-        my_popmap.get_pop_counts(self.prefix)
+        if include_pops is not None or exclude_pops is not None:
+            # Subsets based on include_pops and exclude_pops
+            my_popmap.subset_popmap(samples, include_pops, exclude_pops)
 
         if not force and not popmap_ok:
             raise ValueError(
@@ -2642,22 +3344,22 @@ class GenotypeData:
 
             for sample in samples:
                 if sample in my_popmap.popmap:
-                    self.populations.append(my_popmap.popmap[sample])
+                    self._populations.append(my_popmap.popmap[sample])
         else:
-            new_samples_set = set([x for x in samples if x in my_popmap.popmap])
-            if not new_samples_set:
+            new_samples = [x for x in samples if x in my_popmap.popmap.keys()]
+            new_populations = [
+                p
+                for s, p in zip(my_popmap.popmap.keys(), my_popmap.popmap.values())
+                if s in new_samples
+            ]
+
+            if not new_samples:
                 raise ValueError(
                     "No samples in the popmap file were found in the alignment file."
                 )
 
-            indices = [i for i, x in enumerate(samples) if x in new_samples_set]
-
-            if self.filetype != "vcf":
-                self.samples = [self.samples[i] for i in indices]
-                self._snp_data = [self._snp_data[i] for i in indices]
-            self._populations = [
-                my_popmap.popmap[x] for x in samples if x in my_popmap.popmap
-            ]
+            self._samples = new_samples
+            self._populations = new_populations
 
         self._popmap = my_popmap.popmap
         self._popmap_inverse = my_popmap.popmap_flipped
@@ -2793,7 +3495,7 @@ class GenotypeData:
         df_decoded.replace(dreplace, inplace=True)
 
         if write_output:
-            outfile = os.path.join(f"{self.prefix}_output", "alignments", "imputed")
+            outfile = os.path.join(f"{self.prefix}_output", "alignments", "012")
 
         if ft.startswith("structure"):
             if ft.startswith("structure2row"):
@@ -2877,6 +3579,8 @@ class GenotypeData:
 
     def missingness_reports(
         self,
+        plot_dir_prefix="snpio",
+        file_prefix=None,
         zoom=True,
         horizontal_space=0.6,
         vertical_space=0.6,
@@ -2915,6 +3619,10 @@ class GenotypeData:
         If popmapfile was not passed to GenotypeData, then the subplots and report files that require populations are not included.
 
         Args:
+            plot_dir_prefix (str, optional): Prefix for output directory. Defaults to "snpio".
+
+            file_prefix (str, optional): Prefix for output plot filename. If ``file_prefix`` is None, then no prefix will be prepended to the filename. Defaults to None.
+
             zoom (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
 
             horizontal_space (float, optional): Set the width spacing between subplots. If your plots are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
@@ -2929,6 +3637,8 @@ class GenotypeData:
             dpi (int): The resolution in dots per inch. Defaults to 300.
         """
         params = dict(
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=file_prefix,
             zoom=zoom,
             horizontal_space=horizontal_space,
             vertical_space=vertical_space,
@@ -2945,29 +3655,54 @@ class GenotypeData:
             inplace=True,
         )
 
-        report_path = os.path.join(f"{self.prefix}_output", "reports")
-        Path(report_path).mkdir(exist_ok=True, parents=True)
+        report_path = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "reports")
 
-        plot_dir = os.path.join(f"{self.prefix}_plots", "gtdata")
-        Path(plot_dir).mkdir(exist_ok=True, parents=True)
-        params["plot_dir"] = plot_dir
+        Path(report_path).mkdir(exist_ok=True, parents=True)
 
         loc, ind, poploc, poptotal, indpop = Plotting.visualize_missingness(
             self, df, **params
         )
 
-        self._report2file(ind, report_path, "individual_missingness.csv")
-        self._report2file(loc, report_path, "locus_missingness.csv")
+        fname = (
+            "individual_missingness.csv"
+            if file_prefix is None
+            else f"{file_prefix}_individual_missingness.csv"
+        )
+
+        self._report2file(ind, report_path, fname)
+
+        fname = (
+            "locus_missingness.csv"
+            if file_prefix is None
+            else f"{file_prefix}_locus_missingness.csv"
+        )
+
+        self._report2file(loc, report_path, fname)
+
+        fname = (
+            "per_pop_and_locus_missingness.csv"
+            if file_prefix is None
+            else f"{file_prefix}_per_pop_and_locus_missingness.csv"
+        )
 
         if self._populations is not None:
-            self._report2file(poploc, report_path, "per_pop_and_locus_missingness.csv")
-            self._report2file(poptotal, report_path, "population_missingness.csv")
-            self._report2file(
-                indpop,
-                report_path,
-                "population_locus_missingness.csv",
-                header=True,
+            self._report2file(poploc, report_path, fname)
+
+            fname = (
+                "population_missingness.csv"
+                if file_prefix is None
+                else f"{file_prefix}_population_missingness.csv"
             )
+
+            self._report2file(poptotal, report_path, fname)
+
+            fname = (
+                "population_locus_missingness.csv"
+                if file_prefix is None
+                else f"{file_prefix}_population_locus_missingness.csv"
+            )
+
+            self._report2file(indpop, report_path, fname, header=True)
 
     def _report2file(
         self,
@@ -2991,6 +3726,56 @@ class GenotypeData:
         df.to_csv(os.path.join(report_path, mypath), header=header, index=False)
 
     def subset_vcf_data(
+        self,
+        loci_indices,
+        sample_indices,
+        vcf_attributes,
+        num_snps,
+        num_inds,
+        samples=None,
+    ):
+        subsetted_vcf_attributes = {}
+
+        # Subsetting lists (1D)
+        for key in ["chrom", "pos", "vcf_id", "ref", "qual", "filter"]:
+            subsetted_vcf_attributes[key] = [
+                vcf_attributes[key][i] for i in loci_indices
+            ]
+
+        # Subsetting 2D numpy array
+        subsetted_vcf_attributes["alt"] = vcf_attributes["alt"][loci_indices]
+        subsetted_vcf_attributes["info"] = {}
+
+        # Subsetting the dictionary with numpy arrays
+        for key, value in vcf_attributes["info"].items():
+            if value.shape[0] == 1:
+                value = np.squeeze(value, axis=0)
+            subsetted_vcf_attributes["info"][key] = value[loci_indices]
+
+        # Subsetting the dictionary with numpy arrays within 'calldata'
+        subsetted_call_data = {}
+        for key, value in vcf_attributes["calldata"].items():
+            subsetted_call_data[key] = value[loci_indices][:, sample_indices]
+        subsetted_vcf_attributes["calldata"] = subsetted_call_data
+
+        # Keeping other attributes as-is
+        subsetted_vcf_attributes["fmt"] = vcf_attributes["fmt"]
+        subsetted_vcf_attributes["vcf_header"] = vcf_attributes["vcf_header"]
+
+        header_split = subsetted_vcf_attributes["vcf_header"].strip().split("\n")
+        header = header_split.pop(-1)
+        colnames = header.strip().split("\t")
+        samplenames = colnames[9:]
+        fmt_cols = colnames[:9]
+        samplenames = [x for x in samplenames if x in samples]
+        full_header = fmt_cols + samplenames
+        header_split.append("\t".join(full_header) + "\n")
+        vcf_header = "\n".join(header_split)
+        subsetted_vcf_attributes["vcf_header"] = vcf_header
+
+        return subsetted_vcf_attributes
+
+    def subset_vcf_data_old(
         self,
         loci_indices: List[int],
         sample_indices: List[int],
@@ -3274,7 +4059,9 @@ class GenotypeData:
         Returns:
             None. The function saves the plot as a .png file.
         """
-        plot_dir = os.path.join(f"{cls.prefix}_plots", "gtdata")
+        plot_dir = os.path.join(
+            f"{cls.prefix}_output", "gtdata", "plots", "performance"
+        )
         Path(plot_dir).mkdir(exist_ok=True, parents=True)
 
         Plotting.plot_performance(
@@ -3588,6 +4375,9 @@ class GenotypeData:
         """
         self._sample_indices = value
         self._samples = [x for i, x in enumerate(self._samples) if i in value]
+        self._populations = [
+            p for i, (s, p) in zip(self._samples, self._populations) if s in value
+        ]
 
     @property
     def ref(self) -> List[str]:
