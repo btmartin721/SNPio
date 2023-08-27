@@ -70,9 +70,7 @@ class Plotting:
         ax.legend()
 
     @staticmethod
-    def _plot_summary_statistics_per_population(
-        summary_stats, popmap, ax=None
-    ):
+    def _plot_summary_statistics_per_population(summary_stats, popmap, ax=None):
         """Plot summary statistics per population.
 
         Args:
@@ -87,9 +85,7 @@ class Plotting:
             _, ax = plt.subplots()
 
         # Group the summary statistics by population.
-        pop_summary_stats = summary_stats.groupby(
-            popmap["PopulationID"]
-        ).mean()
+        pop_summary_stats = summary_stats.groupby(popmap["PopulationID"]).mean()
 
         ax.plot(pop_summary_stats["Ho"], label="Ho")
         ax.plot(pop_summary_stats["He"], label="He")
@@ -102,9 +98,7 @@ class Plotting:
         ax.legend()
 
     @staticmethod
-    def _plot_summary_statistics_per_population_grid(
-        summary_statistics_df, show=False
-    ):
+    def _plot_summary_statistics_per_population_grid(summary_statistics_df, show=False):
         """Plot summary statistics per population using a Seaborn PairGrid plot.
 
         Args:
@@ -118,9 +112,7 @@ class Plotting:
         g.map_lower(sns.kdeplot)
         g.map_diag(sns.kdeplot, lw=3, legend=False)
 
-        g.savefig(
-            "summary_statistics_per_population_grid.png", bbox_inches="tight"
-        )
+        g.savefig("summary_statistics_per_population_grid.png", bbox_inches="tight")
 
         if show:
             plt.show()
@@ -128,9 +120,7 @@ class Plotting:
         plt.close()
 
     @staticmethod
-    def _plot_summary_statistics_per_sample_grid(
-        summary_statistics_df, show=False
-    ):
+    def _plot_summary_statistics_per_sample_grid(summary_statistics_df, show=False):
         """Plot summary statistics per sample using a Seaborn PairGrid plot.
 
         Args:
@@ -144,9 +134,7 @@ class Plotting:
         g.map_lower(sns.kdeplot)
         g.map_diag(sns.kdeplot, lw=3, legend=False)
 
-        g.savefig(
-            "summary_statistics_per_sample_grid.png", bbox_inches="tight"
-        )
+        g.savefig("summary_statistics_per_sample_grid.png", bbox_inches="tight")
 
         if show:
             plt.show()
@@ -164,12 +152,8 @@ class Plotting:
         """
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
 
-        cls._plot_summary_statistics_per_sample(
-            summary_statistics_df, ax=axes[0]
-        )
-        cls._plot_summary_statistics_per_population(
-            summary_statistics_df, ax=axes[1]
-        )
+        cls._plot_summary_statistics_per_sample(summary_statistics_df, ax=axes[0])
+        cls._plot_summary_statistics_per_population(summary_statistics_df, ax=axes[1])
 
         plt.tight_layout()
         plt.savefig("summary_statistics.png")
@@ -216,9 +200,7 @@ class Plotting:
         pca_transformed["PopulationID"] = popmap["PopulationID"]
 
         if dimensions == 2:
-            sns.scatterplot(
-                data=pca_transformed, x="PC1", y="PC2", hue="PopulationID"
-            )
+            sns.scatterplot(data=pca_transformed, x="PC1", y="PC2", hue="PopulationID")
         elif dimensions == 3:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection="3d")
@@ -263,9 +245,7 @@ class Plotting:
         dapc_transformed["PopulationID"] = popmap["PopulationID"]
 
         if dimensions == 2:
-            sns.scatterplot(
-                data=dapc_transformed, x="DA1", y="DA2", hue="PopulationID"
-            )
+            sns.scatterplot(data=dapc_transformed, x="DA1", y="DA2", hue="PopulationID")
         elif dimensions == 3:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection="3d")
@@ -310,21 +290,19 @@ class Plotting:
             None: A plot is saved to a .png file.
 
         """
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+
         components = []
         scores = []
 
         for n in range(2, n_components_range):
             lda = LinearDiscriminantAnalysis(n_components=n)
-            score = cross_val_score(
-                lda, df, popmap["PopulationID"].values, cv=5
-            ).mean()
+            score = cross_val_score(lda, df, popmap["PopulationID"].values, cv=5).mean()
             components.append(n)
             scores.append(score)
 
         fname = (
-            "dapc_cv_results.png"
-            if prefix is None
-            else f"{prefix}_dapc_cv_results.png"
+            "dapc_cv_results.png" if prefix is None else f"{prefix}_dapc_cv_results.png"
         )
 
         plt.figure(figsize=(16, 9))
@@ -409,9 +387,7 @@ class Plotting:
             plt.show()
 
     @staticmethod
-    def plot_joint_sfs_grid(
-        pop_gen_stats, populations, savefig=True, show=True
-    ):
+    def plot_joint_sfs_grid(pop_gen_stats, populations, savefig=True, show=True):
         """Plot the joint SFS between all possible pairs of populations in the popmap file in a grid layout.
 
         Args:
@@ -428,9 +404,7 @@ class Plotting:
         n_cols = math.ceil(math.sqrt(n_populations))
         n_rows = math.ceil(n_populations / n_cols)
 
-        fig, axs = plt.subplots(
-            n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows)
-        )
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
 
         for i, (pop1, pop2) in enumerate(
             itertools.combinations_with_replacement(populations, 2)
@@ -505,9 +479,7 @@ class Plotting:
                     source=[l["source"] for l in links],
                     target=[l["target"] for l in links],
                     value=[l["value"] for l in links],
-                    color=[
-                        l.get("color", "rgba(0, 0, 0, 0.8)") for l in links
-                    ],
+                    color=[l.get("color", "rgba(0, 0, 0, 0.8)") for l in links],
                 ),
             )
         )
@@ -578,7 +550,8 @@ class Plotting:
         loci_before,
         loci_after,
         outfile,
-        plot_dir="plots",
+        plot_dir_prefix="snpio",
+        file_prefix=None,
         included_steps=None,
     ):
         """Plot a Sankey diagram representing the filtering steps and the number of loci removed at each step.
@@ -592,10 +565,16 @@ class Plotting:
 
             outfile (str): The output filename for the plot.
 
-            plot_dir (str, optional): The directory to save the plot. Defaults to "plots".
+            plot_dir_prefix (str, optional): The prefix of the directory to save the plot. Defaults to "snpio".
+
+            file_prefix (str, optional): Prefix of the output filename. If ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
 
             included_steps (List[int], optional): The indices of the filtering steps to include in the plot. Defaults to None.
         """
+
+        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "nremover", "plots")
+
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
 
         if loci_before == loci_after:
             warnings.warn(
@@ -630,8 +609,7 @@ class Plotting:
                 [
                     "Filter Singletons",
                     "Filter Non-Biallelic",
-                    loci_before
-                    - sum([x[1] for x in loci_removed_per_step[0:2]]),
+                    loci_before - sum([x[1] for x in loci_removed_per_step[0:2]]),
                 ]
                 if 3 in included_steps
                 else None,
@@ -645,8 +623,7 @@ class Plotting:
                 [
                     "Filter Non-Biallelic",
                     "Filter Missing (Global)",
-                    loci_before
-                    - sum([x[1] for x in loci_removed_per_step[0:3]]),
+                    loci_before - sum([x[1] for x in loci_removed_per_step[0:3]]),
                 ]
                 if 5 in included_steps
                 else None,
@@ -660,8 +637,7 @@ class Plotting:
                 [
                     "Filter Missing (Global)",
                     "Filter Missing (Populations)",
-                    loci_before
-                    - sum([x[1] for x in loci_removed_per_step[0:4]]),
+                    loci_before - sum([x[1] for x in loci_removed_per_step[0:4]]),
                 ]
                 if 7 in included_steps
                 else None,
@@ -675,8 +651,7 @@ class Plotting:
                 [
                     "Filter Missing (Populations)",
                     "Filter MAF",
-                    loci_before
-                    - sum([x[1] for x in loci_removed_per_step[0:5]]),
+                    loci_before - sum([x[1] for x in loci_removed_per_step[0:5]]),
                 ]
                 if 9 in included_steps
                 else None,
@@ -742,9 +717,7 @@ class Plotting:
             # Add a new column 'LinkColor' to the dataframe
             df["LinkColor"] = df["Target"].apply(lambda x: cmap.get(x, "red"))
 
-            sankey_plot = hv.Sankey(
-                df, label="Sankey Filtering Report"
-            ).options(
+            sankey_plot = hv.Sankey(df, label="Sankey Filtering Report").options(
                 node_color="blue",
                 cmap=cmap,
                 width=1000,
@@ -781,28 +754,42 @@ class Plotting:
             # Combine the Bokeh plots using Panel
             combined = pn.Row(bokeh_sankey_plot, bokeh_legend_plot)
 
-            outfile_final = os.path.join(plot_dir, outfile)
-            Path(plot_dir).mkdir(parents=True, exist_ok=True)
+            fname = outfile if file_prefix is None else f"{file_prefix}_{outfile}"
+
+            outfile_final = os.path.join(plot_dir, fname)
 
             # Save the plot to an HTML file
             combined.save(outfile_final)
 
     @staticmethod
     def plot_gt_distribution(
-        df, plot_dir="plots", fontsize=28, ticksize=20, annotation_size=15
+        df,
+        plot_dir_prefix="snpio",
+        file_prefix=None,
+        fontsize=28,
+        ticksize=20,
+        annotation_size=15,
+        plot_format="png",
+        dpi=300,
     ):
         """Plot the distribution of genotype counts.
 
         Args:
             df (pd.DataFrame): The input dataframe containing the genotype counts.
 
-            plot_dir (str, optional): The directory to save the plot. Defaults to "plots".
+            plot_dir_prefix (str, optional): The directory to save the plot. Defaults to "snpio".
+
+            file_prefix (str, optional): The prefix of the output filename. If ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
 
             fontsize (int, optional): The font size for labels and titles. Defaults to 28.
 
             ticksize (int, optional): The font size for tick labels. Defaults to 20.
 
             annotation_size (int, optional): The font size for count annotations. Defaults to 15.
+
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI to save plot image to. Defaults to 300.
         """
         df = misc.validate_input_type(df, return_type="df")
         df_melt = pd.melt(df, value_name="Count")
@@ -831,9 +818,7 @@ class Plotting:
         cnts.columns = [col[0].upper() + col[1:] for col in cnts.columns]
 
         fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        g = sns.barplot(
-            x="Genotype", y="Count", data=cnts, ax=ax, color="orange"
-        )
+        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax, color="orange")
         g.set_xlabel("Genotype", fontsize=fontsize)
         g.set_ylabel("Count", fontsize=fontsize)
         g.set_title("Genotype Counts", fontsize=fontsize)
@@ -848,12 +833,22 @@ class Plotting:
                 fontsize=annotation_size,
             )
 
+        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "nremover", "plots")
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
+        fname = (
+            "genotype_distributions"
+            if file_prefix is None
+            else f"{file_prefix}_genotype_distributions"
+        )
+
+        plot_format = plot_format.lower()
+
         fig.savefig(
-            os.path.join(plot_dir, "genotype_distributions.png"),
+            os.path.join(plot_dir, f"{fname}.{plot_format}"),
             bbox_inches="tight",
             facecolor="white",
+            dpi=dpi,
         )
         plt.close()
 
@@ -1179,7 +1174,6 @@ class Plotting:
         df_maf,
         maf_per_threshold,
         maf_props_per_threshold,
-        plot_dir,
         output_file,
         plot_fontsize,
         plot_ticksize,
@@ -1187,6 +1181,10 @@ class Plotting:
         plot_ymax,
         plot_legend_loc,
         show,
+        plot_dir_prefix="snpio",
+        file_prefix=None,
+        plot_format="png",
+        dpi=300,
     ):
         """
         Plot the filter report.
@@ -1204,8 +1202,6 @@ class Plotting:
 
             maf_props_per_threshold (list): A list of MAF proportions per threshold.
 
-            plot_dir (str): The directory to save the plots.
-
             output_file (str): The output file name for the main filter report plot.
 
             plot_fontsize (int): The font size for labels and titles in the plots.
@@ -1219,7 +1215,18 @@ class Plotting:
             plot_legend_loc (str): The location of the legend in the plots.
 
             show (bool): Whether to show the plots or not.
+
+            plot_dir_prefix (str): The prefix of the directory to save the plots. Defaults to "snpio".
+
+            file_prefix (str, optional): Prefix of the output filename for the plots. If ``file_prefix`` is None, then no prefix is prepended to the plot filenames. Defaults to None.
+
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI to save plot to. Defaults to 300.
         """
+        df["Threshold"] = df["Threshold"].astype(float)
+        df.sort_values(by="Threshold", inplace=True)
+
         # plot the boxplots
         fig, axs = plt.subplots(3, 2, figsize=(48, 27))
         ax1 = sns.boxplot(
@@ -1287,10 +1294,23 @@ class Plotting:
 
         plt.tight_layout()
 
-        outfile = os.path.join(plot_dir, output_file)
+        plot_format = plot_format.lower()
+
+        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "nremover", "plots")
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
-        fig.savefig(outfile, facecolor="white")
+        fname = output_file if file_prefix is None else f"{file_prefix}_{output_file}"
+
+        if not fname.lower().endswith(plot_format):
+            root, _ = os.path.splitext(fname)
+
+            if not plot_format.startswith("."):
+                plot_format = "." + plot_format
+            fname = root + plot_format
+
+        outfile = os.path.join(plot_dir, fname)
+
+        fig.savefig(outfile, facecolor="white", dpi=dpi)
 
         if show:
             plt.show()
@@ -1396,7 +1416,14 @@ class Plotting:
 
     @staticmethod
     def plot_pop_counts(
-        populations, plot_dir, fontsize=28, ticksize=20, show=False
+        populations,
+        plot_dir_prefix="snpio",
+        file_prefix=None,
+        fontsize=28,
+        ticksize=20,
+        show=False,
+        plot_format="png",
+        dpi=300,
     ):
         """
         Plot the population counts.
@@ -1404,13 +1431,19 @@ class Plotting:
         Args:
             populations (pd.Series): The series containing population data.
 
-            plot_dir (str): The directory to save the plot.
+            plot_dir_prefix (str): The prefix of the directory to save the plot. Defaults to "snpio".
+
+            file_prefix (str, optional): The prefix of the output plot filename. if ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
 
             fontsize (int): The font size for labels and titles in the plot.
 
             ticksize (int): The font size for tick labels in the plot.
 
             show (bool): Whether to show the plot or not.
+
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI of output plot. Defaults to 300.
         """
         # Create the countplot
         fig, axs = plt.subplots(1, 2, figsize=(16, 9))
@@ -1443,15 +1476,23 @@ class Plotting:
             plt.xlabel("Population ID", fontsize=fontsize)
             plt.ylabel(ylabel, fontsize=fontsize)
             plt.tick_params(axis="both", labelsize=ticksize)
-            plt.legend(
-                [median_line], ["Median"], loc="upper right", fontsize=ticksize
-            )
+            plt.legend([median_line], ["Median"], loc="upper right", fontsize=ticksize)
 
         plt.tight_layout()
 
+        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "plots")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+
+        fname = (
+            "population_counts"
+            if file_prefix is None
+            else f"{file_prefix}_population_counts"
+        )
+
         fig.savefig(
-            os.path.join(plot_dir, "population_counts.png"),
+            os.path.join(plot_dir, f"{fname}.{plot_format.lower()}"),
             facecolor="white",
+            dpi=dpi,
         )
 
         if show:
@@ -1461,7 +1502,14 @@ class Plotting:
 
     @staticmethod
     def plot_performance(
-        resource_data, fontsize=14, color="#8C56E3", figsize=(16, 9)
+        resource_data,
+        plot_dir_prefix="snpio",
+        file_prefix=None,
+        fontsize=14,
+        color="#8C56E3",
+        figsize=(16, 9),
+        plot_format="png",
+        dpi=300,
     ):
         """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time.
 
@@ -1470,24 +1518,39 @@ class Plotting:
         Args:
             resource_data (dict): Dictionary with performance data. Keys are method names, and values are dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
 
+            plot_dir_prefix (str, optional): Directory to save plots to. Defaults to "snpio".
+
+            file_prefix (str, optional): Prefix to output filename. If ``file_prefix`` is None, then no prefix will be prepended to output filename. Defaults to None.
+
             fontsize (int, optional): Font size to be used in the plot. Defaults to 14.
 
             color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
 
             figsize (tuple, optional): Size of the figure. Should be a tuple of 2 integers. Defaults to (16, 9).
 
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI to set output plot to. Defaults to 300.
+
         Returns:
             None. The function saves the plot as a .png file.
         """
+
+        plot_format = plot_format.lower()
+
+        plot_dir = os.path.join(
+            f"{plot_dir_prefix}_output", "gtdata", "plots", "performance"
+        )
+
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+
         methods = list(resource_data.keys())
 
         cpu_loads = [data["cpu_load"] for data in resource_data.values()]
         memory_footprints = [
             data["memory_footprint"] for data in resource_data.values()
         ]
-        execution_times = [
-            data["execution_time"] for data in resource_data.values()
-        ]
+        execution_times = [data["execution_time"] for data in resource_data.values()]
 
         # Plot CPU Load
         fig, axs = plt.subplots(1, 3, figsize=figsize)
@@ -1537,26 +1600,31 @@ class Plotting:
         plt.yticks(fontsize=fontsize)
         plt.tight_layout()
 
-        fig.savefig(f"tests/benchmarking_plot.png", facecolor="white")
+        fname = "benchmarking" if file_prefix is None else f"{file_prefix}_benchmarking"
+
+        fig.savefig(
+            os.path.join(plot_dir, f"{fname}.{plot_format}"), facecolor="white", dpi=dpi
+        )
 
     @staticmethod
     def run_pca(
         genotype_data,
-        plot_dir="plots",
-        prefix=None,
+        plot_dir_prefix="snpio",
+        file_prefix=None,
         n_components=None,
         center=True,
         scale=False,
         n_axes=2,
         point_size=15,
         font_size=15,
-        plot_format="png",
         bottom_margin=0,
         top_margin=0,
         left_margin=0,
         right_margin=0,
         width=1088,
         height=700,
+        plot_format="png",
+        dpi=300,
     ):
         """Runs PCA and makes scatterplot with colors showing missingness.
 
@@ -1575,9 +1643,9 @@ class Plotting:
         Args:
             genotype_data (GenotypeData): Original GenotypeData object.
 
-            plot_dir (str, optional): Path to plot directory. Report directory will be created if it does not already exist. Defaults to "plots".
+            plot_dir_prefix (str, optional): Prefix to plot directory name. Report directory will be created if it does not already exist. Defaults to "snpio".
 
-            prefix (str, optional): Prefix for plot filename. Will be saved in ``plot_dir``\. If ``prefix`` is None, then no prefix will be prepended to the filename. Defaults to None.
+            file_prefix (str, optional): Prefix for output plot filename. Will be saved in ``{plot_dir_prefix}_plots/gtdata/pca/{file_prefix}_pca.{plot_format}``\. If ``file_prefix`` is None, then no prefix will be prepended to the filename. Defaults to None.
 
             n_components (int, optional): Number of principal components to include in the PCA. Defaults to None (all components).
 
@@ -1591,8 +1659,6 @@ class Plotting:
 
             font_size (int, optional): Font size for scatterplot points. Defaults to 15.
 
-            plot_format (str, optional): Plot file format to use. Supported formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). An interactive HTML file is also created regardless of this setting. Defaults to "pdf".
-
             bottom_margin (int, optional): Adjust bottom margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
 
             top_margin (int, optional): Adjust top margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
@@ -1605,6 +1671,10 @@ class Plotting:
 
             height (int, optional): Height of plot space. If your plot is cut off at the edges, even after adjusting the margins, increase the width and height. Try to keep the aspect ratio similar. Defaults to 700.
 
+            plot_format (str, optional): Plot file format to use. Supported formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). An interactive HTML file is also created regardless of this setting. Defaults to "png".
+
+            dpi (int, optional): DPI resolution of the output plot. Defaults to 300.
+
         Returns:
             numpy.ndarray: PCA data as a numpy array with shape (n_samples, n_components).
 
@@ -1613,7 +1683,7 @@ class Plotting:
         Examples:
             >>> data = GenotypeData(
             >>>     filename="snps.str",
-            >>>     filetype="structure2row",
+            >>>     filetype="auto",
             >>>     popmapfile="popmap.txt",
             >>> )
             >>>
@@ -1629,16 +1699,14 @@ class Plotting:
             >>> print(explvar)
 
         """
+        plot_dir = f"{plot_dir_prefix}_output"
+        plot_dir = os.path.join(plot_dir, "gtdata", "plots")
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
         if n_axes > 3:
-            raise ValueError(
-                ">3 axes is not supported; n_axes must be either 2 or 3."
-            )
+            raise ValueError(">3 axes is not supported; n_axes must be either 2 or 3.")
         if n_axes < 2:
-            raise ValueError(
-                "<2 axes is not supported; n_axes must be either 2 or 3."
-            )
+            raise ValueError("<2 axes is not supported; n_axes must be either 2 or 3.")
 
         df = misc.validate_input_type(
             genotype_data.genotypes_012(fmt="pandas"), return_type="df"
@@ -1742,11 +1810,14 @@ class Plotting:
             font=dict(size=font_size),
         )
 
-        fname = "pca" if prefix is None else f"{prefix}_pca"
+        fname = "pca" if file_prefix is None else f"{file_prefix}_pca"
+
+        plot_format = plot_format.lower()
 
         fig.write_html(os.path.join(plot_dir, f"{fname}.html"))
         fig.write_image(
             os.path.join(plot_dir, f"{fname}.{plot_format}"),
+            format=plot_format,
         )
 
         return components, model
@@ -1755,14 +1826,14 @@ class Plotting:
     def visualize_missingness(
         genotype_data,
         df,
+        plot_dir_prefix="snpio",
+        file_prefix=None,
         zoom=True,
-        prefix=None,
         horizontal_space=0.6,
         vertical_space=0.6,
         bar_color="gray",
         heatmap_palette="magma",
         plot_format="png",
-        plot_dir="plots",
         dpi=300,
     ):
         """Make multiple plots to visualize missing data.
@@ -1772,9 +1843,13 @@ class Plotting:
 
             df (pandas.DataFrame): DataFrame with snps to visualize.
 
+            plot_dir_prefix (str, optional): Prefix for directory to save plots in. Output plot directory will be in the format ``<plot_dir_prefix>_plots``\. Defaults to "snpio".
+
+            file_prefix (str, optional): Prefix for output filenames. Files will be written to a directory called ``<plot_dir_prefix>_plots/gtdata/missingness/<file_prefix>_missingness.<plot_format>``\. The plot directory will be created if it does not already exist. If ``file_prefix`` is None, then the output filenames will not have a prefix. Defaults to None.
+
+
             zoom (bool, optional): If True, zooms in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
 
-            prefix (str, optional): Prefix for output directory and files. Plots and files will be written to a directory called <prefix>_reports. The report directory will be created if it does not already exist. If prefix is None, then the reports directory will not have a prefix. Defaults to None.
 
             horizontal_space (float, optional): Set width spacing between subplots. If your plot are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
 
@@ -1785,8 +1860,6 @@ class Plotting:
             heatmap_palette (str, optional): Palette to use for heatmap plot. Can be any palette supported by seaborn. See seaborn documentation. Defaults to 'magma'.
 
             plot_format (str, optional): Format to save plots. Can be any of the following: "pdf", "png", "svg", "ps", "eps". Defaults to "png".
-
-            plot_dir (str, optional): Directory to save plots in. Defaults to "plots".
 
             dpi (int): The resolution in dots per inch. Defaults to 300.
 
@@ -1833,9 +1906,7 @@ class Plotting:
         ax = axes[0, 1]
 
         ax.set_title("Per-Locus")
-        ax.barh(
-            range(genotype_data.num_snps), loc, color=bar_color, height=1.0
-        )
+        ax.barh(range(genotype_data.num_snps), loc, color=bar_color, height=1.0)
         if not zoom:
             ax.set_xlim([0, 1])
         ax.set_ylabel("Locus")
@@ -1862,7 +1933,6 @@ class Plotting:
             ax = axes[1, 0]
 
             ax.set_title("Per-Population + Per-Locus")
-            npops = len(poploc.columns)
 
             vmax = None if zoom else 1.0
 
@@ -1925,12 +1995,17 @@ class Plotting:
             )
             g.get_legend().set_title(None)
 
-        fname = "missingness" if prefix is None else f"{prefix}_missingness"
+        fname = "missingness" if file_prefix is None else f"{file_prefix}_missingness"
+
+        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "plots")
+
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
 
         fig.savefig(
             os.path.join(plot_dir, f"{fname}.{plot_format}"),
             bbox_inches="tight",
             facecolor="white",
+            dpi=dpi,
         )
         plt.close()
 
@@ -1939,8 +2014,8 @@ class Plotting:
     @staticmethod
     def run_dapc(
         genotype_data,
-        plot_dir="plots",
-        prefix=None,
+        plot_dir_prefix="plots",
+        file_prefix=None,
         n_components=None,
         center=True,
         scale=False,
@@ -1953,6 +2028,7 @@ class Plotting:
         right_margin=0,
         width=1088,
         height=700,
+        dpi=300,
     ):
         """Runs DAPC and makes scatterplot with colors showing missingness.
 
@@ -1964,14 +2040,14 @@ class Plotting:
 
         The plot is saved as both an interactive HTML file and as a static image. Each population is represented by point shapes. The interactive plot has associated metadata when hovering over the points.
 
-        Files are saved to a reports directory as plot_dir/prefix_imputed_pca.<plot_format|html>. An underscore will be appended to the prefix, so you don't need to add one. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
+        Files are saved to a reports directory as ``<plot_dir_prefix>_plots/gtdata/dapc/<file_prefix>_imputed_pca.<plot_format|html>``\. An underscore will be appended to the prefix, so you don't need to add one. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
 
         Args:
             genotype_data (GenotypeData): Original GenotypeData object.
 
-            plot_dir (str, optional): Path to plot directory. Report directory will be created if it does not already exist. Defaults to "plots".
+            plot_dir_prefix (str, optional): Prefix to plot directory. Plot directory will be created if it does not already exist. Defaults to "snpio".
 
-            prefix (str, optional): Prefix for plot filename. Will be saved in ``plot_dir``\. If ``prefix`` is None, then no prefix will be prepended to the filename. Defaults to None.
+            file_prefix (str, optional): Prefix to use for output files. If ``file_prefix`` is None, then no prefix will be prepended to the output filenames. Defaults to None.
 
             n_components (int, optional): Number of principal components to include in the DA. NOTE: n_components cannot be larger than ``min(n_sites, n_populations - 1)``\. Defaults to None (n_populations - 1).
 
@@ -1997,6 +2073,8 @@ class Plotting:
 
             height (int, optional): Height of plot space. If your plot is cut off at the edges, even after adjusting the margins, increase the width and height. Try to keep the aspect ratio similar. Defaults to 700.
 
+            dpi (int, optional): DPI to set the output plot to. Defaults to 300.
+
         Returns:
             numpy.ndarray: DA data as a numpy array with shape (n_samples, n_components).
 
@@ -2005,7 +2083,7 @@ class Plotting:
         Examples:
             >>> data = GenotypeData(
             >>>     filename="snps.str",
-            >>>     filetype="structure2row",
+            >>>     filetype="auto",
             >>>     popmapfile="popmap.txt",
             >>> )
             >>>
@@ -2023,6 +2101,7 @@ class Plotting:
         """
         raise NotImplementedError("run_dapc has not yet been implemented.")
 
+        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "plots")
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
         df = misc.validate_input_type(
@@ -2053,7 +2132,7 @@ class Plotting:
         )
 
         best_components = Plotting._plot_dapc_cv(
-            pca_df, popmap, n_components, prefix=prefix, plot_dir=plot_dir
+            pca_df, popmap, n_components, prefix=file_prefix, plot_dir=plot_dir
         )
 
         model = LinearDiscriminantAnalysis(n_components=best_components)
@@ -2062,9 +2141,7 @@ class Plotting:
         if n_components is None:
             n_components = len(list(set(genotype_data.populations))) - 1
 
-        df_pca = pd.DataFrame(
-            components[:, [0, 1]], columns=["Axis1", "Axis2"]
-        )
+        df_pca = pd.DataFrame(components[:, [0, 1]], columns=["Axis1", "Axis2"])
 
         df_pca["SampleID"] = genotype_data.samples
         df_pca["Population"] = genotype_data.populations
@@ -2122,7 +2199,7 @@ class Plotting:
             font=dict(size=font_size),
         )
 
-        fname = "da" if prefix is None else f"{prefix}_da"
+        fname = "da" if file_prefix is None else f"{file_prefix}_da"
 
         fig.write_html(os.path.join(plot_dir, f"{fname}.html"))
         fig.write_image(

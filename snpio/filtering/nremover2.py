@@ -7,6 +7,7 @@ import numpy as np
 from Bio.Align import MultipleSeqAlignment
 from Bio import SeqUtils
 from copy import deepcopy
+from pathlib import Path
 
 from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data import GenotypeData
@@ -82,9 +83,10 @@ class NRemover2:
         self.popgenio = popgenio
         self.popmap = popgenio.popmap
         self.popmap_inverse = popgenio.popmap_inverse
-        self.populations = list(set(popgenio.populations))
+        self.populations = self.popmap_inverse.keys()
         self.samples = popgenio.samples
         self.poplist = popgenio.populations
+        self.prefix = popgenio.prefix
 
         self.loci_indices = None
         self.sample_indices = None
@@ -99,9 +101,11 @@ class NRemover2:
         monomorphic=False,
         singletons=False,
         search_thresholds=True,
-        plot_outfile="missingness_report.png",
+        plot_dir_prefix="snpio",
+        file_prefix=None,
+        plot_format="png",
+        dpi=300,
         suppress_cletus=True,
-        plot_dir="plots",
         included_steps=None,
     ):
         """
@@ -124,9 +128,13 @@ class NRemover2:
 
             search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
 
-            plot_outfile (str, optional): The filename for the missingness report plot. Defaults to "missingness_report.png".
+            plot_dir_prefix (str, optional): The prefix for the output plot directory. Defaults to "snpio".
 
-            plot_dir (str, optional): The directory to save the plots. Defaults to "plots".
+            file_prefix (str, optional): The prefix for the output filename. If ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
+
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI resolution of output plots. Defaults to 300.
 
             included_steps (list, optional): The steps to include in the Sankey plot. If None, all steps will be included. Defaults to None.
 
@@ -142,13 +150,28 @@ class NRemover2:
         aln_before = deepcopy(self.alignment)
         indices_loci_before = range(len(aln_before[0]))
 
+        plot_dir = os.path.join(f"{self.prefix}_output", "nremover", "plots")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+
         Plotting.plot_gt_distribution(
-            self.popgenio.genotypes_int, plot_dir=plot_dir
+            self.popgenio.genotypes_int,
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=file_prefix,
+            plot_format=plot_format,
+            dpi=dpi,
         )
+
+        output_file = "missingness_threshold_search.png"
 
         if search_thresholds:
             self.search_thresholds_ = True
-            self.plot_missing_data_thresholds(plot_outfile, plot_dir=plot_dir)
+            self.plot_missing_data_thresholds(
+                output_file,
+                plot_dir_prefix=plot_dir_prefix,
+                file_prefix=file_prefix,
+                plot_format=plot_format,
+                dpi=dpi,
+            )
 
         steps = [
             (
@@ -212,9 +235,7 @@ class NRemover2:
                 filtered_alignment, indices = filter_func(
                     threshold, alignment=self.alignment
                 )
-                loci_removed = len(self.alignment[0]) - len(
-                    filtered_alignment[0]
-                )
+                loci_removed = len(self.alignment[0]) - len(filtered_alignment[0])
 
                 if name != "Filter missing data (sample)":
                     loci_removed_per_step.append((name, loci_removed))
@@ -234,21 +255,23 @@ class NRemover2:
         max_step_idx = max(filter_idx_dict)
         self.loci_indices = filter_idx_dict[max_step_idx]
 
-        self.print_filtering_report(
-            aln_before, aln_after, loci_removed_per_step
-        )
+        self.print_filtering_report(aln_before, aln_after, loci_removed_per_step)
 
         if included_steps is None:
             included_steps = [
                 step_idx for _, condition, _, _, step_idx in steps if condition
             ]
 
+        plot_format = plot_format.lower()
+        outfile = "sankey_filtering_report.html"
+
         Plotting.plot_sankey_filtering_report(
             loci_removed_per_step,
             len(aln_before[0]),
             len(aln_after[0]),
-            "sankey_filtering_report.html",
-            plot_dir=plot_dir,
+            outfile,
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=file_prefix,
             included_steps=included_steps,
         )
 
@@ -267,41 +290,27 @@ class NRemover2:
         # Create a temporary file and write some data to it
         aln = tempfile.NamedTemporaryFile(delete=False)
 
-        if self.sample_indices is not None:
-            indices = list(
-                set(self.sample_indices) & set(self.popgenio.sample_indices)
-            )
-            indices.sort()
-            self.sample_indices = indices
+        if self.sample_indices is None:
+            self.sample_indices = len(range(self.popgenio.samples))
 
-        else:
-            self.sample_indices = self.popgenio.sample_indices
-
-        samples = [
-            self.popgenio.samples[i]
-            for i in range(len(self.popgenio.samples))
-            if i in self.sample_indices
-        ]
-
-        popmap = {
-            k: v for k, v in self.popgenio.popmap.items() if k in samples
-        }
+        popmap = {k: v for k, v in self.popgenio.popmap.items() if k in self.samples}
 
         if self.popgenio.filetype == "vcf":
             vcf_attributes = self.popgenio.subset_vcf_data(
                 self.loci_indices,
                 self.sample_indices,
                 self.popgenio.vcf_attributes,
-                self.popgenio.num_snps,
-                self.popgenio.num_inds,
-                samples=samples,
+                samples=self.samples,
+                chunk_size=self.popgenio.chunk_size,
+                is_filtered=True,
             )
         else:
             vcf_attributes = self.popgenio._vcf_attributes
 
         aln_filename = aln.name
+
         self.popgenio.write_phylip(
-            aln_filename, snp_data=self.alignment, samples=samples
+            aln_filename, snp_data=self.alignment, samples=self.samples
         )
         aln.close()
 
@@ -310,7 +319,7 @@ class NRemover2:
 
         if self.sample_indices is not None:
             self.popgenio.popmap = {
-                k: v for k, v in self.popgenio.popmap.items() if k in samples
+                k: v for k, v in self.popgenio.popmap.items() if k in self.samples
             }
 
         with open(popmap_filename, "w") as fout:
@@ -321,11 +330,9 @@ class NRemover2:
         inputs = self.popgenio.inputs
         inputs["popmapfile"] = popmap_filename
         inputs["filename"] = aln_filename
-        inputs["loci_indices"] = self.loci_indices
-        inputs["sample_indices"] = self.sample_indices
         inputs["filetype"] = "phylip"
-        inputs["vcf_attributes"] = vcf_attributes
         inputs["verbose"] = False
+        inputs["is_subset"] = True
 
         # Create a new object with the filtered alignment.
         new_popgenio = GenotypeData(**inputs)
@@ -334,6 +341,7 @@ class NRemover2:
         new_popgenio.verbose = self.popgenio.verbose
 
         if self.popgenio.filetype == "vcf":
+            new_popgenio.vcf_header = self.popgenio.vcf_header
             new_popgenio.vcf_attributes = vcf_attributes
 
         # When done, delete the file manually using os.unlink
@@ -368,23 +376,15 @@ class NRemover2:
         """
         axis = 1 if is_sample_filter else 0
 
-        new_missing_counts = np.sum(
-            np.isin(alignment_array, missing_chars), axis=axis
-        )
+        new_missing_counts = np.sum(np.isin(alignment_array, missing_chars), axis=axis)
 
         # Calculate the mean missing data proportion among all the columns
         missing_prop = new_missing_counts / alignment_array.shape[axis]
 
         if calculate_stdev:
-            std_missing_prop = np.std(
-                new_missing_counts / alignment_array.shape[axis]
-            )
+            std_missing_prop = np.std(new_missing_counts / alignment_array.shape[axis])
 
-        res = (
-            (missing_prop, std_missing_prop)
-            if calculate_stdev
-            else missing_prop
-        )
+        res = (missing_prop, std_missing_prop) if calculate_stdev else missing_prop
 
         return res
 
@@ -411,9 +411,7 @@ class NRemover2:
 
         alignment_array = alignment
 
-        missing_counts = np.sum(
-            np.isin(alignment_array, ["N", "-", ".", "?"]), axis=0
-        )
+        missing_counts = np.sum(np.isin(alignment_array, ["N", "-", ".", "?"]), axis=0)
         mask = missing_counts / alignment_array.shape[0] <= threshold
 
         # Get the indices of the True values in the mask
@@ -423,9 +421,7 @@ class NRemover2:
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
-            missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 filtered_alignment_array,
                 missing_prop,
@@ -460,9 +456,7 @@ class NRemover2:
         alignment_array = alignment
 
         def missing_data_proportion(column, indices):
-            missing_count = sum(
-                column[i] in {"N", "-", ".", "?"} for i in indices
-            )
+            missing_count = sum(column[i] in {"N", "-", ".", "?"} for i in indices)
             return missing_count / len(indices)
 
         def exceeds_threshold(column):
@@ -471,11 +465,7 @@ class NRemover2:
             for pop, sample_ids in populations.items():
                 # Get sampleID indices for given population, if not removed
                 # with filter_missing_sample
-                indices = [
-                    i
-                    for i, sid in enumerate(sample_ids)
-                    if sid in self.samples
-                ]
+                indices = [i for i, sid in enumerate(sample_ids) if sid in self.samples]
                 missing_prop = missing_data_proportion(column, indices)
 
                 if missing_prop >= max_missing:
@@ -503,11 +493,7 @@ class NRemover2:
             mean_missing_props = [mmp[1] for mmp in mask_and_missing_props]
 
             key_values = {
-                key: [
-                    d.get(key)
-                    for d in mean_missing_props
-                    if d.get(key) is not None
-                ]
+                key: [d.get(key) for d in mean_missing_props if d.get(key) is not None]
                 for key in set().union(*mean_missing_props)
             }
 
@@ -521,9 +507,7 @@ class NRemover2:
         else:
             return filtered_alignment_array, mask_indices
 
-    def filter_missing_sample(
-        self, threshold, alignment=None, return_props=False
-    ):
+    def filter_missing_sample(self, threshold, alignment=None, return_props=False):
         """Filters out sequences with missing data proportion greater than the given threshold.
 
         Args:
@@ -547,9 +531,7 @@ class NRemover2:
 
         alignment_array = alignment
 
-        missing_counts = np.sum(
-            np.isin(alignment_array, ["N", "-", ".", "?"]), axis=1
-        )
+        missing_counts = np.sum(np.isin(alignment_array, ["N", "-", ".", "?"]), axis=1)
 
         mask = missing_counts / alignment_array.shape[1] <= threshold
 
@@ -561,8 +543,7 @@ class NRemover2:
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
         filtered_alignment = [
-            filtered_alignment_array[i, :]
-            for i, index in enumerate(mask_indices)
+            filtered_alignment_array[i, :] for i, index in enumerate(mask_indices)
         ]
 
         if return_props:
@@ -609,9 +590,7 @@ class NRemover2:
                     base_count[base] += 1
                 elif base not in {"N", "-", ".", "?"}:
                     try:
-                        ambig_bases = SeqUtils.IUPACData.ambiguous_dna_values[
-                            base
-                        ]
+                        ambig_bases = SeqUtils.IUPACData.ambiguous_dna_values[base]
                         for ambig_base in ambig_bases:
                             base_count[ambig_base] += 1
                     except KeyError:
@@ -648,9 +627,7 @@ class NRemover2:
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
-            missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 filtered_alignment_array,
                 missing_prop,
@@ -659,9 +636,7 @@ class NRemover2:
         else:
             return filtered_alignment_array, mask_indices
 
-    def filter_non_biallelic(
-        self, threshold=None, alignment=None, return_props=False
-    ):
+    def filter_non_biallelic(self, threshold=None, alignment=None, return_props=False):
         """Filters out loci (columns) that are not biallelic.
 
         Args:
@@ -720,9 +695,7 @@ class NRemover2:
 
             return len([count for count in base_count.values() if count > 0])
 
-        unique_base_counts = np.apply_along_axis(
-            count_unique_bases, 0, alignment_array
-        )
+        unique_base_counts = np.apply_along_axis(count_unique_bases, 0, alignment_array)
         mask = unique_base_counts == 2
 
         # Get the indices of the True values in the mask
@@ -733,9 +706,7 @@ class NRemover2:
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
-            filt_missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            filt_missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 orig_missing_prop,
                 filt_missing_prop,
@@ -784,9 +755,7 @@ class NRemover2:
 
         return counts
 
-    def filter_monomorphic(
-        self, threshold=None, alignment=None, return_props=False
-    ):
+    def filter_monomorphic(self, threshold=None, alignment=None, return_props=False):
         """Filters out monomorphic sites from an alignment.
 
         Args:
@@ -841,9 +810,7 @@ class NRemover2:
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
-            filt_missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            filt_missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 orig_missing_prop,
                 filt_missing_prop,
@@ -884,9 +851,7 @@ class NRemover2:
         }
         return iupac_dict.get(base.upper(), {"N"})
 
-    def filter_singletons(
-        self, threshold=None, alignment=None, return_props=False
-    ):
+    def filter_singletons(self, threshold=None, alignment=None, return_props=False):
         """
         Filters out singletons from an alignment.
 
@@ -913,13 +878,9 @@ class NRemover2:
             """
             column_list = column.tolist()
             alleles = {
-                allele
-                for allele in column_list
-                if allele not in ["N", "-", ".", "?"]
+                allele for allele in column_list if allele not in ["N", "-", ".", "?"]
             }
-            allele_count = {
-                allele: column_list.count(allele) for allele in alleles
-            }
+            allele_count = {allele: column_list.count(allele) for allele in alleles}
 
             if len(alleles) == 2:
                 min_allele = min(alleles, key=lambda x: allele_count[x])
@@ -940,9 +901,7 @@ class NRemover2:
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
-            filt_missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            filt_missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 orig_missing_prop,
                 filt_missing_prop,
@@ -1042,12 +1001,15 @@ class NRemover2:
         num_maf_thresholds=10,
         max_maf_threshold=0.2,
         show_plot_inline=False,
-        plot_dir="plots",
+        plot_dir_prefix="snpio",
+        file_prefix=None,
         plot_fontsize=28,
         plot_ticksize=20,
         plot_ymin=0.0,
         plot_ymax=1.0,
         plot_legend_loc="upper left",
+        plot_format="png",
+        dpi=300,
     ):
         """
         Plots the missing data and MAF proportions for different filtering thresholds.
@@ -1061,7 +1023,9 @@ class NRemover2:
 
             show_plot_inline (bool, optional): Whether to show the plot inline. Defaults to False.
 
-            plot_dir (str, optional): The directory to save the plot. Defaults to "plots".
+            plot_dir_prefix (str, optional): The prefix of the directory to save the plot. Defaults to "snpio".
+
+            file_prefix (str, optional): Prefix of the output filename. If ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
 
             plot_fontsize (int, optional): The fontsize for plot labels. Defaults to 28.
 
@@ -1072,6 +1036,10 @@ class NRemover2:
             plot_ymax (float, optional): The maximum y-axis value for the plot. Defaults to 1.0.
 
             plot_legend_loc (str, optional): The location of the plot legend. Defaults to "upper left".
+
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI resolution of plot. Defaults to 300.
 
         Returns:
             None.
@@ -1184,9 +1152,7 @@ class NRemover2:
             if mask is None:
                 for i, (threshold, array) in enumerate(zip(thresholds, p)):
                     flattened_proportions.extend(array)
-                    flattened_thresholds.extend(
-                        [f"{threshold:.2f}"] * len(array)
-                    )
+                    flattened_thresholds.extend([f"{threshold:.2f}"] * len(array))
 
                 df = pd.DataFrame(
                     {
@@ -1213,8 +1179,7 @@ class NRemover2:
                 for population, proportions in prop_dict.items():
                     temp_df = pd.DataFrame(
                         {
-                            "Threshold": [f"{threshold:.2f}"]
-                            * len(proportions),
+                            "Threshold": [f"{threshold:.2f}"] * len(proportions),
                             "Proportion": proportions,
                             "Type": [population] * len(proportions),
                         }
@@ -1224,13 +1189,9 @@ class NRemover2:
             df = pd.concat(df_list, ignore_index=True)
             return df
 
-        df_sample = generate_df(
-            sample_missing_data_proportions, thresholds, "Sample"
-        )
+        df_sample = generate_df(sample_missing_data_proportions, thresholds, "Sample")
 
-        df_global = generate_df(
-            global_missing_data_proportions, thresholds, "Global"
-        )
+        df_global = generate_df(global_missing_data_proportions, thresholds, "Global")
 
         df_populations = generate_population_df(
             population_missing_data_proportions, thresholds
@@ -1273,7 +1234,6 @@ class NRemover2:
             df_maf,
             maf_per_threshold,
             maf_props_per_threshold,
-            plot_dir,
             output_file,
             plot_fontsize,
             plot_ticksize,
@@ -1281,6 +1241,10 @@ class NRemover2:
             plot_ymax,
             plot_legend_loc,
             show_plot_inline,
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=file_prefix,
+            plot_format=plot_format,
+            dpi=dpi,
         )
 
     def filter_per_threshold(
@@ -1352,9 +1316,7 @@ class NRemover2:
             None.
         """
         if isinstance(value, MultipleSeqAlignment):
-            self._alignment = np.array(
-                [list(str(record.seq)) for record in value]
-            )
+            self._alignment = np.array([list(str(record.seq)) for record in value])
         else:
             self._alignment = value
 
@@ -1404,9 +1366,9 @@ class NRemover2:
         """
         population_sequences = {}
         for population_name in self.populations:
-            population_sequences[
+            population_sequences[population_name] = self.get_population_sequences(
                 population_name
-            ] = self.get_population_sequences(population_name)
+            )
         return population_sequences
 
     @classmethod
