@@ -26,6 +26,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+Pipfile
 
 # Python Installer logs
 pip-log.txt
@@ -118,6 +119,7 @@ dmypy.json
 
 # Project-Specific Files
 sfs_*
+snpio_plots/
 unfiltered_reports/
 *.csv
 *.lock
@@ -126,15 +128,23 @@ example_data/vcf_files/phylogen.vcf
 vcf_attributes.h5
 phylogen.vcf
 phylogen.vcf.gz
+phylogen.vcf.gz.csi
 gtdata_test.vcf
 nremover_test.vcf
 gtdata_test.vcf
 nremover_test.phy
 nremover_test.str
+test.popmap
+test.popmap.rearr.txt
 
 # Miscellaneous
+all_packages.txt
+
 # SageMath
 *.sage.py
+
+#AppMap
+appmap.yml
 
 # PEP 582
 __pypackages__/
