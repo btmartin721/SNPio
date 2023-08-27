@@ -121,8 +121,12 @@ class ReadPopmap:
             Union[bool, Dict[str, str]]: If force is False, returns True if all alignment samples are present in the population map and all population map samples are present in the alignment. Returns False otherwise. If force is True, returns a subset of the population map containing only the samples present in the alignment.
 
         """
-        # Make sure all sampleIDs are unique.
-        samples = list(set(samples))
+        if len(set(samples)) != len(samples):
+            raise ValueError("There are duplicate sample IDs in the popmapfile.")
+
+        # Sort by alignment order.
+        self._popdict = {k: self._popdict[k] for k in samples if k in self._popdict}
+
         for samp in samples:
             if samp not in self._popdict:
                 return False
@@ -174,6 +178,7 @@ class ReadPopmap:
                 )
 
             popmap = {k: v for k, v in self._popdict.items() if v in include}
+            
             inc_idx = [i for i, x in enumerate(samples) if x in popmap]
         else:
             inc_idx = list(range(len(samples)))
@@ -188,6 +193,7 @@ class ReadPopmap:
                 popmap = self._popdict
 
             popmap = {k: v for k, v in popmap.items() if v not in exclude}
+
             exc_idx = [i for i, x in enumerate(samples) if x in popmap]
 
         else:

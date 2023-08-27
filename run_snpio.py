@@ -1,4 +1,3 @@
-import argparse
 from snpio import GenotypeData
 from snpio import NRemover2
 from snpio import Plotting
@@ -8,11 +7,9 @@ import cProfile, pstats
 
 
 def main():
-    profiler = cProfile.Profile()
-    profiler.enable()
     # Read the alignment, popmap, and tree files
     gd = GenotypeData(
-        filename="example_data/vcf_files/phylogen_subset3K.vcf.gz",
+        filename="example_data/vcf_files/phylogen_subset14K.vcf.gz",
         popmapfile="example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,
         filetype="auto",
@@ -21,19 +18,12 @@ def main():
         guidetree="example_data/trees/test.tre",
         chunk_size=1000,
     )
-    profiler.disable()
 
-    with open("./profile_stats_readvcf.txt", "w") as f:
-        stats = pstats.Stats(profiler, stream=f).sort_stats("time")
-        stats.print_stats()
+    gd.write_vcf("example_data/vcf_files/gtdata_test.vcf")
 
-    #profiler = cProfile.Profile()
-    #profiler.enable()
-    # gd.write_vcf("example_data/vcf_files/gtdata_test.vcf")
-    #profiler.disable()
-    # with open("example_data/vcf_files/profile_stats_writevcf.txt", "w") as f:
-    #     stats = pstats.Stats(profiler, stream=f).sort_stats("time")
-    #     stats.print_stats()
+    gd2 = GenotypeData("example_data/vcf_files/gtdata_test.vcf", popmapfile="example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, filetype="auto", chunk_size=1000)
+
+    print(gd2.alignment)
 
     # Make missingness report plots.
     gd.missingness_reports(file_prefix="unfiltered")

@@ -1481,6 +1481,7 @@ class Plotting:
         plt.tight_layout()
 
         plot_dir = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "plots")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
 
         fname = (
             "population_counts"

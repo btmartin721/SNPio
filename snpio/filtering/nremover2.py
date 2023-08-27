@@ -83,7 +83,7 @@ class NRemover2:
         self.popgenio = popgenio
         self.popmap = popgenio.popmap
         self.popmap_inverse = popgenio.popmap_inverse
-        self.populations = list(set(popgenio.populations))
+        self.populations = self.popmap_inverse.keys()
         self.samples = popgenio.samples
         self.poplist = popgenio.populations
         self.prefix = popgenio.prefix
@@ -290,21 +290,6 @@ class NRemover2:
         # Create a temporary file and write some data to it
         aln = tempfile.NamedTemporaryFile(delete=False)
 
-        # if self.sample_indices is not None:
-        #     indices = list(set(self.sample_indices) & set(self.popgenio.sample_indices))
-        #     indices.sort()
-        #     self.sample_indices = indices
-        #     print(len(self.sample_indices))
-
-        # else:
-        #     self.sample_indices = self.popgenio.sample_indices
-
-        # samples = [
-        #     self.popgenio.samples[i]
-        #     for i in range(len(self.popgenio.samples))
-        #     if i in self.sample_indices
-        # ]
-
         if self.sample_indices is None:
             self.sample_indices = len(range(self.popgenio.samples))
 
@@ -315,9 +300,9 @@ class NRemover2:
                 self.loci_indices,
                 self.sample_indices,
                 self.popgenio.vcf_attributes,
-                self.popgenio.num_snps,
-                self.popgenio.num_inds,
                 samples=self.samples,
+                chunk_size=self.popgenio.chunk_size,
+                is_filtered=True,
             )
         else:
             vcf_attributes = self.popgenio._vcf_attributes
@@ -345,10 +330,9 @@ class NRemover2:
         inputs = self.popgenio.inputs
         inputs["popmapfile"] = popmap_filename
         inputs["filename"] = aln_filename
-        inputs["loci_indices"] = self.loci_indices
-        inputs["sample_indices"] = self.sample_indices
         inputs["filetype"] = "phylip"
         inputs["verbose"] = False
+        inputs["is_subset"] = True
 
         # Create a new object with the filtered alignment.
         new_popgenio = GenotypeData(**inputs)
@@ -357,6 +341,7 @@ class NRemover2:
         new_popgenio.verbose = self.popgenio.verbose
 
         if self.popgenio.filetype == "vcf":
+            new_popgenio.vcf_header = self.popgenio.vcf_header
             new_popgenio.vcf_attributes = vcf_attributes
 
         # When done, delete the file manually using os.unlink
