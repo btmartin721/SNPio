@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="snpio",
-    version="1.0.2.2",
+    version="1.0.3",
     url="https://github.com/btmartin721/SNPio",
     author="Bradley T. Martin and Tyler K. Chafin",
     author_email="evobio721@gmail.com",
@@ -39,7 +39,9 @@ setup(
         "panel",
         "plotly",
         "requests",
+        "versioned-hdf5",
         "cyvcf2",
+	    "pysam",
         "scikit-learn",
         "scipy",
         "seaborn",
@@ -50,6 +52,7 @@ setup(
     extras_require={
         "docs": ["sphinx<7", "sphinx-rtd-theme", "sphinx-autodoc-typehints"],
         "intel": ["scikit-learn-intelex"],
+        "dev": ["memory-profiler"]
     },
     entry_points={"console_scripts": ["snpio=run_snpio.py:main"]},
     classifiers=[

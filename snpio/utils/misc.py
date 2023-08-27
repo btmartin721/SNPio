@@ -15,6 +15,42 @@ import pandas as pd
 # from skopt import BayesSearchCV
 
 
+def align_columns(rows, alignment="left"):
+    """
+    Aligns the columns of a list of tab-separated strings.
+
+    Args:
+        rows (list): A list of tab-separated strings.
+        alignment (str): The type of alignment ("left", "right", "center").
+
+    Returns:
+        list: A list of aligned, tab-separated strings.
+    """
+    # Split each row into its columns
+    split_rows = [row.split("\t") for row in rows]
+    
+    # Get the maximum width for each column
+    max_widths = [max(len(str(item)) for item in col) for col in zip(*split_rows)]
+    
+    # Functions to align text
+    align_func = {
+        "left": str.ljust,
+        "right": str.rjust,
+        "center": str.center
+    }
+    
+    # Align each column and join them back into strings
+    aligned_rows = []
+    for row in split_rows:
+        aligned_row = [
+            align_func[alignment](str(cell), width)
+            for cell, width in zip(row, max_widths)
+        ]
+        aligned_rows.append("\t".join(aligned_row))
+    
+    return aligned_rows
+
+
 def validate_input_type(X, return_type="array"):
     """
     Validates the input type and returns it as a specified type.
@@ -482,7 +518,9 @@ def measure_performance_for_class_method(func):
 
 def class_performance_decorator(measure=True):
     """
-    Decorator for applying performance measurement to all callable attributes of a class that do not start with an underscore. The performance metrics include CPU load, memory footprint, and execution time.
+    Decorator for applying performance measurement to all callable attributes of a class that do not start with an underscore. 
+    
+    The performance metrics include CPU load, memory footprint, and execution time.
 
     Args:
         measure (bool, optional): If True, apply performance measurement. If False, return the class unchanged. Defaults to True.
