@@ -142,5 +142,8 @@ __pypackages__/
 # pyenv
 .python-version
 
+# benchmarking
+profile_stats_*.txt
+
 # pipenv (commented as per recommendation)
 #Pipfile.lock
