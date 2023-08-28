@@ -1,10 +1,6 @@
 from snpio import GenotypeData
 from snpio import NRemover2
 from snpio import Plotting
-import sys
-
-import cProfile, pstats
-
 
 def main():
     # Read the alignment, popmap, and tree files
