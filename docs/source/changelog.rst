@@ -4,6 +4,14 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.0.3.2 (2023-08-28)
+-----------------------------
+
+Bug Fixes
+~~~~~~~~~~
+
+- Fixed copy method for pysam.VariantHeader objects.
+
 Version 1.0.3 (2023-08-27)
 --------------------------
 
