@@ -14,6 +14,7 @@ Welcome to SNPio's documentation!
    example_script
    snpio
    modules
+   changelog
 
 
 
