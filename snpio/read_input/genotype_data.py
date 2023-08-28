@@ -10,7 +10,7 @@ import textwrap
 from datetime import datetime
 from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
-from memory_profiler import profile
+# from memory_profiler import profile
 
 import h5py
 
@@ -84,8 +84,6 @@ TreeParser.get_data_from_intree = patched_get_data_from_intree
 from Bio.Align import MultipleSeqAlignment
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
-
-# from cyvcf2 import VCF
 
 from pysam import VariantFile
 import pysam
@@ -1007,11 +1005,8 @@ class GenotypeData:
 
         self._check_filetype("vcf")
 
-        # Load the VCF file using cyvcf2
+        # Load the VCF file using pysam
         vcf = VariantFile(self.filename, mode="r")
-        self.vcf_reader = vcf
-
-        self._samples = vcf.header.samples
 
         if self.popmapfile is not None:
             self._my_popmap = self.read_popmap(self.popmapfile)
@@ -3108,7 +3103,23 @@ class GenotypeData:
         Returns:
             GenotypeData: A new GenotypeData object with the same attributes as the original.
         """
-        return copy.deepcopy(self)
+        # Create a new instance of GenotypeData
+        new_obj = GenotypeData.__new__(GenotypeData)
+        
+        # Shallow copy of the original object's __dict__
+        new_obj.__dict__.update(self.__dict__)
+
+        # Deep copy all attributes EXCEPT the problematic VariantHeader
+        for name, attr in self.__dict__.items():
+            if name != "vcf_header":
+                setattr(new_obj, name, copy.deepcopy(attr))
+        
+        # Explicitly copy VariantHeader
+        new_header = pysam.VariantHeader()
+        new_header = self.vcf_header.copy()
+        new_obj.vcf_header = new_header
+
+        return new_obj
 
     class _DataFormat012:
         def __init__(self, instance, is_structure: bool = False):
