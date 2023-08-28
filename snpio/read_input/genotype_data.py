@@ -10,7 +10,7 @@ import textwrap
 from datetime import datetime
 from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
-from memory_profiler import profile
+# from memory_profiler import profile
 
 import h5py
 
