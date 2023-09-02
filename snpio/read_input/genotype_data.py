@@ -10,6 +10,7 @@ import textwrap
 from datetime import datetime
 from collections import Counter, OrderedDict, defaultdict
 from pathlib import Path
+
 # from memory_profiler import profile
 
 import h5py
@@ -395,11 +396,16 @@ class GenotypeData:
         self._kwargs["loci_indices"] = self.loci_indices
         self._kwargs["sample_indices"] = self.sample_indices
 
-        vcf_attr_path = os.path.join(f"{self.prefix}_output", "gtdata", "alignments", "vcf", "vcf_attributes.h5")
+        vcf_attr_path = os.path.join(
+            f"{self.prefix}_output", "gtdata", "alignments", "vcf", "vcf_attributes.h5"
+        )
         if Path(vcf_attr_path).is_file():
             # Subset VCF attributes in case samples were not in popmap file.
             if self.filetype != "vcf" and not is_subset:
-                if len(self.loci_indices) != self.num_snps or len(self.sample_indices) != self.num_inds:
+                if (
+                    len(self.loci_indices) != self.num_snps
+                    or len(self.sample_indices) != self.num_inds
+                ):
                     self.vcf_attributes = self.subset_vcf_data(
                         self.loci_indices,
                         self.sample_indices,
@@ -1090,17 +1096,21 @@ class GenotypeData:
 
         with h5py.File(h5_outfile, "w") as f:
             # Create datasets for basic attributes
-            chrom_dset = f.create_dataset("chrom", (0,), maxshape=(None,), dtype="S10")
+            chrom_dset = f.create_dataset(
+                "chrom", (0,), maxshape=(None,), dtype=h5py.string_dtype()
+            )
             pos_dset = f.create_dataset("pos", (0,), maxshape=(None,), dtype=int)
             vcf_id_dset = f.create_dataset(
                 "vcf_id", (0,), maxshape=(None,), dtype=h5py.string_dtype()
             )
-            ref_dset = f.create_dataset("ref", (0,), maxshape=(None,), dtype="S10")
+            ref_dset = f.create_dataset(
+                "ref", (0,), maxshape=(None,), dtype=h5py.string_dtype(length=3)
+            )
             alt_dset = f.create_dataset(
                 "alt",
                 (0,),
                 maxshape=(None,),
-                dtype=h5py.string_dtype(),
+                dtype=h5py.string_dtype(length=5),
             )
             qual_dset = f.create_dataset("qual", (0,), maxshape=(None,), dtype=float)
             vcf_filter_dset = f.create_dataset(
@@ -1217,8 +1227,10 @@ class GenotypeData:
                         try:
                             vcf_filter_dset[-len(data) :] = np.squeeze(data)
                         except TypeError:
-                            vcf_filter_dset[-len(data) :] = np.full((len(data),), ".", dtype=str)
- 
+                            vcf_filter_dset[-len(data) :] = np.full(
+                                (len(data),), ".", dtype=str
+                            )
+
                     elif data_type == "format":
                         format_dset.resize((format_dset.shape[0] + len(data),))
                         format_dset[-len(data) :] = data
@@ -1238,14 +1250,18 @@ class GenotypeData:
                                     len(samples),
                                 )
                             )
-                            calldata_dsets[k][-len(v_str) :, :] = v_str[:, sample_indices]
+                            calldata_dsets[k][-len(v_str) :, :] = v_str[
+                                :, sample_indices
+                            ]
 
                     elif data_type == "snp_data":
                         snp_data = np.array(data, dtype=str)
                         snp_data_dset.resize(
                             (snp_data_dset.shape[0] + len(data), len(samples))
                         )
-                        snp_data_dset[-len(data) :, :] = np.array(data)[:, sample_indices]
+                        snp_data_dset[-len(data) :, :] = np.array(data)[
+                            :, sample_indices
+                        ]
                 vcf.reset()
 
         snp_data = None
@@ -1392,7 +1408,7 @@ class GenotypeData:
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray]: A tuple of three numpy arrays. The first array contains the most common alleles in each column. The second array contains the second most common alleles in each column, or None if a column doesn't have a second most common allele. The third array contains the less common alleles in each column, or None if a column doesn't have less common alleles.
         """
-        
+
         iupac_codes = {
             "A": ("A", "A"),
             "C": ("C", "C"),
@@ -1426,7 +1442,9 @@ class GenotypeData:
             most_common_allele = most_common[0][0] if most_common else None
 
             if most_common_allele in ["N", "-", "?"]:
-                sorted_counts = sorted(allele_counts.items(), key=lambda x: x[1], reverse=True)
+                sorted_counts = sorted(
+                    allele_counts.items(), key=lambda x: x[1], reverse=True
+                )
                 for allele, count in sorted_counts:
                     if allele not in ["N", "-", "?"]:
                         most_common_allele = allele
@@ -1437,19 +1455,20 @@ class GenotypeData:
             # Exclude the most common allele for the subsequent calculations
             if most_common_allele:
                 del allele_counts[most_common_allele]
-            
-            sorted_counts = sorted(allele_counts.items(), key=lambda x: x[1], reverse=True)
-            
+
+            sorted_counts = sorted(
+                allele_counts.items(), key=lambda x: x[1], reverse=True
+            )
+
             second_most_common_allele = sorted_counts[0][0] if sorted_counts else None
             second_most_common_alleles.append(second_most_common_allele)
 
             less_common_alleles = [allele for allele, count in sorted_counts[1:]]
-            less_common_alleles_list.append(less_common_alleles if less_common_alleles else None)
+            less_common_alleles_list.append(
+                less_common_alleles if less_common_alleles else None
+            )
 
         return most_common_alleles, second_most_common_alleles, less_common_alleles_list
-
-
-
 
     def _snpdata2gtarray(self, snpdata):
         iupac_codes = {
@@ -1522,7 +1541,9 @@ class GenotypeData:
                 raise TypeError("samples must be provided if snp_data is None")
 
         if len(samples) != len(snp_data):
-            raise ValueError(f"samples and snp_data are not the same length: {len(samples)}, {len(snp_data)}")
+            raise ValueError(
+                f"samples and snp_data are not the same length: {len(samples)}, {len(snp_data)}"
+            )
 
         with open(output_file, "w") as f:
             aln = pd.DataFrame(snp_data)
@@ -1536,7 +1557,10 @@ class GenotypeData:
             print(f"Successfully wrote PHYLIP file!")
 
     def calculate_ns(self, snp_data):
-        ns = [sum(1 for nucleotide in site if nucleotide != "N") for site in zip(*snp_data)]
+        ns = [
+            sum(1 for nucleotide in site if nucleotide != "N")
+            for site in zip(*snp_data)
+        ]
         return ns
 
     def calculate_af(self, snp_data, alternate_alleles):
@@ -1573,7 +1597,6 @@ class GenotypeData:
         return af
 
     def calculate_allele_counts(self, snp_data):
-
         # IUPAC ambiguity characters mapping to pairs of nucleotides
         iupac_mapping = {
             "R": ("A", "G"),
@@ -1594,18 +1617,20 @@ class GenotypeData:
                     count[iupac_mapping[nucleotide][0]] += 1
                     count[iupac_mapping[nucleotide][1]] += 1
                 elif nucleotide != "N":  # Ignoring missing values
-                    count[nucleotide] += 2  # Increasing count by 2 for non-heterozygous nucleotides
+                    count[
+                        nucleotide
+                    ] += 2  # Increasing count by 2 for non-heterozygous nucleotides
 
             # Formatting the counts as required
             formatted_count = ",".join(str(count[x]) for x in ["C", "A", "T", "G"])
             result.append(formatted_count)
-        
+
         return result
 
     def write_vcf(
         self,
         output_filename: str,
-        hdf5_file_path: str=None,
+        hdf5_file_path: str = None,
         chunk_size=1000,
     ) -> None:
         """
@@ -1621,7 +1646,6 @@ class GenotypeData:
             print("\nWriting vcf file...")
 
         if self.vcf_attributes is None:
-
             ns = self.calculate_ns(self.snp_data)
             af = self.calculate_af(self.snp_data, self.alt)
 
@@ -1633,18 +1657,30 @@ class GenotypeData:
                 "alt": ["." if x is None else x for x in self.alt],
                 "qual": ["." for x in range(self.num_snps)],
                 "filter": ["." for x in range(self.num_snps)],
-                "info": {"NS": [f"NS={v}" for v in ns], "MAF": [f"AF={round(x, 3)}" for x in af]},
+                "info": {
+                    "NS": [f"NS={v}" for v in ns],
+                    "MAF": [f"AF={round(x, 3)}" for x in af],
+                },
                 "format": ["GT" for x in range(self.num_snps)],
             }
 
-            vcf_attributes["alt"] = [[x] + y if y else [x] for x, y in zip(vcf_attributes["alt"], self._alt2)]
+            vcf_attributes["alt"] = [
+                [x] + y if y else [x] for x, y in zip(vcf_attributes["alt"], self._alt2)
+            ]
             vcf_attributes["alt"] = [",".join(x) for x in vcf_attributes["alt"]]
 
             # IUPAC ambiguity codes mapping
             iupac_mapping = {
-                "R": "0/1", "Y": "0/1", "S": "0/1", "W": "0/1", 
-                "K": "0/1", "M": "0/1", "B": "0/1", "D": "0/1",
-                "H": "0/1", "V": "0/1"
+                "R": "0/1",
+                "Y": "0/1",
+                "S": "0/1",
+                "W": "0/1",
+                "K": "0/1",
+                "M": "0/1",
+                "B": "0/1",
+                "D": "0/1",
+                "H": "0/1",
+                "V": "0/1",
             }
 
             def replace_alleles(row, ref, alt):
@@ -1661,7 +1697,7 @@ class GenotypeData:
                     row[i] = row[i].replace("-", "./.")
                     row[i] = row[i].replace("?", "./.")
                 return "\t".join(row) + "\n"
-            
+
             with open(output_filename, "w") as fout:
                 sample_header = "\t".join(self.samples)
 
@@ -1678,11 +1714,14 @@ class GenotypeData:
                 )
                 gt = np.array(self.snp_data, dtype=str).T.tolist()
                 gt_joined = ["\t".join(list(map(str, x))) for x in gt]
-                
+
                 info = {k: f"{k}={str(v)}" for k, v in vcf_attributes.items()}
-                info_joined = [";".join(list(map(str, values))) for values in zip(*vcf_attributes["info"].values())]
+                info_joined = [
+                    ";".join(list(map(str, values)))
+                    for values in zip(*vcf_attributes["info"].values())
+                ]
                 vcf_attributes["info"] = info_joined
-                
+
                 vcf_attributes["calldata"] = gt_joined
 
                 lines_data = []
@@ -1703,7 +1742,9 @@ class GenotypeData:
 
                 new_lines = [
                     replace_alleles(row, ref, alt)
-                    for row, ref, alt in zip(lines_data, vcf_attributes["ref"], vcf_attributes["alt"])
+                    for row, ref, alt in zip(
+                        lines_data, vcf_attributes["ref"], vcf_attributes["alt"]
+                    )
                 ]
 
                 # new_lines = align_columns(new_lines, alignment="left")
@@ -1714,7 +1755,7 @@ class GenotypeData:
 
             if self.verbose:
                 print("\nSuccessfully wrote VCF file!\n")
-                
+
             return None
 
         if hdf5_file_path is None:
@@ -1730,7 +1771,7 @@ class GenotypeData:
             return ["\t".join(str(x)) + "\n" for x in row]
 
         # 1. Opening the HDF5 File and VCF File
-        with h5py.File(hdf5_file_path, 'r') as hdf5_file:
+        with h5py.File(hdf5_file_path, "r") as hdf5_file:
             vcf_header = self.vcf_header
             with open(output_filename, "w") as f:
                 for header_record in vcf_header.records:
@@ -1743,29 +1784,29 @@ class GenotypeData:
                 )
 
                 # 2. Reading Attributes in Chunks
-                for start in range(0, len(hdf5_file['chrom']), chunk_size):
-                    end = min(start + chunk_size, len(hdf5_file['chrom']))
-                    
+                for start in range(0, len(hdf5_file["chrom"]), chunk_size):
+                    end = min(start + chunk_size, len(hdf5_file["chrom"]))
+
                     # Read the chunk from the HDF5 file
-                    chrom = hdf5_file['chrom'][start:end]
-                    pos = hdf5_file['pos'][start:end]
-                    vcf_id = hdf5_file['vcf_id'][start:end]
-                    ref = hdf5_file['ref'][start:end]
-                    alt = hdf5_file['alt'][start:end]
-                    qual = hdf5_file['qual'][start:end]
-                    fltr = hdf5_file['filter'][start:end]
-                    info_keys = list(hdf5_file['info'].keys())
+                    chrom = hdf5_file["chrom"][start:end]
+                    pos = hdf5_file["pos"][start:end]
+                    vcf_id = hdf5_file["vcf_id"][start:end]
+                    ref = hdf5_file["ref"][start:end]
+                    alt = hdf5_file["alt"][start:end]
+                    qual = hdf5_file["qual"][start:end]
+                    fltr = hdf5_file["filter"][start:end]
+                    info_keys = list(hdf5_file["info"].keys())
                     info = defaultdict(list)
                     for k in info_keys:
-                        info[k] = hdf5_file[f'info/{k}'][start:end]
+                        info[k] = hdf5_file[f"info/{k}"][start:end]
 
-                    fmt = hdf5_file['format'][start:end]
+                    fmt = hdf5_file["format"][start:end]
 
-                    calldata_keys = list(hdf5_file['calldata'].keys())
+                    calldata_keys = list(hdf5_file["calldata"].keys())
 
                     calldata = defaultdict(list)
                     for k in calldata_keys:
-                        calldata[k] = hdf5_file[f'calldata/{k}'][start:end, :]
+                        calldata[k] = hdf5_file[f"calldata/{k}"][start:end, :]
 
                     fmt_keys = list(set(fmt))
 
@@ -1793,7 +1834,15 @@ class GenotypeData:
 
                     # Join the corresponding elements of the lists
                     calldata_str = [
-                        [":".join([e.decode() if isinstance(e, bytes) else str(e) for e in row]) for row in zip(*rows)]
+                        [
+                            ":".join(
+                                [
+                                    e.decode() if isinstance(e, bytes) else str(e)
+                                    for e in row
+                                ]
+                            )
+                            for row in zip(*rows)
+                        ]
                         for rows in calldata_transposed
                     ]
 
@@ -1810,7 +1859,7 @@ class GenotypeData:
                     qual_str = qual.astype(str)
                     fltr_str = fltr.astype(str)
                     fmt_str = fmt.astype(str)
-                    
+
                     snp_data = np.array(self.snp_data, dtype=str)[:, start:end]
 
                     # Create the genotype string
@@ -1831,7 +1880,9 @@ class GenotypeData:
                     info_arrays = np.array(list(info_arrays.values()), dtype=str)
 
                     # Join the elements along the last axis
-                    info_result = np.apply_along_axis(lambda x: ";".join(x), 0, info_arrays)
+                    info_result = np.apply_along_axis(
+                        lambda x: ";".join(x), 0, info_arrays
+                    )
 
                     # Concatenate the data into lines
                     lines_data = np.stack(
@@ -1852,7 +1903,9 @@ class GenotypeData:
 
                     # Replace alleles with numerical values
                     ref_alleles = lines[:, 3]
-                    alt_alleles = [alt_str.strip().split(",") for alt_str in lines[:, 4]]
+                    alt_alleles = [
+                        alt_str.strip().split(",") for alt_str in lines[:, 4]
+                    ]
                     new_lines = [
                         replace_alleles(row, ref, alt)
                         for row, ref, alt in zip(lines, ref_alleles, alt_alleles)
@@ -1862,7 +1915,6 @@ class GenotypeData:
                     # 4. Writing the Chunk to the VCF File
                     # Write the processed lines for this chunk to the VCF file
                     f.writelines(new_lines)
-
 
         if self.verbose:
             print("\nSuccessfully wrote VCF file!\n")
@@ -2130,7 +2182,7 @@ class GenotypeData:
             outfile = os.path.join(outdir, fname)
             with open(outfile, "w") as fout:
                 fout.write(",".join([str(x) for x in non_biallelic_sites]))
-                
+
             warnings.warn(
                 f" SNP column indices listed in the log file {outfile} had >2 alleles and was forced to "
                 f"be bi-allelic. If that is not what you want, please "
@@ -2548,13 +2600,11 @@ class GenotypeData:
                     self._populations.append(my_popmap.popmap[sample])
         else:
             popmap_keys_set = set(my_popmap.popmap.keys())
-            new_samples = [x for x in samples if x in popmap_keys_set]    
+            new_samples = [x for x in samples if x in popmap_keys_set]
 
-            new_samples_set = set(new_samples)        
+            new_samples_set = set(new_samples)
             new_populations = [
-                p
-                for s, p in my_popmap.popmap.items()
-                if s in new_samples_set
+                p for s, p in my_popmap.popmap.items() if s in new_samples_set
             ]
 
             if not new_samples:
@@ -2699,7 +2749,9 @@ class GenotypeData:
         df_decoded.replace(dreplace, inplace=True)
 
         if write_output:
-            outfile = os.path.join(f"{self.prefix}_output", "gtdata", "alignments", "012")
+            outfile = os.path.join(
+                f"{self.prefix}_output", "gtdata", "alignments", "012"
+            )
 
         if ft.startswith("structure"):
             if ft.startswith("structure2row"):
@@ -2938,20 +2990,23 @@ class GenotypeData:
         chunk_size=1000,
         is_filtered=False,
     ):
-
         fname = "vcf_attributes"
         if is_filtered:
-            outdir = os.path.join(f"{self.prefix}_output", "nremover", "alignments", "vcf")
+            outdir = os.path.join(
+                f"{self.prefix}_output", "nremover", "alignments", "vcf"
+            )
             fname += "_filtered.h5"
         else:
-            outdir = os.path.join(f"{self.prefix}_output", "gtdata", "alignments", "vcf")
+            outdir = os.path.join(
+                f"{self.prefix}_output", "gtdata", "alignments", "vcf"
+            )
             fname += ".h5"
 
         Path(outdir).mkdir(exist_ok=True, parents=True)
         outfile = os.path.join(outdir, fname)
 
-        with h5py.File(outfile, 'w') as filtered_file:
-            with h5py.File(vcf_attributes_path, 'r') as original_file:
+        with h5py.File(outfile, "w") as filtered_file:
+            with h5py.File(vcf_attributes_path, "r") as original_file:
                 # Iterate through each attribute key and subset the data
                 for key in original_file.keys():
                     if key not in ["info", "calldata"]:
@@ -2961,7 +3016,9 @@ class GenotypeData:
                         filtered_shape = list(original_shape)
                         if len(original_shape) > 0:
                             filtered_shape[0] = len(loci_indices)
-                        filtered_dataset = filtered_file.create_dataset(key, shape=tuple(filtered_shape), dtype=dtype)
+                        filtered_dataset = filtered_file.create_dataset(
+                            key, shape=tuple(filtered_shape), dtype=dtype
+                        )
                         # Process in chunks
                         for start in range(0, len(loci_indices), chunk_size):
                             end = min(start + chunk_size, len(loci_indices))
@@ -2979,18 +3036,28 @@ class GenotypeData:
                                 filtered_shape[0] = len(loci_indices)
                             if len(original_shape) > 1:
                                 filtered_shape[1] = len(sample_indices)
-                            filtered_dataset = filtered_group.create_dataset(inner_key, shape=tuple(filtered_shape), dtype=dtype)  # Create dataset for each inner_key
+                            filtered_dataset = filtered_group.create_dataset(
+                                inner_key, shape=tuple(filtered_shape), dtype=dtype
+                            )  # Create dataset for each inner_key
 
                             # Process in chunks
                             for start in range(0, len(loci_indices), chunk_size):
                                 end = min(start + chunk_size, len(loci_indices))
                                 loci_chunk = loci_indices[start:end]
-                                
+
                                 if len(original_shape) == 1:
-                                    data_chunk = original_file[f"{key}/{inner_key}"][loci_chunk]
+                                    data_chunk = original_file[f"{key}/{inner_key}"][
+                                        loci_chunk
+                                    ]
                                 else:  # len(original_shape) == 2, so key must be "calldata" or "snp_data"
-                                    data_chunk = original_file[f"{key}/{inner_key}"][loci_chunk, :][:, sample_indices]
-                                filtered_dataset[start:end] = data_chunk if len(filtered_shape) == 1 else data_chunk[:, :]
+                                    data_chunk = original_file[f"{key}/{inner_key}"][
+                                        loci_chunk, :
+                                    ][:, sample_indices]
+                                filtered_dataset[start:end] = (
+                                    data_chunk
+                                    if len(filtered_shape) == 1
+                                    else data_chunk[:, :]
+                                )
 
         return outfile
 
@@ -3105,7 +3172,7 @@ class GenotypeData:
         """
         # Create a new instance of GenotypeData
         new_obj = GenotypeData.__new__(GenotypeData)
-        
+
         # Shallow copy of the original object's __dict__
         new_obj.__dict__.update(self.__dict__)
 
@@ -3113,7 +3180,7 @@ class GenotypeData:
         for name, attr in self.__dict__.items():
             if name != "vcf_header":
                 setattr(new_obj, name, copy.deepcopy(attr))
-        
+
         # Explicitly copy VariantHeader
         new_header = pysam.VariantHeader()
         new_header = self.vcf_header.copy()
@@ -3398,7 +3465,9 @@ class GenotypeData:
         return arr
 
     @genotypes_int.setter
-    def genotypes_int(self, value: Union[pd.DataFrame, np.ndarray, List[List[int]]]) -> List[List[int]]:
+    def genotypes_int(
+        self, value: Union[pd.DataFrame, np.ndarray, List[List[int]]]
+    ) -> List[List[int]]:
         """Set the integer-encoded (0-9) genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
         if isinstance(value, pd.DataFrame):
             X = value.to_numpy()
@@ -3428,7 +3497,9 @@ class GenotypeData:
         )
 
     @alignment.setter
-    def alignment(self, value: Union[np.ndarray, pd.DataFrame, MultipleSeqAlignment]) -> None:
+    def alignment(
+        self, value: Union[np.ndarray, pd.DataFrame, MultipleSeqAlignment]
+    ) -> None:
         """
         Setter method for the alignment.
 
@@ -3463,14 +3534,15 @@ class GenotypeData:
         Raises:
             IOError: If vcf_attributes.h5 file doesn't exist.
         """
-        file_path = os.path.join(f"{self.prefix}_output", "gtdata", "alignments", "vcf", "vcf_attributes.h5")
+        file_path = os.path.join(
+            f"{self.prefix}_output", "gtdata", "alignments", "vcf", "vcf_attributes.h5"
+        )
         if not Path(file_path).is_file():
             raise IOError(f"{file_path} could not be found.")
         return self._vcf_attributes
 
     @vcf_attributes.setter
-    def vcf_attributes(
-        self, value: str) -> None:
+    def vcf_attributes(self, value: str) -> None:
         """Setter method for VCF file attributes dictionary.
 
         This should be a dictionary with the 9 standard VCF file keys ("chrom", "pos", "id", "ref", "alt", "qual", "filter", "info", "format") plus the calldata object. The "info" object should be another dictionary with each INFO field name as the keys and an associated numpy array as the values. The "format" object should just be a numpy array of shape (n_format_fields,). The calldata object should be another dictionary with each calldata field as keys, prepended by "calldata/{key}. The keys for calldata will be the same as in the "format" field.
