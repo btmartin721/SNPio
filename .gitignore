@@ -128,6 +128,7 @@ vcf_attributes.h5
 phylogen.vcf
 phylogen.vcf.gz
 phylogen.vcf.gz.csi
+phylogen.vcf.gz.tbi
 gtdata_test.vcf
 nremover_test.vcf
 gtdata_test.vcf
