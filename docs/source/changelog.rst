@@ -4,6 +4,13 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.0.3.3 (2023-09-01)
+
+Bug Fixes
+~~~~~~~~~~
+
+- Fixed bug where CHROM VCF field had strings cut off at 10 characters.
+
 Version 1.0.3.2 (2023-08-28)
 -----------------------------
 
