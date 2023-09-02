@@ -119,6 +119,7 @@ dmypy.json
 # Project-Specific Files
 sfs_*
 snpio_plots/
+snpio_output/
 unfiltered_reports/
 *.csv
 *.lock
