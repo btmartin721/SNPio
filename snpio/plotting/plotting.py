@@ -585,11 +585,15 @@ class Plotting:
         else:
             included_steps = range(12)
 
-            if included_steps is None:
-                included_steps = list(range(6))
-
             steps = [
-                ["Unfiltered", "Monomorphic", loci_removed_per_step[0][1]]
+                ["Unfiltered", "Filter Linked Loci", loci_before]
+                if 7 in included_steps
+                else None,
+                [
+                    "Filter Linked Loci",
+                    "Monomorphic",
+                    loci_before - loci_removed_per_step[6][1],
+                ]
                 if 0 in included_steps
                 else None,
                 [

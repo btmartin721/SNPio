@@ -1,14 +1,19 @@
-import sys
+# Standard library imports
 import os
+import sys
 import tempfile
 import warnings
-import pandas as pd
-import numpy as np
-from Bio.Align import MultipleSeqAlignment
-from Bio import SeqUtils
 from copy import deepcopy
 from pathlib import Path
 
+# Third-party imports
+import h5py
+import numpy as np
+import pandas as pd
+from Bio import SeqUtils
+from Bio.Align import MultipleSeqAlignment
+
+# Custom imports
 from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data import GenotypeData
 
@@ -100,6 +105,7 @@ class NRemover2:
         biallelic=False,
         monomorphic=False,
         singletons=False,
+        unlinked=False,
         search_thresholds=True,
         plot_dir_prefix="snpio",
         file_prefix=None,
@@ -125,6 +131,8 @@ class NRemover2:
             monomorphic (bool, optional): Whether to filter out monomorphic loci. Defaults to False.
 
             singletons (bool, optional): Whether to filter out loci where the only variant is a singleton. Defaults to False.
+
+            unlinked (bool, optional): Whether to filter out linked snps. VCF file format is required to use this option. Defaults to False.
 
             search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
 
@@ -174,6 +182,13 @@ class NRemover2:
             )
 
         steps = [
+            (
+                "Filter linked loci",
+                unlinked,
+                unlinked,
+                self.filter_linked,
+                7,
+            ),
             (
                 "Filter missing data (sample)",
                 max_missing_sample < 1.0,
@@ -228,32 +243,49 @@ class NRemover2:
         indices_loci_before = list(range(len(aln_before[0])))
         loci_removed_per_step = []
         filter_idx_dict = {}
-        retained_indices = indices_loci_before
+        # retained_indices = indices_loci_before
+
+        # Initialize a list of all indices in the original alignment
+        original_indices = np.arange(len(self.alignment[0]))
+
+        # Initialize a counter for loci before filtering
+        loci_before = len(self.alignment[0])
 
         for name, condition, threshold, filter_func, step_idx in steps:
             if condition:
                 filtered_alignment, indices = filter_func(
                     threshold, alignment=self.alignment
                 )
-                loci_removed = len(self.alignment[0]) - len(filtered_alignment[0])
+
+                # loci_removed = len(self.alignment[0]) - len(filtered_alignment[0])
 
                 if name != "Filter missing data (sample)":
+                    # Calculate the number of loci removed during this step
+                    loci_removed = len(self.alignment[0]) - len(filtered_alignment[0])
                     loci_removed_per_step.append((name, loci_removed))
 
-                    # Update retained_indices to only include the indices that were retained
-                    retained_indices = [retained_indices[i] for i in indices]
-                    filter_idx_dict[step_idx] = retained_indices
+                    # Update the alignment to only include retained loci
+                    self.alignment = filtered_alignment
+
+                    # Map the retained_indices_local back to the original indices
+                    retained_indices_global = original_indices[indices]
+
+                    # Update original_indices to only include indices that were retained
+                    original_indices = retained_indices_global
+
                 else:
                     self.sample_indices = indices
                     self.samples = [self.samples[i] for i in indices]
-                self.alignment = filtered_alignment
+                    self.alignment = filtered_alignment
+                # self.alignment = filtered_alignment
             else:
                 loci_removed_per_step.append((name, 0))
 
-        aln_after = deepcopy(self.alignment)
+        # At the end, original_indices contains the indices in the original alignment
+        # of all loci that passed all filters
+        self.loci_indices = original_indices.tolist()
 
-        max_step_idx = max(filter_idx_dict)
-        self.loci_indices = filter_idx_dict[max_step_idx]
+        aln_after = deepcopy(self.alignment)
 
         self.print_filtering_report(aln_before, aln_after, loci_removed_per_step)
 
@@ -415,7 +447,7 @@ class NRemover2:
         mask = missing_counts / alignment_array.shape[0] <= threshold
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
 
         # Apply the mask to filter out columns with a missing proportion greater than the threshold
         filtered_alignment_array = alignment_array[:, mask]
@@ -485,7 +517,7 @@ class NRemover2:
         )
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if not val]
+        mask_indices = np.where(mask)[0].tolist()
 
         filtered_alignment_array = alignment_array[:, ~mask]
 
@@ -539,7 +571,7 @@ class NRemover2:
         filtered_alignment_array = alignment_array[mask, :]
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
         filtered_alignment = [
@@ -623,7 +655,7 @@ class NRemover2:
         mask = maf >= min_maf
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
@@ -699,7 +731,7 @@ class NRemover2:
         mask = unique_base_counts == 2
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
 
         # Apply the mask to filter non-biallelic columns
         filtered_alignment_array = alignment_array[:, mask]
@@ -714,6 +746,60 @@ class NRemover2:
             )
         else:
             return filtered_alignment_array, mask_indices
+
+    def filter_linked(self, threshold=None, alignment=None):
+        """
+        Filters out linked loci based on VCF file CHROM information.
+
+        Reads chromosome information from an HDF5 file and randomly selects one locus from each unique chromosome.
+
+        Args:
+
+            threshold (bool, optional): For compatibility only. Not used in this function. Defaults to None.
+
+            alignment (array_like, optional): The alignment to be filtered. Defaults to None.
+
+        Returns:
+            tuple: The filtered alignment and the indices of the retained loci.
+
+        Raises:
+            FileNotFoundError: If the HDF5 file does not exist.
+            KeyError: If the key 'chrom' is not present in the HDF5 file.
+        """
+        if alignment is not None:
+            alignment = self.alignment
+
+        if not isinstance(alignment, np.ndarray):
+            alignment = np.array(alignment)
+
+        # Construct the path to the HDF5 file
+        hdf5_path = os.path.join(
+            f"{self.prefix}_output", "gtdata", "alignments", "vcf", "vcf_attributes.h5"
+        )
+
+        # Check if the HDF5 file exists
+        if not os.path.exists(hdf5_path):
+            raise FileNotFoundError(f"The HDF5 file {hdf5_path} does not exist.")
+
+        # Read the chromosome information from the HDF5 file
+        with h5py.File(hdf5_path, "r") as f:
+            if "chrom" not in f.keys():
+                raise KeyError("The key 'chrom' is not present in the HDF5 file.")
+            chrom_data = f["chrom"][:]
+
+        # Find the indices of each unique chromosome
+        unique_chroms = np.unique(chrom_data)
+        random_indices = []
+
+        for chrom in unique_chroms:
+            indices_of_chrom = np.where(chrom_data == chrom)[0]
+            random_index = np.random.choice(indices_of_chrom)
+            random_indices.append(random_index)
+
+        random_indices = np.array(random_indices)
+        alignment_array = np.array(alignment)
+        filtered_alignment_array = alignment_array[:, random_indices]
+        return filtered_alignment_array, random_indices
 
     def count_iupac_alleles(self, column):
         """Counts the number of occurrences of each IUPAC ambiguity code in a column of nucleotide sequences.
@@ -801,7 +887,7 @@ class NRemover2:
             filtered_alignment_array = alignment_array[:, ~mask]
 
             # Get the indices of the True values in the mask
-            mask_indices = [i for i, val in enumerate(mask) if not val]
+            mask_indices = np.where(mask)[0].tolist()
 
         else:
             raise ValueError(
@@ -893,7 +979,7 @@ class NRemover2:
             mask = np.apply_along_axis(is_singleton, 0, alignment_array)
             filtered_alignment_array = alignment_array[:, ~mask]
             # Get the indices of the True values in the mask
-            mask_indices = [i for i, val in enumerate(mask) if not val]
+            mask_indices = np.where(mask)[0].tolist()
         else:
             raise ValueError(
                 "No loci remain in the alignment. Try adjusting the filtering paramters."
