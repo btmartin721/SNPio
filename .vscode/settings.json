@@ -4,5 +4,6 @@
     },
     "python.formatting.provider": "none",
     "editor.defaultFormatter": "ms-python.black-formatter",
-    "restructuredtext.preview.docutils.disabled": true
+    "restructuredtext.preview.docutils.disabled": true,
+    "esbonio.sphinx.confDir": ""
 }

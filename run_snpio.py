@@ -1,9 +1,6 @@
 from snpio import GenotypeData
 from snpio import NRemover2
 from snpio import Plotting
-import sys
-
-import cProfile, pstats
 
 
 def main():
@@ -18,12 +15,6 @@ def main():
         guidetree="example_data/trees/test.tre",
         chunk_size=1000,
     )
-
-    gd.write_vcf("example_data/vcf_files/gtdata_test.vcf")
-
-    gd2 = GenotypeData("example_data/vcf_files/gtdata_test.vcf", popmapfile="example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, filetype="auto", chunk_size=1000)
-
-    print(gd2.alignment)
 
     # Make missingness report plots.
     gd.missingness_reports(file_prefix="unfiltered")
@@ -42,7 +33,7 @@ def main():
         unlinked=True,
         monomorphic=True,
         min_maf=0.01,
-        search_thresholds=False,
+        search_thresholds=True,
     )
 
     # Make another missingness report plot for filtered data.
