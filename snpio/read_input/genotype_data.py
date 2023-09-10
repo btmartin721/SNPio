@@ -17,7 +17,8 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 import h5py
 import requests
-from memory_profiler import profile
+
+# from memory_profiler import profile
 
 # Make sure python version is >= 3.8
 if sys.version_info < (3, 8):
@@ -93,6 +94,7 @@ from pysam import VariantFile
 from snpio.plotting.plotting import Plotting as Plotting
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils import sequence_tools
+from snpio.utils.custom_exceptions import UnsupportedFileTypeError
 from snpio.utils.misc import align_columns, class_performance_decorator
 
 # from cyvcf2 import VCF
@@ -321,6 +323,7 @@ class GenotypeData:
         self.chunk_size = chunk_size
         self.verbose = verbose
         self.measure = kwargs.get("measure", False)
+        self.supported_filetypes = ["vcf", "phylip", "structure", "auto"]
 
         self._kwargs = {
             "filename": filename,
@@ -375,6 +378,11 @@ class GenotypeData:
                 raise AssertionError(
                     "File type could not be automatically detected. Please check the file for formatting errors or specify the file format as either 'phylip', 'structure', 'vcf', or '012' instead of 'auto'."
                 )
+
+        if self.filetype not in self.supported_filetypes:
+            raise UnsupportedFileTypeError(
+                self.filetype, supported_types=self.supported_filetypes
+            )
 
         self._read_aln(filetype, popmapfile)
 
@@ -2277,7 +2285,7 @@ class GenotypeData:
                 fout.write(",".join([str(x) for x in monomorphic_sites]))
 
             warnings.warn(
-                f"Monomorphic sites detected. You can check the locus indices in the following log file: {outfile}\n"
+                f"\nMonomorphic sites detected. You can check the locus indices in the following log file: {outfile}\n"
             )
 
         if non_biallelic_sites:
@@ -2287,7 +2295,8 @@ class GenotypeData:
                 fout.write(",".join([str(x) for x in non_biallelic_sites]))
 
             warnings.warn(
-                f" SNP column indices listed in the log file {outfile} had >2 alleles and was forced to "
+                f"\nSNP column indices listed in the log file {outfile} had >2 "
+                f"alleles and was forced to "
                 f"be bi-allelic. If that is not what you want, please "
                 f"fix or remove the column and re-run.\n"
             )
