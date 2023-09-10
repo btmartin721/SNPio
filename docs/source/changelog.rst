@@ -4,6 +4,24 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.0.4 (2023-09-10)
+-----------------------------
+
+Features
+~~~~~~~~~
+
+- Added functionality to filter out linked SNPs using CHROM and POS fields from VCF file.
+
+Performance
+~~~~~~~~~~~~
+
+- Made the Sankey plot function more modular and dynamic.
+
+Bug Fixes
+~~~~~~~~~~
+
+- Fix spacing between printed STDOUT.
+
 Version 1.0.3.3 (2023-09-01)
 
 Bug Fixes

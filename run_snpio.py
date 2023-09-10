@@ -1,19 +1,17 @@
-from snpio import GenotypeData
-from snpio import NRemover2
-from snpio import Plotting
+from snpio import GenotypeData, NRemover2, Plotting
 
 
 def main():
     # Read the alignment, popmap, and tree files
     gd = GenotypeData(
-        filename="example_data/vcf_files/phylogen_subset14K.vcf.gz",
+        filename="example_data/vcf_files/phylogen_subset14K.vcf",
         popmapfile="example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,
         filetype="auto",
         qmatrix_iqtree="example_data/trees/test.qmat",
         siterates_iqtree="example_data/trees/test.rate",
         guidetree="example_data/trees/test.tre",
-        chunk_size=1000,
+        chunk_size=5000,
     )
 
     # Make missingness report plots.
@@ -30,6 +28,7 @@ def main():
         max_missing_sample=0.8,
         singletons=True,
         biallelic=True,
+        unlinked=True,
         monomorphic=True,
         min_maf=0.01,
         search_thresholds=True,
@@ -43,7 +42,9 @@ def main():
 
     gd_filtered.write_vcf("example_data/vcf_files/nremover_test.vcf")
     gd_filtered.write_phylip("example_data/phylip_files/nremover_test.phy")
-    gd_filtered.write_structure("example_data/structure_files/nremover_test.str")
+    gd_filtered.write_structure(
+        "example_data/structure_files/nremover_test.str"
+    )
 
     print(gd_filtered.alignment)
     print(gd_filtered.tree)
