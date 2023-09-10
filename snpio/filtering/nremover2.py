@@ -22,7 +22,7 @@ from snpio.read_input.genotype_data import GenotypeData
 
 class NRemover2:
     """
-    A class for filtering alignments based on the proportion of missing data in a genetic alignment.
+    A class for filtering alignments based on the proportion of missing data in a genetic alignment, by minor allele frequency, and by linked loci.
 
     The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold.
 
@@ -70,6 +70,8 @@ class NRemover2:
         filter_singletons: Filters out loci (columns) where the only variant is a singleton.
 
         filter_non_biallelic: Filter out loci (columns) that have more than 2 alleles.
+
+        filter_linked: Filter out linked loci using VCF file CHROM field.
 
         get_population_sequences: Returns the sequences for a specific population.
 
@@ -134,7 +136,7 @@ class NRemover2:
 
             singletons (bool, optional): Whether to filter out loci where the only variant is a singleton. Defaults to False.
 
-            unlinked (bool, optional): Whether to filter out linked snps. VCF file format is required to use this option. Defaults to False.
+            unlinked (bool, optional): Whether to filter out linked snps. Randomly selects one SNP per unique chromosome from the CHROM and POS VCF fields. VCF format is required to use this option. Defaults to False.
 
             search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
 
@@ -786,7 +788,7 @@ class NRemover2:
         """
         Filters out linked loci based on VCF file CHROM information.
 
-        Reads chromosome information from an HDF5 file and randomly selects one locus from each unique chromosome.
+        Randomly selects one locus from each unique chromosome.
 
         Args:
 
@@ -798,9 +800,17 @@ class NRemover2:
             tuple: The filtered alignment and the indices of the retained loci.
 
         Raises:
+            OSError: Unsupported file type provided.
             FileNotFoundError: If the HDF5 file does not exist.
             KeyError: If the key 'chrom' is not present in the HDF5 file.
         """
+
+        if self.popgenio.filetype != "vcf":
+            raise OSError(
+                f"Only 'vcf' file type is supported for filtering linked loci, "
+                f"but got {self.popgenio.filetype}"
+            )
+
         if alignment is not None:
             alignment = self.alignment
 
@@ -1114,7 +1124,7 @@ class NRemover2:
         missing_data_before = missing_data_percent(before_alignment)
         missing_data_after = missing_data_percent(after_alignment)
 
-        print("Filtering Report:")
+        print("\nFiltering Report:")
         print(f"  Loci before filtering: {num_loci_before}")
         print(f"  Samples before filtering: {num_samples_before}")
 
@@ -1124,7 +1134,7 @@ class NRemover2:
             and missing_data_before == missing_data_after
         ):
             warnings.warn(
-                "The alignment was unchanged. Note that if none of the filtering arguments were changed from defaults, the alignment will not be filtered."
+                "\nThe alignment was unchanged. Note that if none of the filtering arguments were changed from defaults, the alignment will not be filtered."
             )
 
         for name, loci_removed in loci_removed_per_step:
