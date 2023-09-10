@@ -10,7 +10,6 @@ from typing import Tuple
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 import holoviews as hv
-from holoviews import opts, dim
 import matplotlib.colors as mpl_colors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,10 +18,9 @@ import panel as pn
 import plotly.express as px
 import plotly.graph_objs as go
 import seaborn as sns
-from mpl_toolkits.mplot3d import Axes3D
+from mpl_toolkits.mplot3d import Axes3D  # Don't remove this import.
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.metrics import mean_squared_error
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import cross_val_score
 
 hv.extension("bokeh")
 
@@ -671,8 +669,6 @@ class Plotting:
             # Add a new column 'LinkColor' to the dataframe
             df["LinkColor"] = df["Target"].apply(lambda x: cmap.get(x, "red"))
             df.loc[df["Source"] == "0", "Source"] = "Unfiltered"
-
-            print(df)
 
             sankey_plot = hv.Sankey(
                 df,
