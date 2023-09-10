@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="snpio",
-    version="1.0.3.3",
+    version="1.0.4",
     url="https://github.com/btmartin721/SNPio",
     author="Bradley T. Martin and Tyler K. Chafin",
     author_email="evobio721@gmail.com",
