@@ -1,6 +1,4 @@
-from snpio import GenotypeData
-from snpio import NRemover2
-from snpio import Plotting
+from snpio import GenotypeData, NRemover2, Plotting
 
 
 def main():
