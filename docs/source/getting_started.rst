@@ -61,7 +61,7 @@ The `GenotypeData` class provides methods to read and write data in various form
 
     # Read the alignment, popmap, and tree files
     gd = GenotypeData(
-        filename="example_data/phylip_files/phylogen_nomx.u.snps.phy",
+        filename="example_data/phylip_files/phylogen_subset14K.vcf",
         popmapfile="example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,
         filetype="auto",
@@ -226,7 +226,7 @@ Here is a plot showing the distribution of genotypes in the alignment:
 Alignment Filtering
 --------------------
 
-The `NRemover2` class provides methods for filtering DNA sequence alignments based on the proportion of missing data, the minor allele frequency (MAF), and monomorphic, non-biallelic, and singleton sites. It allows you to filter out sequences (samples) and loci (columns) that exceed the provided thresholds. Missing data filtering options include removing loci whose columns exceed global missing and per-population thresholds and removing samples that exceed a per-sample threshold. The class also provides informative plots pertaining to the filtering process.
+The `NRemover2` class provides methods for filtering DNA sequence alignments based on the proportion of missing data, the minor allele frequency (MAF), and monomorphic, non-biallelic, and singleton sites. It allows you to filter out sequences (samples) and loci (columns) that exceed the provided thresholds. Missing data filtering options include removing loci whose columns exceed global missing and per-population thresholds and removing samples that exceed a per-sample threshold. It also can filter out linked SNPs using the CHROM and POS VCF file fields (requires VCF input). The class also provides informative plots pertaining to the filtering process.
 
 Attributes:
 --------------
@@ -264,6 +264,7 @@ Here's an example to illustrate how to use the `NRemover2` class:
         biallelic=True, # Filter out non-biallelic sites.
         monomorphic=True, # Filter out monomorphic loci.
         min_maf=0.01, # Only retain loci with a MAF above this threshold.
+        unlinked=True, # Filter out linked SNPs based on VCF file CHROM fiield.
         search_thresholds=True, # Plots with parameter sweeps across multiple thresholds.
         plot_dir_prefix="snpio", # Where to save the plots to.
         file_prefix="test", # Set prefix for output file. If None (default), then no prefix.
