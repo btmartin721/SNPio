@@ -1,33 +1,34 @@
-import sys
-import os
-from pathlib import Path
-from functools import reduce
-import seaborn as sns
-import matplotlib.colors as mpl_colors
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-import plotly.graph_objs as go
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-import numpy as np
-import pandas as pd
-from sklearn.metrics import mean_squared_error
-import math
 import itertools
+import math
+import os
+import sys
 import warnings
-
+from functools import reduce
+from pathlib import Path
 from typing import Tuple
 
+warnings.simplefilter(action="ignore", category=FutureWarning)
+
 import holoviews as hv
+from holoviews import opts, dim
+import matplotlib.colors as mpl_colors
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import panel as pn
 import plotly.express as px
-
+import plotly.graph_objs as go
+import seaborn as sns
+from mpl_toolkits.mplot3d import Axes3D
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+from sklearn.metrics import mean_squared_error
+from sklearn.model_selection import cross_val_score, train_test_split
 
 hv.extension("bokeh")
 
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
 from sklearn.impute import KNNImputer
+from sklearn.preprocessing import StandardScaler
 
 from snpio.utils import misc
 
@@ -70,7 +71,9 @@ class Plotting:
         ax.legend()
 
     @staticmethod
-    def _plot_summary_statistics_per_population(summary_stats, popmap, ax=None):
+    def _plot_summary_statistics_per_population(
+        summary_stats, popmap, ax=None
+    ):
         """Plot summary statistics per population.
 
         Args:
@@ -85,7 +88,9 @@ class Plotting:
             _, ax = plt.subplots()
 
         # Group the summary statistics by population.
-        pop_summary_stats = summary_stats.groupby(popmap["PopulationID"]).mean()
+        pop_summary_stats = summary_stats.groupby(
+            popmap["PopulationID"]
+        ).mean()
 
         ax.plot(pop_summary_stats["Ho"], label="Ho")
         ax.plot(pop_summary_stats["He"], label="He")
@@ -98,7 +103,9 @@ class Plotting:
         ax.legend()
 
     @staticmethod
-    def _plot_summary_statistics_per_population_grid(summary_statistics_df, show=False):
+    def _plot_summary_statistics_per_population_grid(
+        summary_statistics_df, show=False
+    ):
         """Plot summary statistics per population using a Seaborn PairGrid plot.
 
         Args:
@@ -112,7 +119,9 @@ class Plotting:
         g.map_lower(sns.kdeplot)
         g.map_diag(sns.kdeplot, lw=3, legend=False)
 
-        g.savefig("summary_statistics_per_population_grid.png", bbox_inches="tight")
+        g.savefig(
+            "summary_statistics_per_population_grid.png", bbox_inches="tight"
+        )
 
         if show:
             plt.show()
@@ -120,7 +129,9 @@ class Plotting:
         plt.close()
 
     @staticmethod
-    def _plot_summary_statistics_per_sample_grid(summary_statistics_df, show=False):
+    def _plot_summary_statistics_per_sample_grid(
+        summary_statistics_df, show=False
+    ):
         """Plot summary statistics per sample using a Seaborn PairGrid plot.
 
         Args:
@@ -134,7 +145,9 @@ class Plotting:
         g.map_lower(sns.kdeplot)
         g.map_diag(sns.kdeplot, lw=3, legend=False)
 
-        g.savefig("summary_statistics_per_sample_grid.png", bbox_inches="tight")
+        g.savefig(
+            "summary_statistics_per_sample_grid.png", bbox_inches="tight"
+        )
 
         if show:
             plt.show()
@@ -152,8 +165,12 @@ class Plotting:
         """
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
 
-        cls._plot_summary_statistics_per_sample(summary_statistics_df, ax=axes[0])
-        cls._plot_summary_statistics_per_population(summary_statistics_df, ax=axes[1])
+        cls._plot_summary_statistics_per_sample(
+            summary_statistics_df, ax=axes[0]
+        )
+        cls._plot_summary_statistics_per_population(
+            summary_statistics_df, ax=axes[1]
+        )
 
         plt.tight_layout()
         plt.savefig("summary_statistics.png")
@@ -200,7 +217,9 @@ class Plotting:
         pca_transformed["PopulationID"] = popmap["PopulationID"]
 
         if dimensions == 2:
-            sns.scatterplot(data=pca_transformed, x="PC1", y="PC2", hue="PopulationID")
+            sns.scatterplot(
+                data=pca_transformed, x="PC1", y="PC2", hue="PopulationID"
+            )
         elif dimensions == 3:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection="3d")
@@ -245,7 +264,9 @@ class Plotting:
         dapc_transformed["PopulationID"] = popmap["PopulationID"]
 
         if dimensions == 2:
-            sns.scatterplot(data=dapc_transformed, x="DA1", y="DA2", hue="PopulationID")
+            sns.scatterplot(
+                data=dapc_transformed, x="DA1", y="DA2", hue="PopulationID"
+            )
         elif dimensions == 3:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection="3d")
@@ -297,12 +318,16 @@ class Plotting:
 
         for n in range(2, n_components_range):
             lda = LinearDiscriminantAnalysis(n_components=n)
-            score = cross_val_score(lda, df, popmap["PopulationID"].values, cv=5).mean()
+            score = cross_val_score(
+                lda, df, popmap["PopulationID"].values, cv=5
+            ).mean()
             components.append(n)
             scores.append(score)
 
         fname = (
-            "dapc_cv_results.png" if prefix is None else f"{prefix}_dapc_cv_results.png"
+            "dapc_cv_results.png"
+            if prefix is None
+            else f"{prefix}_dapc_cv_results.png"
         )
 
         plt.figure(figsize=(16, 9))
@@ -387,7 +412,9 @@ class Plotting:
             plt.show()
 
     @staticmethod
-    def plot_joint_sfs_grid(pop_gen_stats, populations, savefig=True, show=True):
+    def plot_joint_sfs_grid(
+        pop_gen_stats, populations, savefig=True, show=True
+    ):
         """Plot the joint SFS between all possible pairs of populations in the popmap file in a grid layout.
 
         Args:
@@ -404,7 +431,9 @@ class Plotting:
         n_cols = math.ceil(math.sqrt(n_populations))
         n_rows = math.ceil(n_populations / n_cols)
 
-        fig, axs = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
+        fig, axs = plt.subplots(
+            n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows)
+        )
 
         for i, (pop1, pop2) in enumerate(
             itertools.combinations_with_replacement(populations, 2)
@@ -479,7 +508,9 @@ class Plotting:
                     source=[l["source"] for l in links],
                     target=[l["target"] for l in links],
                     value=[l["value"] for l in links],
-                    color=[l.get("color", "rgba(0, 0, 0, 0.8)") for l in links],
+                    color=[
+                        l.get("color", "rgba(0, 0, 0, 0.8)") for l in links
+                    ],
                 ),
             )
         )
@@ -572,7 +603,9 @@ class Plotting:
             included_steps (List[int], optional): The indices of the filtering steps to include in the plot. Defaults to None.
         """
 
-        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "nremover", "plots")
+        plot_dir = os.path.join(
+            f"{plot_dir_prefix}_output", "nremover", "plots"
+        )
 
         Path(plot_dir).mkdir(exist_ok=True, parents=True)
 
@@ -583,95 +616,34 @@ class Plotting:
             )
 
         else:
-            included_steps = range(12)
+            # Initialize variables
+            included_steps = list(
+                range(len(loci_removed_per_step) + 1)
+            )  # +1 for the final 'Filtered' step
+            loci_remaining = loci_before
+            steps = []
 
-            steps = [
-                ["Unfiltered", "Filter Linked Loci", loci_before]
-                if 7 in included_steps
-                else None,
-                [
-                    "Filter Linked Loci",
-                    "Monomorphic",
-                    loci_before - loci_removed_per_step[6][1],
-                ]
-                if 0 in included_steps
-                else None,
-                [
-                    "Unfiltered",
-                    "Filter Singletons",
-                    loci_before - loci_removed_per_step[0][1],
-                ]
-                if 1 in included_steps
-                else None,
-                [
-                    "Filter Singletons",
-                    "Singletons",
-                    loci_removed_per_step[1][1],
-                ]
-                if 2 in included_steps
-                else None,
-                [
-                    "Filter Singletons",
-                    "Filter Non-Biallelic",
-                    loci_before - sum([x[1] for x in loci_removed_per_step[0:2]]),
-                ]
-                if 3 in included_steps
-                else None,
-                [
-                    "Filter Non-Biallelic",
-                    "Non-Biallelic",
-                    loci_removed_per_step[2][1],
-                ]
-                if 4 in included_steps
-                else None,
-                [
-                    "Filter Non-Biallelic",
-                    "Filter Missing (Global)",
-                    loci_before - sum([x[1] for x in loci_removed_per_step[0:3]]),
-                ]
-                if 5 in included_steps
-                else None,
-                [
-                    "Filter Missing (Global)",
-                    "Missing (Global)",
-                    loci_removed_per_step[3][1],
-                ]
-                if 6 in included_steps
-                else None,
-                [
-                    "Filter Missing (Global)",
-                    "Filter Missing (Populations)",
-                    loci_before - sum([x[1] for x in loci_removed_per_step[0:4]]),
-                ]
-                if 7 in included_steps
-                else None,
-                [
-                    "Filter Missing (Populations)",
-                    "Missing (Populations)",
-                    loci_removed_per_step[4][1],
-                ]
-                if 8 in included_steps
-                else None,
-                [
-                    "Filter Missing (Populations)",
-                    "Filter MAF",
-                    loci_before - sum([x[1] for x in loci_removed_per_step[0:5]]),
-                ]
-                if 9 in included_steps
-                else None,
-                ["Filter MAF", "MAF", loci_removed_per_step[5][1]]
-                if 10 in included_steps
-                else None,
-                ["Filter MAF", "Filtered", loci_after]
-                if 11 in included_steps
-                else None,
-            ]
+            # Dynamically generate steps
+            for i, (name, loci_removed) in enumerate(loci_removed_per_step):
+                if i in included_steps:
+                    # Append the removed loci for this step
+                    steps.append([str(i), f"{name} (Removed)", loci_removed])
 
+                    # Calculate remaining loci after this step
+                    loci_remaining -= loci_removed
+
+                    # Append the remaining loci for this step
+                    if i + 1 < len(loci_removed_per_step):
+                        next_step = str(i + 1)
+                    else:
+                        next_step = "Filtered"
+                    steps.append([i, next_step, loci_remaining])
+
+            # Filter out None values
             steps = [step for step in steps if step is not None]
 
             l = []
             zeros = []
-            node_labels = ["Unfiltered"]
             for step in steps:
                 if step[2] > 0:
                     l.append(step)
@@ -683,56 +655,44 @@ class Plotting:
             df["Source"] = df["Source"].astype(str)
             df["Target"] = df["Target"].astype(str)
 
-            node_labels = [
-                "Unfiltered",
-                "Monomorphic",
-                "Filter Singletons",
-                "Singletons",
-                "Filter Non-Biallelic",
-                "Non-Biallelic",
-                "Filter Missing (Global)",
-                "MAF",
-                "Filter Missing (Populations)",
-                "Missing (Global)",
-                "Filter MAF",
-                "Missing (Populations)",
-                "Filtered",
-            ]
+            # Generate cmap dynamically based on unique names
+            unique_names = pd.concat(
+                [df["Source"], df["Target"]]
+            ).drop_duplicates()
 
-            node_labels = [x for x in node_labels if x not in zeros]
-
-            cmap = {
-                "Unfiltered": "#66c2a5",
-                "Filter Singletons": "#66c2a5",
-                "Filter Non-Biallelic": "#66c2a5",
-                "Filter Missing (Global)": "#66c2a5",
-                "Filter Missing (Populations)": "#66c2a5",
-                "Filter MAF": "#66c2a5",
-                "Filtered": "#66c2a5",
-                "Non-Biallelic": "#fc8d62",
-                "Monomorphic": "#fc8d62",
-                "Singletons": "#fc8d62",
-                "Missing (Global)": "#fc8d62",
-                "Missing (Populations)": "#fc8d62",
-                "Missing (Sample)": "#fc8d62",
-                "MAF": "#fc8d62",
-            }
+            # Assign colorblind-friendly colors
+            cmap = {}
+            for name in unique_names:
+                if "Removed" in name:
+                    cmap[name] = "#d62728"  # Red
+                else:
+                    cmap[name] = "#2ca02c"  # Green
 
             # Add a new column 'LinkColor' to the dataframe
             df["LinkColor"] = df["Target"].apply(lambda x: cmap.get(x, "red"))
+            df.loc[df["Source"] == "0", "Source"] = "Unfiltered"
 
-            sankey_plot = hv.Sankey(df, label="Sankey Filtering Report").options(
+            print(df)
+
+            sankey_plot = hv.Sankey(
+                df,
+                label="Sankey Filtering Report",
+            ).options(
                 node_color="blue",
                 cmap=cmap,
-                width=1000,
+                width=1500,
                 height=500,
                 edge_color="LinkColor",
                 node_padding=40,
             )
 
             # Apply custom node labels
-            label_array = np.array(node_labels)
-            sankey_plot = sankey_plot.redim.values(Node=label_array)
+            # label_array = np.array(node_labels)
+            # sankey_plot = sankey_plot.redim.values(Node=label_array)
+            # sankey_plot = sankey_plot.opts(labels=dim("SankeyLabels"))
+
+            # # Apply custom node labels
+            # sankey_plot = sankey_plot.redim.label(**node_labels)
 
             # Create custom legend
             legend = """
@@ -753,12 +713,15 @@ class Plotting:
 
             # Convert the HoloViews objects to Bokeh models
             bokeh_sankey_plot = hv.render(sankey_plot)
+
             bokeh_legend_plot = hv.render(legend_plot)
 
             # Combine the Bokeh plots using Panel
             combined = pn.Row(bokeh_sankey_plot, bokeh_legend_plot)
 
-            fname = outfile if file_prefix is None else f"{file_prefix}_{outfile}"
+            fname = (
+                outfile if file_prefix is None else f"{file_prefix}_{outfile}"
+            )
 
             outfile_final = os.path.join(plot_dir, fname)
 
@@ -822,7 +785,9 @@ class Plotting:
         cnts.columns = [col[0].upper() + col[1:] for col in cnts.columns]
 
         fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax, color="orange")
+        g = sns.barplot(
+            x="Genotype", y="Count", data=cnts, ax=ax, color="orange"
+        )
         g.set_xlabel("Genotype", fontsize=fontsize)
         g.set_ylabel("Count", fontsize=fontsize)
         g.set_title("Genotype Counts", fontsize=fontsize)
@@ -837,7 +802,9 @@ class Plotting:
                 fontsize=annotation_size,
             )
 
-        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "nremover", "plots")
+        plot_dir = os.path.join(
+            f"{plot_dir_prefix}_output", "nremover", "plots"
+        )
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
         fname = (
@@ -1300,10 +1267,16 @@ class Plotting:
 
         plot_format = plot_format.lower()
 
-        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "nremover", "plots")
+        plot_dir = os.path.join(
+            f"{plot_dir_prefix}_output", "nremover", "plots"
+        )
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
-        fname = output_file if file_prefix is None else f"{file_prefix}_{output_file}"
+        fname = (
+            output_file
+            if file_prefix is None
+            else f"{file_prefix}_{output_file}"
+        )
 
         if not fname.lower().endswith(plot_format):
             root, _ = os.path.splitext(fname)
@@ -1480,7 +1453,9 @@ class Plotting:
             plt.xlabel("Population ID", fontsize=fontsize)
             plt.ylabel(ylabel, fontsize=fontsize)
             plt.tick_params(axis="both", labelsize=ticksize)
-            plt.legend([median_line], ["Median"], loc="upper right", fontsize=ticksize)
+            plt.legend(
+                [median_line], ["Median"], loc="upper right", fontsize=ticksize
+            )
 
         plt.tight_layout()
 
@@ -1554,7 +1529,9 @@ class Plotting:
         memory_footprints = [
             data["memory_footprint"] for data in resource_data.values()
         ]
-        execution_times = [data["execution_time"] for data in resource_data.values()]
+        execution_times = [
+            data["execution_time"] for data in resource_data.values()
+        ]
 
         # Plot CPU Load
         fig, axs = plt.subplots(1, 3, figsize=figsize)
@@ -1604,10 +1581,16 @@ class Plotting:
         plt.yticks(fontsize=fontsize)
         plt.tight_layout()
 
-        fname = "benchmarking" if file_prefix is None else f"{file_prefix}_benchmarking"
+        fname = (
+            "benchmarking"
+            if file_prefix is None
+            else f"{file_prefix}_benchmarking"
+        )
 
         fig.savefig(
-            os.path.join(plot_dir, f"{fname}.{plot_format}"), facecolor="white", dpi=dpi
+            os.path.join(plot_dir, f"{fname}.{plot_format}"),
+            facecolor="white",
+            dpi=dpi,
         )
 
     @staticmethod
@@ -1708,9 +1691,13 @@ class Plotting:
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
 
         if n_axes > 3:
-            raise ValueError(">3 axes is not supported; n_axes must be either 2 or 3.")
+            raise ValueError(
+                ">3 axes is not supported; n_axes must be either 2 or 3."
+            )
         if n_axes < 2:
-            raise ValueError("<2 axes is not supported; n_axes must be either 2 or 3.")
+            raise ValueError(
+                "<2 axes is not supported; n_axes must be either 2 or 3."
+            )
 
         df = misc.validate_input_type(
             genotype_data.genotypes_012(fmt="pandas"), return_type="df"
@@ -1910,7 +1897,9 @@ class Plotting:
         ax = axes[0, 1]
 
         ax.set_title("Per-Locus")
-        ax.barh(range(genotype_data.num_snps), loc, color=bar_color, height=1.0)
+        ax.barh(
+            range(genotype_data.num_snps), loc, color=bar_color, height=1.0
+        )
         if not zoom:
             ax.set_xlim([0, 1])
         ax.set_ylabel("Locus")
@@ -1999,7 +1988,11 @@ class Plotting:
             )
             g.get_legend().set_title(None)
 
-        fname = "missingness" if file_prefix is None else f"{file_prefix}_missingness"
+        fname = (
+            "missingness"
+            if file_prefix is None
+            else f"{file_prefix}_missingness"
+        )
 
         plot_dir = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "plots")
 
@@ -2145,7 +2138,9 @@ class Plotting:
         if n_components is None:
             n_components = len(list(set(genotype_data.populations))) - 1
 
-        df_pca = pd.DataFrame(components[:, [0, 1]], columns=["Axis1", "Axis2"])
+        df_pca = pd.DataFrame(
+            components[:, [0, 1]], columns=["Axis1", "Axis2"]
+        )
 
         df_pca["SampleID"] = genotype_data.samples
         df_pca["Population"] = genotype_data.populations
