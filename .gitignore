@@ -156,5 +156,8 @@ __pypackages__/
 # benchmarking
 profile_stats_*.txt
 
-# pipenv (commented as per recommendation)
+# OS files
+.DS_Store
+
+# pipenv
 #Pipfile.lock
