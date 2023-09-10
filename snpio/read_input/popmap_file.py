@@ -1,9 +1,8 @@
-import sys
 import os
-
+import sys
 from collections import Counter
-from typing import List, Dict, Union
 from pathlib import Path
+from typing import Dict, List, Union
 
 from snpio.plotting.plotting import Plotting
 
@@ -84,7 +83,9 @@ class ReadPopmap:
             IOError: Raises an exception if there is an error writing to the output file.
         """
         with open(output_file, "w") as f:
-            sorted_dict = dict(sorted(self._popdict.items(), key=lambda item: item[1]))
+            sorted_dict = dict(
+                sorted(self._popdict.items(), key=lambda item: item[1])
+            )
 
             for key, value in sorted_dict.items():
                 f.write(f"{key}: {value}\n")
@@ -103,6 +104,7 @@ class ReadPopmap:
         if self.verbose:
             for value, count in value_counts.items():
                 print(f"{value:<10}{count:<10}")
+            print("\n\n")
 
         Plotting.plot_pop_counts(list(self._popdict.values()), plot_dir_prefix)
 
@@ -122,10 +124,14 @@ class ReadPopmap:
 
         """
         if len(set(samples)) != len(samples):
-            raise ValueError("There are duplicate sample IDs in the popmapfile.")
+            raise ValueError(
+                "There are duplicate sample IDs in the popmapfile."
+            )
 
         # Sort by alignment order.
-        self._popdict = {k: self._popdict[k] for k in samples if k in self._popdict}
+        self._popdict = {
+            k: self._popdict[k] for k in samples if k in self._popdict
+        }
 
         for samp in samples:
             if samp not in self._popdict:
@@ -178,7 +184,7 @@ class ReadPopmap:
                 )
 
             popmap = {k: v for k, v in self._popdict.items() if v in include}
-            
+
             inc_idx = [i for i, x in enumerate(samples) if x in popmap]
         else:
             inc_idx = list(range(len(samples)))
