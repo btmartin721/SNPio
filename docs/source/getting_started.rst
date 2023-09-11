@@ -55,53 +55,77 @@ The first step is to read genotype data from an alignment. The `GenotypeData` cl
 
 The files referenced in the code blocks below can be found in the provided `example_data/` directory.
 
-The `GenotypeData` class provides methods to read and write data in various formats, such as VCF, PHYLIP, STRUCTURE, and custom formats. Here's an example of reading genotype data from a VCF file:
+The `GenotypeData` class provides methods to read and write data in various formats, such as VCF, PHYLIP, STRUCTURE, and custom formats. Here's an example of reading genotype data from a PHYLIP file:
 
 .. code-block:: python
 
-    from snpio.read_input.genotype_data import GenotypeData
-    from snpio.plotting.plotting import Plotting
-
     # Read the alignment, popmap, and tree files
     gd = GenotypeData(
-        filename="example_data/phylip_files/phylogen_nomx.u.snps.phy",
+        filename="example_data/phylip_files/phylogen_subset14K.vcf",
         popmapfile="example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,
         filetype="auto",
         qmatrix_iqtree="example_data/trees/test.qmat",
         siterates_iqtree="example_data/trees/test.rate",
         guidetree="example_data/trees/test.tre",
-        include_pops=["EA", "TT", "GU"], # Only include these populations. There's also an exclude_pops option that will exclude the provided populations.
+        include_pops=["EA", "TT", "GU"], # Only include these populations. There's also an exclude_pops option that will exclude the provided list of populations.
     )
 
-    # Print out the phylogenetic tree that you provided as a newick input file.
-    print(gd.tree)
+GenotypeData Properties
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-    # Access basic properties
-    print(gd.num_snps)  # Number of SNPs (loci) in the dataset
-    print(gd.num_inds)  # Number of samples in the dataset
-    print(gd.populations)  # List of population IDs
-    print(gd.popmap)  # Dictionary of SampleIDs as keys and popIDs as values
+.. list-table:: 
+   :widths: 25 75
+   :header-rows: 1
 
-    # Dictionary of PopulationIDs as keys and a lists of SampleIDs 
-    # for the given population as values.
-    print(genotype_data.popmap_inverse) 
+   * - Property
+     - Description
+   * - ``inputs``
+     - Get or set the GenotypeData keyword arguments as a dictionary.
+   * - ``num_snps``
+     - Get the number of SNPs in the dataset. It returns the number of SNPs per individual as an integer.
+   * - ``num_inds``
+     - Get the number of individuals in the dataset. It returns the number of individuals in the input data as an integer.
+   * - ``populations``
+     - Get the Population IDs. It returns a list of Population IDs, which can be either strings or integers.
+   * - ``popmap``
+     - Get or set a dictionary object with Sample IDs as keys and Population IDs as values.
+   * - ``popmap_inverse``
+     - Get or set an inverse popmap dictionary with Population IDs as keys and lists of Sample IDs as values.
+   * - ``samples``
+     - Get or set the Sample IDs in input order. It returns a list of Sample IDs.
+   * - ``snpsdict``
+     - Get or set a dictionary with Sample IDs as keys and lists of genotypes as values.
+   * - ``snp_data``
+     - Get or set the genotypes as a 2D list of shape (n_samples, n_loci).
+   * - ``genotypes_012``
+     - Get or set the encoded 012 genotypes as a 2D list, numpy array, or pandas DataFrame.
+   * - ``genotypes_onehot``
+     - Get or set the one-hot encoded SNPs format of shape (n_samples, n_loci, 4).
+   * - ``genotypes_int``
+     - Get or set the integer-encoded (0-9 including IUPAC characters) SNPs format.
+   * - ``alignment``
+     - Get or set the alignment as a BioPython MultipleSeqAlignment object.
+   * - ``vcf_attributes``
+     - Get or set the path to the HDF5 file containing Attributes read in from the VCF file.
+   * - ``loci_indices``
+     - Get or set the column indices for retained loci in the filtered alignment.
+   * - ``sample_indices``
+     - Get or set the row indices for retained samples in the alignment.
+   * - ``ref``
+     - Get or set the list of reference alleles of length equal to the number of SNPs.
+   * - ``alt``
+     - Get or set the list of alternate alleles of length equal to the number of SNPs.
+   * - ``q``
+     - Get or set the q-matrix object for the phylogenetic tree.
+   * - ``site_rates``
+     - Get or set the site rate data for the phylogenetic tree.
+   * - ``tree``
+     - Get or set the Newick tree provided at class instantiation.
 
-    print(gd.samples)  # Sample IDs in input order
-    print(gd.loci_indices) # If loci were removed, will be subset.
-    print(gd.sample_indices) # If samples were removed, will be subset.
 
-    # You can print the alignment as a Biopython MultipleSeqAlignment
-    # This is useful for visualzation.
-    print(gd.alignment)
 
-    # Or you can use the alignment as a 2D list.
-    print(gd.snp_data)
-
-    # Get a numpy array of snp_data
-    print(np.array(gd.snp_data))
-
-Here's the alignment object.::
+Here's an example of the alignment object::
 
     Alignment with 161 rows and 6724 columns
     GNNNNCNNNNRNCNTNCNANNCNCGGGGCNNNCNTNNNTNNNNN...NCN EAAL_BX1380
@@ -134,39 +158,40 @@ Once you have the genotype data, you can perform various data transformations an
 .. code-block:: python
 
     # Generate plots to assess the amount of missing data in alignment.
-    gd.missingness_reports(prefix="unfiltered")
+    gd.missingness_reports(file_prefix="unfiltered")
 
     # Does a Principal Component Analysis and makes a scatterplot.
     components, pca = Plotting.run_pca(
             gd # GenotypeData instance from above.
-            plot_dir="plots",
-            prefix="unfiltered",
-            n_components=None, # If None, then uses all components.
+            plot_dir_prefix="snpio",
+            file_prefix=None,
+            n_components=None,
             center=True,
             scale=False,
-            n_axes=2, # Can be 2 or 3. If 3, makes a 3D plot.
+            n_axes=2,
             point_size=15,
             font_size=15,
-            plot_format="pdf",
             bottom_margin=0,
             top_margin=0,
             left_margin=0,
             right_margin=0,
             width=1088,
             height=700,
+            plot_format="png",
+            dpi=300,
     )
-    explvar = pca.explained_variance_ratio_ # Can use this to make a plot.
+    explvar = pca.explained_variance_ratio_ # Can use this to make your own plot.
 
     # Access other transformed genotype data and attributes
 
     # 012-encoded genotypes, with ref=0, heterozygous=1, alt=2
     genotypes_012 = genotype_data.genotypes_012(fmt="list") # Get 012-eencoded genotypes.
 
-    # onehot-encoded genotypes.
-    genotypes_onehot = genotype_data.genotypes_onehot 
+    # Onehot-encoded genotypes.
+    genotypes_onehot = genotype_data.genotypes_onehot
 
-    # Dictionary object with all the VCF file fields.
-    # All values will be None if VCF file wasn't the input file type.
+    # Filename of the HDF5 file containing the VCF file data..
+    # Will be None if a VCF file wasn't used.
     vcf_attributes = genotype_data.vcf_attributes 
 
     # Access optional properties
@@ -199,9 +224,9 @@ Here is a plot showing the distribution of genotypes in the alignment:
    :align: center
 
 Alignment Filtering
-===========================
+--------------------
 
-The `NRemover2` class provides methods for filtering genetic alignments based on the proportion of missing data, the minor allele frequency (MAF), and monomorphic, non-biallelic, and singleton sites. It allows you to filter out sequences (samples) and loci (columns) that exceed the provided thresholds. Missing data filtering options include removing loci whose columns exceed global missing and per-population thresholds and removing samples that exceed a per-sample threshold. The class also provides informative plots related to the filtering process.
+The `NRemover2` class provides methods for filtering DNA sequence alignments based on the proportion of missing data, the minor allele frequency (MAF), and monomorphic, non-biallelic, and singleton sites. It allows you to filter out sequences (samples) and loci (columns) that exceed the provided thresholds. Missing data filtering options include removing loci whose columns exceed global missing and per-population thresholds and removing samples that exceed a per-sample threshold. It also can filter out linked SNPs using the CHROM and POS VCF file fields (requires VCF input). The class also provides informative plots pertaining to the filtering process.
 
 Attributes:
 --------------
@@ -215,20 +240,18 @@ Attributes:
 Methods:
 -------------
 
-- `nremover()`: Runs the whole NRemover2 pipeline. Includes arguments for all thresholds and settings that you'll need. You can also toggle a threshold search that plots the proportion of missing data across all the filtering options across multiple thresholds.
+- `nremover()`: Runs the whole NRemover2 pipeline. Includes arguments for all the thresholds and settings that you'll need. You can also toggle a threshold search that plots the proportion of missing data across all the filtering options across multiple thresholds.
 
 Usage Example:
 -------------------
 
-To illustrate how to use the `NRemover2` class, here's an example:
+Here's an example to illustrate how to use the `NRemover2` class:
 
 .. code-block:: python
 
-   from snpio import NRemover2
-
    # Create an instance of NRemover2
    # Provide it the GenotypeData instance from above.
-    nrm = nremover2.NRemover2(gd)
+    nrm = NRemover2(gd)
 
     # Run nremover to filter out missing data.
     # Set the thresholds as desired.
@@ -241,15 +264,17 @@ To illustrate how to use the `NRemover2` class, here's an example:
         biallelic=True, # Filter out non-biallelic sites.
         monomorphic=True, # Filter out monomorphic loci.
         min_maf=0.01, # Only retain loci with a MAF above this threshold.
-        search_thresholds=True, # Plots against multiple thresholds.
-        plot_dir="plots", # Where to save the plots to.
+        unlinked=True, # Filter out linked SNPs based on VCF file CHROM fiield.
+        search_thresholds=True, # Plots with parameter sweeps across multiple thresholds.
+        plot_dir_prefix="snpio", # Where to save the plots to.
+        file_prefix="test", # Set prefix for output file. If None (default), then no prefix.
     )
 
     # Makes an informative plot showing missing data proportions.
-    gd_filtered.missingness_reports(prefix="filtered")
+    gd_filtered.missingness_reports(file_prefix="filtered")
 
     # Run a PCA on the filtered data and make a scatterplot.
-    Plotting.run_pca(gd_filtered, prefix="filtered")
+    Plotting.run_pca(gd_filtered, file_prefix="filtered")
 
 Running the above code makes a number of informative plots. See below.
 
@@ -280,7 +305,7 @@ Here is the PCA we ran on the filtered data, with colors being a gradient corres
    :scale: 200 %
    :align: center
 
-The below two plots show the missingness proportion variance among all the thresholds if you used set `search_thresholds=True` when you ran the `nremover()` function. The first makes plots for the missing data filters, and the second for the MAF, biallelic, monomorphic, and singleton filters. they are shown for both globally and per-population.
+The below two plots show the missingness proportion variance among multiple thresholds if you used set `search_thresholds=True` when you ran the `nremover()` function. The first makes plots for the missing data filters, and the second for the MAF, biallelic, monomorphic, and singleton filters. they are shown for both globally and per-population.
 
 First, the missing data filter report:
 
@@ -305,9 +330,9 @@ If you do not want to use some of the filtering options, just leave them at defa
 
 
 Writing to File and File Conversions
-=========================================
+--------------------------------------
 
-If you want to write your output to a file, just do use one of the write functions. Any of the input file types can be written with any of the write functions.
+If you want to write your output to a file, just do use one of the write functions. Any of the input alignment formats can be converted to any of supported file formats.
 
 .. code-block:: python
 
@@ -315,13 +340,11 @@ If you want to write your output to a file, just do use one of the write functio
 
     gd_filtered.write_structure("example_data/structure_files/nremover_test.str")
 
-    gd_filtered.write_vcf("example_data/vcf_files/nmremover_test.vcf")
+    gd_filtered.write_vcf("example_data/vcf_files/nremover_test.vcf")
 
-For detailed information about the available methods and attributes, refer to the API Reference.
+For more detailed information about the available methods and attributes, refer to the API Reference.
 
 That's it! You have successfully completed the basic steps to get started with SNPio. Explore the library further to discover more functionality and advanced features.
-
-For detailed information about the available methods and attributes, refer to the API Reference.
 
 Indices and Tables
 ----------------------

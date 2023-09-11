@@ -1,20 +1,28 @@
-import sys
+# Standard library imports
 import os
+import sys
 import tempfile
 import warnings
-import pandas as pd
-import numpy as np
-from Bio.Align import MultipleSeqAlignment
-from Bio import SeqUtils
 from copy import deepcopy
+from pathlib import Path
 
+warnings.simplefilter(action="ignore", category=FutureWarning)
+
+# Third-party imports
+import h5py
+import numpy as np
+import pandas as pd
+from Bio import SeqUtils
+from Bio.Align import MultipleSeqAlignment
+
+# Custom imports
 from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data import GenotypeData
 
 
 class NRemover2:
     """
-    A class for filtering alignments based on the proportion of missing data in a genetic alignment.
+    A class for filtering alignments based on the proportion of missing data in a genetic alignment, by minor allele frequency, and by linked loci.
 
     The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold.
 
@@ -63,6 +71,8 @@ class NRemover2:
 
         filter_non_biallelic: Filter out loci (columns) that have more than 2 alleles.
 
+        filter_linked: Filter out linked loci using VCF file CHROM field.
+
         get_population_sequences: Returns the sequences for a specific population.
 
         count_iupac_alleles: Counts the number of occurrences of each IUPAC ambiguity code in a given column.
@@ -82,9 +92,10 @@ class NRemover2:
         self.popgenio = popgenio
         self.popmap = popgenio.popmap
         self.popmap_inverse = popgenio.popmap_inverse
-        self.populations = list(set(popgenio.populations))
+        self.populations = self.popmap_inverse.keys()
         self.samples = popgenio.samples
         self.poplist = popgenio.populations
+        self.prefix = popgenio.prefix
 
         self.loci_indices = None
         self.sample_indices = None
@@ -98,10 +109,13 @@ class NRemover2:
         biallelic=False,
         monomorphic=False,
         singletons=False,
+        unlinked=False,
         search_thresholds=True,
-        plot_outfile="missingness_report.png",
+        plot_dir_prefix="snpio",
+        file_prefix=None,
+        plot_format="png",
+        dpi=300,
         suppress_cletus=True,
-        plot_dir="plots",
         included_steps=None,
     ):
         """
@@ -122,11 +136,17 @@ class NRemover2:
 
             singletons (bool, optional): Whether to filter out loci where the only variant is a singleton. Defaults to False.
 
+            unlinked (bool, optional): Whether to filter out linked snps. Randomly selects one SNP per unique chromosome from the CHROM and POS VCF fields. VCF format is required to use this option. Defaults to False.
+
             search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
 
-            plot_outfile (str, optional): The filename for the missingness report plot. Defaults to "missingness_report.png".
+            plot_dir_prefix (str, optional): The prefix for the output plot directory. Defaults to "snpio".
 
-            plot_dir (str, optional): The directory to save the plots. Defaults to "plots".
+            file_prefix (str, optional): The prefix for the output filename. If ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
+
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI resolution of output plots. Defaults to 300.
 
             included_steps (list, optional): The steps to include in the Sankey plot. If None, all steps will be included. Defaults to None.
 
@@ -142,15 +162,37 @@ class NRemover2:
         aln_before = deepcopy(self.alignment)
         indices_loci_before = range(len(aln_before[0]))
 
+        plot_dir = os.path.join(f"{self.prefix}_output", "nremover", "plots")
+        Path(plot_dir).mkdir(exist_ok=True, parents=True)
+
         Plotting.plot_gt_distribution(
-            self.popgenio.genotypes_int, plot_dir=plot_dir
+            self.popgenio.genotypes_int,
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=file_prefix,
+            plot_format=plot_format,
+            dpi=dpi,
         )
+
+        output_file = "missingness_threshold_search.png"
 
         if search_thresholds:
             self.search_thresholds_ = True
-            self.plot_missing_data_thresholds(plot_outfile, plot_dir=plot_dir)
+            self.plot_missing_data_thresholds(
+                output_file,
+                plot_dir_prefix=plot_dir_prefix,
+                file_prefix=file_prefix,
+                plot_format=plot_format,
+                dpi=dpi,
+            )
 
         steps = [
+            (
+                "Filter linked loci",
+                unlinked,
+                unlinked,
+                self.filter_linked,
+                7,
+            ),
             (
                 "Filter missing data (sample)",
                 max_missing_sample < 1.0,
@@ -202,37 +244,41 @@ class NRemover2:
             ),
         ]
 
-        indices_loci_before = list(range(len(aln_before[0])))
         loci_removed_per_step = []
-        filter_idx_dict = {}
-        retained_indices = indices_loci_before
+        # retained_indices = indices_loci_before
+
+        original_indices = np.arange(len(self.alignment[0]))
 
         for name, condition, threshold, filter_func, step_idx in steps:
             if condition:
                 filtered_alignment, indices = filter_func(
                     threshold, alignment=self.alignment
                 )
-                loci_removed = len(self.alignment[0]) - len(
-                    filtered_alignment[0]
-                )
 
                 if name != "Filter missing data (sample)":
+                    loci_removed = len(self.alignment[0]) - len(
+                        filtered_alignment[0]
+                    )
                     loci_removed_per_step.append((name, loci_removed))
 
-                    # Update retained_indices to only include the indices that were retained
-                    retained_indices = [retained_indices[i] for i in indices]
-                    filter_idx_dict[step_idx] = retained_indices
+                    retained_indices_global = original_indices[indices]
+                    original_indices = retained_indices_global
+
+                    # Use a temporary variable to store filtered alignment
+                    temp_filtered_alignment = filtered_alignment
                 else:
                     self.sample_indices = indices
                     self.samples = [self.samples[i] for i in indices]
-                self.alignment = filtered_alignment
+                    temp_filtered_alignment = filtered_alignment
+
+                # Update self.alignment here if conditions are met
+                self.alignment = temp_filtered_alignment
             else:
                 loci_removed_per_step.append((name, 0))
 
+        self.loci_indices = original_indices.tolist()
+        self.loci_indices.sort()
         aln_after = deepcopy(self.alignment)
-
-        max_step_idx = max(filter_idx_dict)
-        self.loci_indices = filter_idx_dict[max_step_idx]
 
         self.print_filtering_report(
             aln_before, aln_after, loci_removed_per_step
@@ -243,12 +289,16 @@ class NRemover2:
                 step_idx for _, condition, _, _, step_idx in steps if condition
             ]
 
+        plot_format = plot_format.lower()
+        outfile = "sankey_filtering_report.html"
+
         Plotting.plot_sankey_filtering_report(
             loci_removed_per_step,
             len(aln_before[0]),
             len(aln_after[0]),
-            "sankey_filtering_report.html",
-            plot_dir=plot_dir,
+            outfile,
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=file_prefix,
             included_steps=included_steps,
         )
 
@@ -267,24 +317,11 @@ class NRemover2:
         # Create a temporary file and write some data to it
         aln = tempfile.NamedTemporaryFile(delete=False)
 
-        if self.sample_indices is not None:
-            indices = list(
-                set(self.sample_indices) & set(self.popgenio.sample_indices)
-            )
-            indices.sort()
-            self.sample_indices = indices
-
-        else:
-            self.sample_indices = self.popgenio.sample_indices
-
-        samples = [
-            self.popgenio.samples[i]
-            for i in range(len(self.popgenio.samples))
-            if i in self.sample_indices
-        ]
+        if self.sample_indices is None:
+            self.sample_indices = range(len(self.popgenio.samples))
 
         popmap = {
-            k: v for k, v in self.popgenio.popmap.items() if k in samples
+            k: v for k, v in self.popgenio.popmap.items() if k in self.samples
         }
 
         if self.popgenio.filetype == "vcf":
@@ -292,15 +329,17 @@ class NRemover2:
                 self.loci_indices,
                 self.sample_indices,
                 self.popgenio.vcf_attributes,
-                self.popgenio.num_snps,
-                self.popgenio.num_inds,
+                samples=self.samples,
+                chunk_size=self.popgenio.chunk_size,
+                is_filtered=True,
             )
         else:
             vcf_attributes = self.popgenio._vcf_attributes
 
         aln_filename = aln.name
+
         self.popgenio.write_phylip(
-            aln_filename, snp_data=self.alignment, samples=samples
+            aln_filename, snp_data=self.alignment, samples=self.samples
         )
         aln.close()
 
@@ -309,7 +348,9 @@ class NRemover2:
 
         if self.sample_indices is not None:
             self.popgenio.popmap = {
-                k: v for k, v in self.popgenio.popmap.items() if k in samples
+                k: v
+                for k, v in self.popgenio.popmap.items()
+                if k in self.samples
             }
 
         with open(popmap_filename, "w") as fout:
@@ -320,11 +361,9 @@ class NRemover2:
         inputs = self.popgenio.inputs
         inputs["popmapfile"] = popmap_filename
         inputs["filename"] = aln_filename
-        inputs["loci_indices"] = self.loci_indices
-        inputs["sample_indices"] = self.sample_indices
         inputs["filetype"] = "phylip"
-        inputs["vcf_attributes"] = vcf_attributes
         inputs["verbose"] = False
+        inputs["is_subset"] = True
 
         # Create a new object with the filtered alignment.
         new_popgenio = GenotypeData(**inputs)
@@ -333,6 +372,7 @@ class NRemover2:
         new_popgenio.verbose = self.popgenio.verbose
 
         if self.popgenio.filetype == "vcf":
+            new_popgenio.vcf_header = self.popgenio.vcf_header
             new_popgenio.vcf_attributes = vcf_attributes
 
         # When done, delete the file manually using os.unlink
@@ -416,7 +456,7 @@ class NRemover2:
         mask = missing_counts / alignment_array.shape[0] <= threshold
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
 
         # Apply the mask to filter out columns with a missing proportion greater than the threshold
         filtered_alignment_array = alignment_array[:, mask]
@@ -464,7 +504,7 @@ class NRemover2:
             )
             return missing_count / len(indices)
 
-        def exceeds_threshold(column):
+        def not_exceeds_threshold(column):
             missing_props = {}
             flaglist = []
             for pop, sample_ids in populations.items():
@@ -477,7 +517,7 @@ class NRemover2:
                 ]
                 missing_prop = missing_data_proportion(column, indices)
 
-                if missing_prop >= max_missing:
+                if missing_prop <= max_missing:
                     flagged = True
                 else:
                     missing_props[pop] = missing_prop
@@ -486,17 +526,18 @@ class NRemover2:
             return flaglist, missing_props
 
         mask_and_missing_props = np.array(
-            [exceeds_threshold(col) for col in alignment_array.T], dtype=object
+            [not_exceeds_threshold(col) for col in alignment_array.T],
+            dtype=object,
         )
-        mask = np.all(
+        mask = np.any(
             np.array([mmp[0] for mmp in mask_and_missing_props], dtype=bool),
             axis=1,
         )
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if not val]
+        mask_indices = np.where(mask)[0].tolist()
 
-        filtered_alignment_array = alignment_array[:, ~mask]
+        filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
             mean_missing_props = [mmp[1] for mmp in mask_and_missing_props]
@@ -556,7 +597,7 @@ class NRemover2:
         filtered_alignment_array = alignment_array[mask, :]
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
         filtered_alignment = [
@@ -643,7 +684,7 @@ class NRemover2:
         mask = maf >= min_maf
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
@@ -725,7 +766,7 @@ class NRemover2:
         mask = unique_base_counts == 2
 
         # Get the indices of the True values in the mask
-        mask_indices = [i for i, val in enumerate(mask) if val]
+        mask_indices = np.where(mask)[0].tolist()
 
         # Apply the mask to filter non-biallelic columns
         filtered_alignment_array = alignment_array[:, mask]
@@ -742,6 +783,76 @@ class NRemover2:
             )
         else:
             return filtered_alignment_array, mask_indices
+
+    def filter_linked(self, threshold=None, alignment=None):
+        """
+        Filters out linked loci based on VCF file CHROM information.
+
+        Randomly selects one locus from each unique chromosome.
+
+        Args:
+
+            threshold (bool, optional): For compatibility only. Not used in this function. Defaults to None.
+
+            alignment (array_like, optional): The alignment to be filtered. Defaults to None.
+
+        Returns:
+            tuple: The filtered alignment and the indices of the retained loci.
+
+        Raises:
+            OSError: Unsupported file type provided.
+            FileNotFoundError: If the HDF5 file does not exist.
+            KeyError: If the key 'chrom' is not present in the HDF5 file.
+        """
+
+        if self.popgenio.filetype != "vcf":
+            raise OSError(
+                f"Only 'vcf' file type is supported for filtering linked loci, "
+                f"but got {self.popgenio.filetype}"
+            )
+
+        if alignment is not None:
+            alignment = self.alignment
+
+        if not isinstance(alignment, np.ndarray):
+            alignment = np.array(alignment)
+
+        # Construct the path to the HDF5 file
+        hdf5_path = os.path.join(
+            f"{self.prefix}_output",
+            "gtdata",
+            "alignments",
+            "vcf",
+            "vcf_attributes.h5",
+        )
+
+        # Check if the HDF5 file exists
+        if not os.path.exists(hdf5_path):
+            raise FileNotFoundError(
+                f"The HDF5 file {hdf5_path} does not exist."
+            )
+
+        # Read the chromosome information from the HDF5 file
+        with h5py.File(hdf5_path, "r") as f:
+            if "chrom" not in f.keys():
+                raise KeyError(
+                    "The key 'chrom' is not present in the HDF5 file."
+                )
+            chrom_data = f["chrom"][:]
+
+        # Find the indices of each unique chromosome
+        unique_chroms = np.unique(chrom_data)
+        random_indices = []
+
+        for chrom in unique_chroms:
+            indices_of_chrom = np.where(chrom_data == chrom)[0]
+            random_index = np.random.choice(indices_of_chrom)
+            random_indices.append(random_index)
+
+        random_indices = np.array(random_indices)
+        alignment_array = np.array(alignment)
+        filtered_alignment_array = alignment_array[:, random_indices]
+        return filtered_alignment_array, random_indices
 
     def count_iupac_alleles(self, column):
         """Counts the number of occurrences of each IUPAC ambiguity code in a column of nucleotide sequences.
@@ -822,16 +933,16 @@ class NRemover2:
                 allele for allele in alleles if allele not in ["-", ".", "?"]
             ]
 
-            return len(valid_alleles) <= 1
+            return len(valid_alleles) >= 1
 
         alignment_array = alignment.astype(str)
 
         if alignment_array.shape[1] > 0:
             mask = np.apply_along_axis(is_monomorphic, 0, alignment_array)
-            filtered_alignment_array = alignment_array[:, ~mask]
+            filtered_alignment_array = alignment_array[:, mask]
 
             # Get the indices of the True values in the mask
-            mask_indices = [i for i, val in enumerate(mask) if not val]
+            mask_indices = np.where(mask)[0].tolist()
 
         else:
             raise ValueError(
@@ -922,16 +1033,16 @@ class NRemover2:
 
             if len(alleles) == 2:
                 min_allele = min(alleles, key=lambda x: allele_count[x])
-                return allele_count[min_allele] == 1
+                return allele_count[min_allele] != 1
             return False
 
         alignment_array = alignment.astype(str)
 
         if alignment_array.shape[1] > 0:
             mask = np.apply_along_axis(is_singleton, 0, alignment_array)
-            filtered_alignment_array = alignment_array[:, ~mask]
+            filtered_alignment_array = alignment_array[:, mask]
             # Get the indices of the True values in the mask
-            mask_indices = [i for i, val in enumerate(mask) if not val]
+            mask_indices = np.where(mask)[0].tolist()
         else:
             raise ValueError(
                 "No loci remain in the alignment. Try adjusting the filtering paramters."
@@ -1013,7 +1124,7 @@ class NRemover2:
         missing_data_before = missing_data_percent(before_alignment)
         missing_data_after = missing_data_percent(after_alignment)
 
-        print("Filtering Report:")
+        print("\nFiltering Report:")
         print(f"  Loci before filtering: {num_loci_before}")
         print(f"  Samples before filtering: {num_samples_before}")
 
@@ -1023,7 +1134,7 @@ class NRemover2:
             and missing_data_before == missing_data_after
         ):
             warnings.warn(
-                "The alignment was unchanged. Note that if none of the filtering arguments were changed from defaults, the alignment will not be filtered."
+                "\nThe alignment was unchanged. Note that if none of the filtering arguments were changed from defaults, the alignment will not be filtered."
             )
 
         for name, loci_removed in loci_removed_per_step:
@@ -1041,12 +1152,15 @@ class NRemover2:
         num_maf_thresholds=10,
         max_maf_threshold=0.2,
         show_plot_inline=False,
-        plot_dir="plots",
+        plot_dir_prefix="snpio",
+        file_prefix=None,
         plot_fontsize=28,
         plot_ticksize=20,
         plot_ymin=0.0,
         plot_ymax=1.0,
         plot_legend_loc="upper left",
+        plot_format="png",
+        dpi=300,
     ):
         """
         Plots the missing data and MAF proportions for different filtering thresholds.
@@ -1060,7 +1174,9 @@ class NRemover2:
 
             show_plot_inline (bool, optional): Whether to show the plot inline. Defaults to False.
 
-            plot_dir (str, optional): The directory to save the plot. Defaults to "plots".
+            plot_dir_prefix (str, optional): The prefix of the directory to save the plot. Defaults to "snpio".
+
+            file_prefix (str, optional): Prefix of the output filename. If ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
 
             plot_fontsize (int, optional): The fontsize for plot labels. Defaults to 28.
 
@@ -1071,6 +1187,10 @@ class NRemover2:
             plot_ymax (float, optional): The maximum y-axis value for the plot. Defaults to 1.0.
 
             plot_legend_loc (str, optional): The location of the plot legend. Defaults to "upper left".
+
+            plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
+
+            dpi (int, optional): DPI resolution of plot. Defaults to 300.
 
         Returns:
             None.
@@ -1272,7 +1392,6 @@ class NRemover2:
             df_maf,
             maf_per_threshold,
             maf_props_per_threshold,
-            plot_dir,
             output_file,
             plot_fontsize,
             plot_ticksize,
@@ -1280,6 +1399,10 @@ class NRemover2:
             plot_ymax,
             plot_legend_loc,
             show_plot_inline,
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=file_prefix,
+            plot_format=plot_format,
+            dpi=dpi,
         )
 
     def filter_per_threshold(
