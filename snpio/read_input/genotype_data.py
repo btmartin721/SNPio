@@ -2620,10 +2620,7 @@ class GenotypeData:
                 "K": 7,
                 "Y": 8,
                 "S": 9,
-                "-": -9,
                 "N": -9,
-                "?": -9,
-                ".": -9,
             }
         else:
             int_encodings_dict = encodings_dict
