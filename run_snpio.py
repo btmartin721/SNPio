@@ -28,7 +28,7 @@ def main():
         max_missing_sample=0.8,
         singletons=True,
         biallelic=True,
-        unlinked=True,
+        unlinked_only=True,
         monomorphic=True,
         min_maf=0.01,
         search_thresholds=True,
