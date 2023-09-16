@@ -291,6 +291,7 @@ class Plotting:
         n_components_range,
         prefix=None,
         plot_dir="plots",
+        show=False,
     ):
         """Plot the DAPC cross-validation results.
 
@@ -304,6 +305,8 @@ class Plotting:
             prefix (str): Prefix to prepend to output filename.
 
             plot_dir (str): Directory to save plot to.
+
+            show (bool, optional): Whether to show the plot inline. Defaults to False.
 
         Returns:
             None: A plot is saved to a .png file.
@@ -334,6 +337,9 @@ class Plotting:
         plt.ylabel("Mean Cross-validation Score")
         plt.title("DAPC Cross-Validation Scores")
         plt.savefig(os.path.join(plot_dir, fname), bbox_inches="tight")
+
+        if show:
+            plt.show()
         plt.close()
 
         best_idx = pd.Series(scores).idxmin()
@@ -682,14 +688,6 @@ class Plotting:
                 node_padding=40,
             )
 
-            # Apply custom node labels
-            # label_array = np.array(node_labels)
-            # sankey_plot = sankey_plot.redim.values(Node=label_array)
-            # sankey_plot = sankey_plot.opts(labels=dim("SankeyLabels"))
-
-            # # Apply custom node labels
-            # sankey_plot = sankey_plot.redim.label(**node_labels)
-
             # Create custom legend
             legend = """
             <div style="position:absolute;right:20px;top:20px;border:1px solid black;padding:10px;background-color:white">
@@ -734,6 +732,7 @@ class Plotting:
         annotation_size=15,
         plot_format="png",
         dpi=300,
+        show=False,
     ):
         """Plot the distribution of genotype counts.
 
@@ -753,6 +752,8 @@ class Plotting:
             plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
 
             dpi (int, optional): DPI to save plot image to. Defaults to 300.
+
+            show (bool, optional): Whether to show the plot inline. Defaults to False.
         """
         df = misc.validate_input_type(df, return_type="df")
         df_melt = pd.melt(df, value_name="Count")
@@ -762,22 +763,9 @@ class Plotting:
         cnts.sort_values(by="Genotype Int", inplace=True)
         cnts["Genotype Int"] = cnts["Genotype Int"].astype(str)
 
-        onehot_dict = {
-            "A": 0,
-            "T": 1,
-            "G": 2,
-            "C": 3,
-            "W": 4,
-            "R": 5,
-            "M": 6,
-            "K": 7,
-            "Y": 8,
-            "S": 9,
-            "-": -9,
-            "N": -9,
-        }
-        onehot_dict = {str(v): k for k, v in onehot_dict.items()}
-        cnts["Genotype"] = cnts["Genotype Int"].map(onehot_dict)
+        int_iupac_dict = misc.get_int_iupac_dict()
+        int_iupac_dict = {str(v): k for k, v in int_iupac_dict.items()}
+        cnts["Genotype"] = cnts["Genotype Int"].map(int_iupac_dict)
         cnts.columns = [col[0].upper() + col[1:] for col in cnts.columns]
 
         fig, ax = plt.subplots(1, 1, figsize=(15, 15))
@@ -817,6 +805,9 @@ class Plotting:
             facecolor="white",
             dpi=dpi,
         )
+
+        if show:
+            plt.show()
         plt.close()
 
     @staticmethod
@@ -1181,7 +1172,7 @@ class Plotting:
 
             plot_legend_loc (str): The location of the legend in the plots.
 
-            show (bool): Whether to show the plots or not.
+            show (bool): Whether to show the plots inline.
 
             plot_dir_prefix (str): The prefix of the directory to save the plots. Defaults to "snpio".
 
@@ -1287,8 +1278,7 @@ class Plotting:
 
         if show:
             plt.show()
-        else:
-            plt.close()
+        plt.close()
 
         # Plot the MAF visualizations in a separate figure
         fig_maf, axs_maf = plt.subplots(4, 2, figsize=(24, 32))
@@ -1384,8 +1374,7 @@ class Plotting:
 
         if show:
             plt.show()
-        else:
-            plt.close()
+        plt.close()
 
     @staticmethod
     def plot_pop_counts(
@@ -1472,8 +1461,7 @@ class Plotting:
 
         if show:
             plt.show()
-        else:
-            plt.close()
+        plt.close()
 
     @staticmethod
     def plot_performance(
@@ -1485,6 +1473,7 @@ class Plotting:
         figsize=(16, 9),
         plot_format="png",
         dpi=300,
+        show=False,
     ):
         """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time.
 
@@ -1506,6 +1495,8 @@ class Plotting:
             plot_format (str, optional): Format to save plot to. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg"). Defaults to "png".
 
             dpi (int, optional): DPI to set output plot to. Defaults to 300.
+
+            show (bool, optional): Whether to show the plot inline.
 
         Returns:
             None. The function saves the plot as a .png file.
@@ -1588,6 +1579,10 @@ class Plotting:
             facecolor="white",
             dpi=dpi,
         )
+
+        if show:
+            plt.show()
+        plt.close()
 
     @staticmethod
     def run_pca(
@@ -1814,6 +1809,7 @@ class Plotting:
         genotype_data,
         df,
         plot_dir_prefix="snpio",
+        show=False,
         file_prefix=None,
         zoom=True,
         horizontal_space=0.6,
@@ -1831,6 +1827,8 @@ class Plotting:
             df (pandas.DataFrame): DataFrame with snps to visualize.
 
             plot_dir_prefix (str, optional): Prefix for directory to save plots in. Output plot directory will be in the format ``<plot_dir_prefix>_plots``\. Defaults to "snpio".
+
+            show (bool, optional): Whether to show the plot inline. Defaults to False.
 
             file_prefix (str, optional): Prefix for output filenames. Files will be written to a directory called ``<plot_dir_prefix>_plots/gtdata/missingness/<file_prefix>_missingness.<plot_format>``\. The plot directory will be created if it does not already exist. If ``file_prefix`` is None, then the output filenames will not have a prefix. Defaults to None.
 
@@ -2000,6 +1998,9 @@ class Plotting:
             facecolor="white",
             dpi=dpi,
         )
+
+        if show:
+            plt.show()
         plt.close()
 
         return loc, ind, poploc, poptotal, indpop
