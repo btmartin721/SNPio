@@ -73,6 +73,10 @@ class NRemover2:
 
         filter_linked: Filter out linked loci using VCF file CHROM field.
 
+        thin: Thin out loci within ``thin`` bases of each other.
+
+        random_subset_loci: Randomly subset the loci (columns) in the SNP dataset.
+
         get_population_sequences: Returns the sequences for a specific population.
 
         count_iupac_alleles: Counts the number of occurrences of each IUPAC ambiguity code in a given column.
@@ -109,9 +113,12 @@ class NRemover2:
         biallelic=False,
         monomorphic=False,
         singletons=False,
-        unlinked=False,
-        search_thresholds=True,
+        unlinked_only=False,
+        thin=None,
+        random_subset=None,
+        search_thresholds=False,
         plot_dir_prefix="snpio",
+        show_plots=False,
         file_prefix=None,
         plot_format="png",
         dpi=300,
@@ -136,11 +143,17 @@ class NRemover2:
 
             singletons (bool, optional): Whether to filter out loci where the only variant is a singleton. Defaults to False.
 
-            unlinked (bool, optional): Whether to filter out linked snps. Randomly selects one SNP per unique chromosome from the CHROM and POS VCF fields. VCF format is required to use this option. Defaults to False.
+            unlinked_only (bool, optional): Whether to filter out linked snps. Randomly selects one SNP per unique chromosome from the CHROM and POS VCF fields. VCF format is required to use this option. Defaults to False.
 
-            search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to True.
+            thin (int or None, optional): Thins loci based on the "CRHOM" and "POS" VCF file fields. For example, if set to 100, loci within 100 bases from each other will be removed. If None, loci will not be thinned. Defaults to None.
+
+            random_subset (int, float, or None): Randomly subset the loci. If a float is provided, it must be in the inverval [0, 1) and a proportion of loci will be randomly subset. If an integer is provided, ``int(random_subset)`` will be randomly subset. If None, the loci will not be randomly subset. Defaults to None.
+
+            search_thresholds (bool, optional): Whether to search across multiple thresholds and make a plot for visualization. Defaults to False.
 
             plot_dir_prefix (str, optional): The prefix for the output plot directory. Defaults to "snpio".
+
+            show_plots (bool, optional): If True, shows the plots inline. Useful if using a jupyter notebook. Defaults to False.
 
             file_prefix (str, optional): The prefix for the output filename. If ``file_prefix`` is None, then no prefix is prepended to the filename. Defaults to None.
 
@@ -160,7 +173,6 @@ class NRemover2:
         self.alignment = self.msa[:]
 
         aln_before = deepcopy(self.alignment)
-        indices_loci_before = range(len(aln_before[0]))
 
         plot_dir = os.path.join(f"{self.prefix}_output", "nremover", "plots")
         Path(plot_dir).mkdir(exist_ok=True, parents=True)
@@ -168,9 +180,10 @@ class NRemover2:
         Plotting.plot_gt_distribution(
             self.popgenio.genotypes_int,
             plot_dir_prefix=plot_dir_prefix,
-            file_prefix=file_prefix,
+            file_prefix=f"{file_prefix}_before_filter",
             plot_format=plot_format,
             dpi=dpi,
+            show=show_plots,
         )
 
         output_file = "missingness_threshold_search.png"
@@ -183,15 +196,32 @@ class NRemover2:
                 file_prefix=file_prefix,
                 plot_format=plot_format,
                 dpi=dpi,
+                show_plot_inline=show_plots,
             )
+
+        print(thin)
 
         steps = [
             (
                 "Filter linked loci",
-                unlinked,
-                unlinked,
+                unlinked_only,
+                unlinked_only,
                 self.filter_linked,
                 7,
+            ),
+            (
+                "Thin Loci",
+                thin is not None,
+                thin,
+                self.thin_loci,
+                8,
+            ),
+            (
+                "Randomly Subset Loci",
+                random_subset is not None,
+                random_subset,
+                self.random_subset_loci,
+                9,
             ),
             (
                 "Filter missing data (sample)",
@@ -249,7 +279,7 @@ class NRemover2:
 
         original_indices = np.arange(len(self.alignment[0]))
 
-        for name, condition, threshold, filter_func, step_idx in steps:
+        for name, condition, threshold, filter_func, _ in steps:
             if condition:
                 filtered_alignment, indices = filter_func(
                     threshold, alignment=self.alignment
@@ -300,6 +330,15 @@ class NRemover2:
             plot_dir_prefix=plot_dir_prefix,
             file_prefix=file_prefix,
             included_steps=included_steps,
+        )
+
+        Plotting.plot_gt_distribution(
+            self.popgenio.genotypes_int,
+            plot_dir_prefix=plot_dir_prefix,
+            file_prefix=f"{file_prefix}_after_filter",
+            plot_format=plot_format,
+            dpi=dpi,
+            show=show_plots,
         )
 
         return self.return_filtered_output()
@@ -380,6 +419,122 @@ class NRemover2:
         os.unlink(popmap_filename)
 
         return new_popgenio
+
+    def load_vcf_attributes(self):
+        """Loads the VCF attributes from an HDF5 file.
+
+        Populates the `chrom` and `pos` instance variables with the CHROM and POS fields from the VCF file.
+        """
+        with h5py.File(self.popgenio.vcf_attributes, "r") as f:
+            chrom = f["chrom"][:]
+            pos = f["pos"][:]
+        return chrom, pos
+
+    def random_subset_loci(self, threshold, alignment):
+        """Randomly subsets loci based on the `threshold` parameter.
+
+        Args:
+            threshold (int or float): The number or proportion of loci to subset.
+                - If int, the exact number of loci to keep. Must be less than the total number of loci.
+                - If float, the proportion of loci to keep (must be in [0, 1)).
+            alignment (np.ndarray): The alignment to be subsetted.
+
+        Returns:
+            subset_alignment (np.ndarray): The subsetted alignment.
+            subset_indices (np.ndarray): The locus indices that were retained after subsetting.
+        """
+        total_loci = alignment.shape[1]
+
+        # Validate threshold and calculate the number of loci to keep
+        if isinstance(threshold, int):
+            if threshold < 0 or threshold > total_loci:
+                raise ValueError(
+                    "If threshold is an integer, it must be between 0 and the total number of loci."
+                )
+            n_to_keep = threshold
+        elif isinstance(threshold, float):
+            if threshold < 0 or threshold >= 1:
+                raise ValueError(
+                    "If threshold is a float, it must be in the interval [0, 1)."
+                )
+            n_to_keep = int(np.round(total_loci * threshold))
+        else:
+            raise TypeError("Threshold must be an integer or a float.")
+
+        # Randomly select loci to keep
+        subset_indices = np.random.choice(
+            total_loci, size=n_to_keep, replace=False
+        )
+
+        # Subset the alignment
+        subset_alignment = alignment[:, subset_indices]
+
+        return subset_alignment, subset_indices
+
+    def thin_loci(self, threshold, alignment=None):
+        """Thins loci that are within ``threshold`` bases of another SNP.
+
+        Uses the CHROM and POS fields of a VCF file to determine the locations of the loci.
+
+        Args:
+            threshold (int): The thinning threshold. Removes all but one locus within ``threshold`` bases of another SNP.
+            alignment (np.ndarray, MultipleSeqAlignment, or None): The alignment to be filtered. Defaults to the stored alignment.
+
+        Returns:
+            alignment_array (np.ndarray): The filtered alignment.
+            indices (np.ndarray): The locus indices that were retained after filtering.
+        """
+        if isinstance(threshold, bool):
+            raise TypeError(
+                "thin must be None, an integer, or a float, but got bool."
+            )
+
+        if self.popgenio.filetype != "vcf":
+            raise AttributeError(
+                f"Unsupported filetype: {self.popgenio.filetype}. VCF input is "
+                f"required if thin option is used."
+            )
+
+        if alignment is None:
+            raise ValueError("Alignment must be provided.")
+
+        chrom_field, pos = self.load_vcf_attributes()
+        decoder = np.vectorize(lambda x: x.decode("UTF-8"))
+        chrom_field = decoder(chrom_field)
+
+        # Create an array to store which loci to keep
+        to_keep = np.ones(pos.shape[0], dtype=bool)
+
+        # Loop through each chromosome
+        unique_chroms = np.unique(chrom_field)
+
+        pos = pos.astype(str)
+
+        for chrom in unique_chroms:
+            chrom_mask = chrom_field == chrom
+            chrom_positions = pos[chrom_mask]
+            chrom_indices = np.arange(len(pos))[chrom_mask]
+
+            # Sort positions and corresponding indices
+            sorted_order = np.argsort(chrom_positions)
+            sorted_positions = chrom_positions[sorted_order]
+            sorted_indices = chrom_indices[sorted_order]
+
+            # Initialize the last kept position
+            last_kept_position = -1
+
+            # Renamed 'pos' to 'current_pos' to avoid name conflict
+            for i, current_pos in enumerate(sorted_positions):
+                if int(current_pos) - last_kept_position <= threshold:
+                    to_keep[sorted_indices[i]] = False
+                else:
+                    last_kept_position = int(current_pos)
+
+        # Filter the alignment
+        filtered_alignment = alignment[:, to_keep]
+        retained_indices = np.arange(len(pos))[to_keep]
+
+        return filtered_alignment, retained_indices
 
     def calc_missing_proportions(
         self,
