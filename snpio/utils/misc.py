@@ -14,6 +14,43 @@ import psutil
 # from skopt import BayesSearchCV
 
 
+def get_int_iupac_dict():
+    int_iupac_dict = {
+        "A": 0,
+        "T": 1,
+        "G": 2,
+        "C": 3,
+        "W": 4,
+        "R": 5,
+        "M": 6,
+        "K": 7,
+        "Y": 8,
+        "S": 9,
+        "N": -9,
+    }
+
+    return int_iupac_dict
+
+
+def get_onehot_dict():
+    onehot_dict = {
+        "A": [1.0, 0.0, 0.0, 0.0],
+        "T": [0.0, 1.0, 0.0, 0.0],
+        "G": [0.0, 0.0, 1.0, 0.0],
+        "C": [0.0, 0.0, 0.0, 1.0],
+        "N": [0.0, 0.0, 0.0, 0.0],
+        "W": [0.5, 0.5, 0.0, 0.0],
+        "R": [0.5, 0.0, 0.5, 0.0],
+        "M": [0.5, 0.0, 0.0, 0.5],
+        "K": [0.0, 0.5, 0.5, 0.0],
+        "Y": [0.0, 0.5, 0.0, 0.5],
+        "S": [0.0, 0.0, 0.5, 0.5],
+        "N": [0.0, 0.0, 0.0, 0.0],
+    }
+
+    return onehot_dict
+
+
 def align_columns(rows, alignment="left"):
     """
     Aligns the columns of a list of tab-separated strings.
