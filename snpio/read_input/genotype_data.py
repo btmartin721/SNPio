@@ -361,6 +361,7 @@ class GenotypeData:
         self._tree = None
         self._popmap = None
         self._popmap_inverse = None
+        self.vcf_header = None
 
         if self.qmatrix is not None and self.qmatrix_iqtree is not None:
             raise TypeError(
@@ -2968,6 +2969,7 @@ class GenotypeData:
             bar_color=bar_color,
             heatmap_palette=heatmap_palette,
             plot_format=plot_format,
+            plot_dir=os.path.join(f"{prefix}_output", "plots"),
             dpi=dpi,
         )
 
@@ -3261,9 +3263,10 @@ class GenotypeData:
                 setattr(new_obj, name, copy.deepcopy(attr))
 
         # Explicitly copy VariantHeader
-        new_header = pysam.VariantHeader()
-        new_header = self.vcf_header.copy()
-        new_obj.vcf_header = new_header
+        if self.vcf_header:
+            new_header = pysam.VariantHeader()
+            new_header = self.vcf_header.copy()
+            new_obj.vcf_header = new_header
 
         return new_obj
 

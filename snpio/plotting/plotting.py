@@ -1860,6 +1860,8 @@ class Plotting:
             pandas.DataFrame: Per-individual and per-population missing data proportions.
         """
 
+        Path(plot_dir).mkdir(parents=True, exist_ok=True)
+        
         if not isinstance(df, pd.DataFrame):
             df = misc.validate_input_type(df, return_type="df")
 
