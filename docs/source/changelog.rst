@@ -4,6 +4,19 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.0.5 (2023-09-16)
+----------------------------
+
+Features
+~~~~~~~~~
+
+- Added ``thin`` and ``random_subset`` options to ``nremover()`` function. ``thin`` removes loci within ``thin`` bases of the nearest locus. ``random_subset`` randomly subsets the loci using an integer or proportion.
+
+Changes
+~~~~~~~~
+
+- Changed ``unlinked`` to ``unlinked_only`` option for clarity
+
 Version 1.0.4 (2023-09-10)
 -----------------------------
 
@@ -15,7 +28,7 @@ Features
 Performance
 ~~~~~~~~~~~~
 
-- Made the Sankey plot function more modular and dynamic.
+- Made the Sankey plot function more modular and dynamic for easier maintainability.
 
 Bug Fixes
 ~~~~~~~~~~
