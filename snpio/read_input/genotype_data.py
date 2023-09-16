@@ -95,7 +95,11 @@ from snpio.plotting.plotting import Plotting as Plotting
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils import sequence_tools
 from snpio.utils.custom_exceptions import UnsupportedFileTypeError
-from snpio.utils.misc import align_columns, class_performance_decorator
+from snpio.utils.misc import (
+    class_performance_decorator,
+    get_int_iupac_dict,
+    get_onehot_dict,
+)
 
 # from cyvcf2 import VCF
 
@@ -2450,23 +2454,7 @@ class GenotypeData:
         """
 
         if encodings_dict is None:
-            onehot_dict = {
-                "A": [1.0, 0.0, 0.0, 0.0],
-                "T": [0.0, 1.0, 0.0, 0.0],
-                "G": [0.0, 0.0, 1.0, 0.0],
-                "C": [0.0, 0.0, 0.0, 1.0],
-                "N": [0.0, 0.0, 0.0, 0.0],
-                "W": [0.5, 0.5, 0.0, 0.0],
-                "R": [0.5, 0.0, 0.5, 0.0],
-                "M": [0.5, 0.0, 0.0, 0.5],
-                "K": [0.0, 0.5, 0.5, 0.0],
-                "Y": [0.0, 0.5, 0.0, 0.5],
-                "S": [0.0, 0.0, 0.5, 0.5],
-                "-": [0.0, 0.0, 0.0, 0.0],
-                "N": [0.0, 0.0, 0.0, 0.0],
-                "?": [0.0, 0.0, 0.0, 0.0],
-                ".": [0.0, 0.0, 0.0, 0.0],
-            }
+            onehot_dict = get_onehot_dict()
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
@@ -2497,22 +2485,9 @@ class GenotypeData:
             np.ndarray: Original format data.
         """
 
-        if encodings_dict is None:
-            onehot_dict = {
-                "A": [1.0, 0.0, 0.0, 0.0],
-                "T": [0.0, 1.0, 0.0, 0.0],
-                "G": [0.0, 0.0, 1.0, 0.0],
-                "C": [0.0, 0.0, 0.0, 1.0],
-                "W": [0.5, 0.5, 0.0, 0.0],
-                "R": [0.5, 0.0, 0.5, 0.0],
-                "M": [0.5, 0.0, 0.0, 0.5],
-                "K": [0.0, 0.5, 0.5, 0.0],
-                "Y": [0.0, 0.5, 0.0, 0.5],
-                "S": [0.0, 0.0, 0.5, 0.5],
-                "N": [0.0, 0.0, 0.0, 0.0],
-            }
-        else:
-            onehot_dict = encodings_dict
+        onehot_dict = (
+            get_onehot_dict() if encodings_dict is None else encodings_dict
+        )
 
         # Create inverse dictionary (from list to key)
         inverse_onehot_dict = {tuple(v): k for k, v in onehot_dict.items()}
@@ -2557,41 +2532,26 @@ class GenotypeData:
         """
 
         if encodings_dict is None:
-            onehot_dict = {
-                "A": 0,
-                "T": 1,
-                "G": 2,
-                "C": 3,
-                "W": 4,
-                "R": 5,
-                "M": 6,
-                "K": 7,
-                "Y": 8,
-                "S": 9,
-                "-": -9,
-                "N": -9,
-                "?": -9,
-                ".": -9,
-            }
+            int_iupac_dict = get_int_iupac_dict()
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
 
-            onehot_dict = encodings_dict
+            int_iupac_dict = encodings_dict
 
-        onehot_outer_list = list()
+        outer_list = list()
 
         n_rows = (
             len(self._samples) if encodings_dict is None else len(snp_data)
         )
 
         for i in range(n_rows):
-            onehot_list = list()
+            int_iupac = list()
             for j in range(len(snp_data[0])):
-                onehot_list.append(onehot_dict[snp_data[i][j]])
-            onehot_outer_list.append(onehot_list)
+                int_iupac.append(int_iupac_dict[snp_data[i][j]])
+            outer_list.append(int_iupac)
 
-        return np.array(onehot_outer_list)
+        return np.array(outer_list)
 
     def inverse_int_iupac(
         self,
@@ -2607,25 +2567,9 @@ class GenotypeData:
             numpy.ndarray: Original format data.
         """
 
-        if encodings_dict is None:
-            int_encodings_dict = {
-                "A": 0,
-                "T": 1,
-                "G": 2,
-                "C": 3,
-                "W": 4,
-                "R": 5,
-                "M": 6,
-                "K": 7,
-                "Y": 8,
-                "S": 9,
-                "-": -9,
-                "N": -9,
-                "?": -9,
-                ".": -9,
-            }
-        else:
-            int_encodings_dict = encodings_dict
+        int_encodings_dict = (
+            get_int_iupac_dict() if encodings_dict is None else encodings_dict
+        )
 
         # Create inverse dictionary (from integer to key)
         inverse_int_encodings_dict = {
@@ -2747,12 +2691,15 @@ class GenotypeData:
 
         Args:
             filename (str): Output file path.
+
+        Raises:
+            AttributeError: If samples or populations attributes are NoneType.
         """
         if not self.samples or self.samples is None:
-            raise ValueError("samples attribute is not defined.")
+            raise AttributeError("samples attribute is undefined.")
 
         if not self.populations or self.populations is None:
-            raise ValueError("populations attribute is not defined.")
+            raise AttributeError("populations attribute is undefined.")
 
         with open(filename, "w") as fout:
             for s, p in zip(self.samples, self.populations):
