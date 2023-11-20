@@ -13,6 +13,28 @@ import psutil
 
 # from skopt import BayesSearchCV
 
+from typing import Dict, List
+
+
+def invert_dict(input_dict: Dict[str, str]) -> Dict[str, List[str]]:
+    """
+    Invert a dictionary mapping of strings, where unique values become new keys
+    and the keys corresponding to each unique original value become the new values.
+
+    Args:
+        input_dict (Dict[str, str]): The original dictionary to be inverted.
+
+    Returns:
+        Dict[str, List[str]]: The inverted dictionary.
+    """
+    output_dict = {}
+    for k, v in input_dict.items():
+        if v not in output_dict:
+            output_dict[v] = [k]
+        else:
+            output_dict[v].append(k)
+    return output_dict
+
 
 def get_int_iupac_dict():
     int_iupac_dict = {
@@ -27,6 +49,9 @@ def get_int_iupac_dict():
         "Y": 8,
         "S": 9,
         "N": -9,
+        "-": -9,
+        ".": -9,
+        "?": -9,
     }
 
     return int_iupac_dict
