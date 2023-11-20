@@ -1,0 +1,159 @@
+description: Nine populations with size changes and migration events.
+time_units: years
+generation_time: 1
+demes:
+- name: ancestral
+  epochs:
+  - {end_time: 50000000.0, start_size: 1567.3598573720374}
+- name: pop1
+  ancestors: [ancestral]
+  epochs:
+  - {end_time: 0, start_size: 4905.052056961085}
+- name: pop2
+  ancestors: [ancestral]
+  epochs:
+  - {end_time: 0, start_size: 7228.801296824083}
+- name: pop3
+  start_time: 20000000.0
+  ancestors: [pop2]
+  epochs:
+  - {end_time: 0, start_size: 9287.031665211829}
+- name: pop4
+  start_time: 10000000.0
+  ancestors: [pop3]
+  epochs:
+  - {end_time: 0, start_size: 8086.379811272396}
+- name: pop5
+  start_time: 5000000.0
+  ancestors: [pop4]
+  epochs:
+  - {end_time: 0, start_size: 8116.220733855099}
+- name: pop6
+  start_time: 4000000.0
+  ancestors: [pop5]
+  epochs:
+  - {end_time: 0, start_size: 9899.904968056888}
+- name: pop7
+  start_time: 3000000.0
+  ancestors: [pop6]
+  epochs:
+  - {end_time: 0, start_size: 3201.9085312509255}
+- name: pop8
+  start_time: 2000000.0
+  ancestors: [pop7]
+  epochs:
+  - {end_time: 0, start_size: 7880.127884975734}
+- name: pop9
+  start_time: 1000000.0
+  ancestors: [pop8]
+  epochs:
+  - {end_time: 0, start_size: 4395.043918692063}
+migrations:
+- demes: [pop1, pop2]
+  rate: 0.010744150503607598
+  start_time: 10000.0
+- demes: [pop1, pop3]
+  rate: 0.09150848788301746
+  start_time: 10000.0
+- demes: [pop1, pop4]
+  rate: 0.027271246679351026
+  start_time: 10000.0
+- demes: [pop1, pop5]
+  rate: 0.038435825332572386
+  start_time: 10000.0
+- demes: [pop1, pop6]
+  rate: 0.05004122938790384
+  start_time: 10000.0
+- demes: [pop1, pop7]
+  rate: 0.06669965797301516
+  start_time: 10000.0
+- demes: [pop1, pop8]
+  rate: 0.0064487546490809905
+  start_time: 10000.0
+- demes: [pop1, pop9]
+  rate: 0.049398353633182436
+  start_time: 10000.0
+- demes: [pop2, pop3]
+  rate: 0.028315548618991604
+  start_time: 10000.0
+- demes: [pop2, pop4]
+  rate: 0.003679703451958516
+  start_time: 10000.0
+- demes: [pop2, pop5]
+  rate: 0.09627252911133331
+  start_time: 10000.0
+- demes: [pop2, pop6]
+  rate: 0.00520144132376511
+  start_time: 10000.0
+- demes: [pop2, pop7]
+  rate: 0.09617559965745637
+  start_time: 10000.0
+- demes: [pop2, pop8]
+  rate: 0.09180119813849216
+  start_time: 10000.0
+- demes: [pop2, pop9]
+  rate: 0.08106210260475603
+  start_time: 10000.0
+- demes: [pop3, pop4]
+  rate: 0.08791607847101483
+  start_time: 10000.0
+- demes: [pop3, pop5]
+  rate: 0.08327142863268654
+  start_time: 10000.0
+- demes: [pop3, pop6]
+  rate: 0.05140588494812144
+  start_time: 10000.0
+- demes: [pop3, pop7]
+  rate: 0.017913760360424868
+  start_time: 10000.0
+- demes: [pop3, pop8]
+  rate: 0.08850145506241726
+  start_time: 10000.0
+- demes: [pop3, pop9]
+  rate: 0.03928693298160442
+  start_time: 10000.0
+- demes: [pop4, pop5]
+  rate: 0.06328206521413514
+  start_time: 10000.0
+- demes: [pop4, pop6]
+  rate: 0.04159853266651451
+  start_time: 10000.0
+- demes: [pop4, pop7]
+  rate: 0.0727346455875411
+  start_time: 10000.0
+- demes: [pop4, pop8]
+  rate: 0.0019351929524406564
+  start_time: 10000.0
+- demes: [pop4, pop9]
+  rate: 0.04280813200105352
+  start_time: 10000.0
+- demes: [pop5, pop6]
+  rate: 0.07219649384707684
+  start_time: 10000.0
+- demes: [pop5, pop7]
+  rate: 0.014718371885296289
+  start_time: 10000.0
+- demes: [pop5, pop8]
+  rate: 0.013003949241581925
+  start_time: 10000.0
+- demes: [pop5, pop9]
+  rate: 0.05701702770312842
+  start_time: 10000.0
+- demes: [pop6, pop7]
+  rate: 0.08026855876368522
+  start_time: 10000.0
+- demes: [pop6, pop8]
+  rate: 0.040944704639833775
+  start_time: 10000.0
+- demes: [pop6, pop9]
+  rate: 0.004208554826949029
+  start_time: 10000.0
+- demes: [pop7, pop8]
+  rate: 0.05625804166521925
+  start_time: 10000.0
+- demes: [pop7, pop9]
+  rate: 0.005969450607969851
+  start_time: 10000.0
+- demes: [pop8, pop9]
+  rate: 0.050151052758099474
+  start_time: 10000.0
