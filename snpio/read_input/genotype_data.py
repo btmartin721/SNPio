@@ -101,9 +101,6 @@ from snpio.utils.misc import (
     get_onehot_dict,
 )
 
-# from cyvcf2 import VCF
-
-
 # Global resource data dictionary
 resource_data = {}
 
@@ -114,7 +111,7 @@ class GenotypeData:
 
     The GenotypeData class provides methods to read, manipulate, and analyze genotype data in various formats, including VCF, Structure, and other custom formats. It allows for data preprocessing, allele encoding, and various data transformations.
 
-    Notes:
+    Warnings:
         GenotypeData handles the following characters as missing data:
             - 'N'
             - '-'
@@ -143,9 +140,11 @@ class GenotypeData:
 
         guidetree (str or None): Path to input treefile. Defaults to None.
 
-        qmatrix_iqtree (str or None): Path to iqtree output file containing Q rate matrix. Defaults to None.
+        iqtree_filename (str or None): Path to \*.iqtree logfile. Defaults to None.
 
-        qmatrix (str or None): Path to file containing only Q rate matrix, and not the full iqtree file. Defaults to None.
+        qmatrix_iqtree (str or None): **DEPRECATED: Use iqtree_filename instead** Path to iqtree output file containing Q rate matrix. Defaults to None.
+
+        qmatrix (str or None): **DEPRECATED: Use iqtree_filename instead** Path to file containing only Q rate matrix, and not the full iqtree file. Defaults to None.
 
         siterates (str or None): Path to file containing per-site rates, with 1 rate per line corresponding to 1 site. Not required if genotype_data is defined with the siterates or siterates_iqtree option. Defaults to None.
 
@@ -192,6 +191,8 @@ class GenotypeData:
 
         alt (List[str]): List of alternate alleles of length num_snps.
 
+        iqtree (Dict[str, Union[pd.DataFrame, str]]): iqtree parameters as a dict of dataframes, and newick file as a string.
+
         q (QMatrix or None): Q-matrix object for phylogenetic tree.
 
         site_rates (SiteRates or None): Site rate data for phylogenetic tree.
@@ -210,6 +211,8 @@ class GenotypeData:
         read_012: Read data from a custom 012-encoded file format.
 
         read_tree: Read data from a newick file.
+
+        extract_iqtree_params: Get model parameters from \*.iqtree.
 
         q_from_iqtree: Read Q-matrix from \*.iqtree file.
 
@@ -298,6 +301,7 @@ class GenotypeData:
         exclude_pops: Optional[List[str]] = None,
         include_pops: Optional[List[str]] = None,
         guidetree: Optional[str] = None,
+        iqtree_filename: Optional[str] = None,
         qmatrix_iqtree: Optional[str] = None,
         qmatrix: Optional[str] = None,
         siterates: Optional[str] = None,
@@ -318,6 +322,7 @@ class GenotypeData:
         self.exclude_pops = exclude_pops
         self.include_pops = include_pops
         self.guidetree = guidetree
+        self.iqtree_filename = iqtree_filename
         self.qmatrix_iqtree = qmatrix_iqtree
         self.qmatrix = qmatrix
         self.siterates = siterates
@@ -328,6 +333,7 @@ class GenotypeData:
         self.verbose = verbose
         self.measure = kwargs.get("measure", False)
         self.supported_filetypes = ["vcf", "phylip", "structure", "auto"]
+        self._iqtree_params = None
 
         self._kwargs = {
             "filename": filename,
@@ -337,6 +343,7 @@ class GenotypeData:
             "exclude_pops": exclude_pops,
             "include_pops": include_pops,
             "guidetree": guidetree,
+            "iqtree_filename": iqtree_filename,
             "qmatrix_iqtree": qmatrix_iqtree,
             "qmatrix": qmatrix,
             "siterates": siterates,
@@ -356,7 +363,7 @@ class GenotypeData:
         self._populations: List[Union[str, int]] = []
         self._ref = []
         self._alt = []
-        self._q = None
+        self._q = None  # NOTE: Deprecated.
         self._site_rates = None
         self._tree = None
         self._popmap = None
@@ -644,9 +651,99 @@ class GenotypeData:
         qdf = pd.DataFrame(q)
         return qdf.T
 
+    def extract_iqtree_params(self, filename):
+        """
+        Extracts important parameters from an IQ-TREE output file.
+
+        Args:
+        filename (str): The name of the IQ-TREE output file.
+
+        Returns:
+        dict: A dictionary containing the following keys:
+            - 'rate_matrix': DataFrame containing the rate matrix Q.
+            - 'rate_params': DataFrame containing the rate parameters R.
+            - 'best_fit_model': String containing the best-fit model.
+            - 'state_freq': DataFrame containing state frequencies.
+            - 'rate_heterogeneity': String containing the model of rate heterogeneity.
+        """
+        rate_matrix = None
+        rate_params = None
+        best_fit_model = None
+        state_freq = None
+        rate_heterogeneity = None
+
+        with open(filename, "r") as f:
+            lines = f.readlines()
+
+        for i, line in enumerate(lines):
+            # Extract Rate Matrix Q
+            if "Rate matrix Q:" in line:
+                rate_matrix_data = []
+                for j in range(
+                    1, 6
+                ):  # Adjusting the index to capture 4 rows, allowing for an empty line
+                    line_content = lines[i + j].strip()
+                    if line_content:  # Skip empty lines
+                        rate_matrix_data.append(
+                            list(
+                                map(float, re.split(r"\s+", line_content)[1:])
+                            )
+                        )
+                rate_matrix = pd.DataFrame(
+                    rate_matrix_data,
+                    columns=["A", "C", "G", "T"],
+                    index=["A", "C", "G", "T"],
+                )
+
+            # Extract Rate Parameters R
+            if "Rate parameter R:" in line:
+                rate_params_data = []
+                for j in range(
+                    1, 8
+                ):  # Allowing up to 7 lines to capture 6 values (including a potential empty line)
+                    line_content = lines[i + j].strip()
+                    if line_content:  # Skip empty lines
+                        param, value = line_content.split(":")
+                        rate_params_data.append(
+                            [param.strip(), float(value.strip())]
+                        )
+                rate_params = pd.DataFrame(
+                    rate_params_data, columns=["Parameter", "Value"]
+                )
+
+            # Extract Best-fit model
+            if "Model of substitution:" in line:
+                best_fit_model = line.strip().split(":")[1].strip()
+
+            # Extract State Frequencies
+            if "State frequencies:" in line:
+                state_freq_data = []
+                for j in range(2, 6):
+                    param, value = lines[i + j].strip().split("=")
+                    state_freq_data.append(
+                        [param.strip()[3:].strip(")"), float(value.strip())]
+                    )  # Removing extra characters
+                state_freq = pd.DataFrame(
+                    state_freq_data, columns=["State", "Frequency"]
+                )
+
+            # Extract Model of Rate Heterogeneity
+            if "Model of rate heterogeneity:" in line:
+                rate_heterogeneity = line.strip().split(":")[1].strip()
+
+        return {
+            "rate_matrix": rate_matrix,
+            "rate_params": rate_params,
+            "best_fit_model": best_fit_model,
+            "state_freq": state_freq,
+            "rate_heterogeneity": rate_heterogeneity,
+        }
+
     def q_from_iqtree(self, iqfile: str) -> pd.DataFrame:
         """
         Read Q matrix from an IQ-TREE (\*.iqtree) file.
+
+        DEPRECATED: Use extract_iqtree_params() instead.
 
         The IQ-TREE file contains the standard output of an IQ-TREE run and includes the Q-matrix.
 
@@ -752,6 +849,33 @@ class GenotypeData:
         except (IOError, FileNotFoundError):
             raise IOError(f"Could not open iqtree file {iqfile}")
         return s
+
+    def read_siterates_df(self, file_path: str) -> pd.DataFrame:
+        """
+        Read a custom-formatted file into a pandas DataFrame.
+
+        This function reads a file where the first few lines are comments, each starting with "#".
+        It then reads the actual data, which is tab-separated, into a pandas DataFrame.
+
+        Args:
+        file_path (str): The file path to read the data from.
+
+        Returns:
+        pd.DataFrame: A DataFrame containing the data from the file.
+        """
+        # Count the number of comment lines at the beginning of the file
+        comment_lines = 0
+        with open(file_path, "r") as f:
+            for line in f:
+                if line.startswith("#"):
+                    comment_lines += 1
+                else:
+                    break
+
+        # Read the file into a DataFrame, skipping the comment lines
+        df = pd.read_csv(file_path, sep="\t", skiprows=comment_lines)
+
+        return df
 
     def _validate_rates(self) -> None:
         """
@@ -2969,7 +3093,7 @@ class GenotypeData:
             bar_color=bar_color,
             heatmap_palette=heatmap_palette,
             plot_format=plot_format,
-            plot_dir=os.path.join(f"{prefix}_output", "plots"),
+            plot_dir=os.path.join(f"{plot_dir_prefix}_output", "plots"),
             dpi=dpi,
         )
 
@@ -3263,9 +3387,8 @@ class GenotypeData:
                 setattr(new_obj, name, copy.deepcopy(attr))
 
         # Explicitly copy VariantHeader
-        if self.vcf_header:
+        if self.vcf_header is not None:
             new_header = pysam.VariantHeader()
-            new_header = self.vcf_header.copy()
             new_obj.vcf_header = new_header
 
         return new_obj
@@ -3390,6 +3513,15 @@ class GenotypeData:
         """
         return self._populations
 
+    @populations.setter
+    def populations(self, value) -> None:
+        """Set population Ids."""
+        if not isinstance(value, list):
+            raise TypeError(
+                f"Populations must be set to a list, but got {type(value)}"
+            )
+        self._populations = value
+
     @property
     def popmap(self) -> Dict[str, str]:
         """Dictionary object with SampleIDs as keys and popIDs as values."""
@@ -3420,7 +3552,7 @@ class GenotypeData:
                 f"popmap_inverse must be a dictionary object, but got {type(value)}"
             )
 
-        if all(isinstance(v, list) for v in value.values()):
+        if not all(isinstance(v, list) for v in value.values()):
             raise TypeError(
                 f"popmap_inverse values must be lists of sampleIDs for the given populationID key"
             )
@@ -3446,13 +3578,7 @@ class GenotypeData:
         """
         Dictionary with Sample IDs as keys and lists of genotypes as values.
         """
-        self._snpsdict = self._make_snpsdict()
-        return self._snpsdict
-
-    @snpsdict.setter
-    def snpsdict(self, value):
-        """Set snpsdict object, which is a dictionary with sample IDs as keys and lists of genotypes as values."""
-        self._snpsdict = value
+        return self._make_snpsdict()
 
     @property
     def snp_data(self) -> List[List[str]]:
@@ -3574,7 +3700,7 @@ class GenotypeData:
         return MultipleSeqAlignment(
             [
                 SeqRecord(Seq("".join(row)), id=sample)
-                for sample, row in zip(self._samples, self._snp_data)
+                for sample, row in zip(self.samples, self.snp_data)
             ]
         )
 
@@ -3652,7 +3778,7 @@ class GenotypeData:
 
     @property
     def sample_indices(self) -> List[int]:
-        """Row indices for retained samples in alignemnt."""
+        """Row indices for retained samples in alignment."""
         return self._sample_indices
 
     @sample_indices.setter
@@ -3663,12 +3789,6 @@ class GenotypeData:
 
         """
         self._sample_indices = value
-        self._samples = [x for i, x in enumerate(self._samples) if i in value]
-        self._populations = [
-            p
-            for i, (s, p) in zip(self._samples, self._populations)
-            if s in value
-        ]
 
     @property
     def ref(self) -> List[str]:
@@ -3692,7 +3812,16 @@ class GenotypeData:
 
     @property
     def q(self):
-        """Get q-matrix object for phylogenetic tree."""
+        """Get q-matrix object for phylogenetic tree.
+
+        Warnings:
+            q is deprecated. Use the ``iqtree`` property instead.
+        """
+        # warnings.warn(
+        #     "qmatrix object is deprecated. Use the iqtree property instead.",
+        #     DeprecationWarning,
+        # )
+
         if self.qmatrix_iqtree is not None and self.qmatrix is None:
             self._q = self.q_from_iqtree(self.qmatrix_iqtree)
         elif self.qmatrix_iqtree is None and self.qmatrix is not None:
@@ -3703,14 +3832,88 @@ class GenotypeData:
             and self._q is None
         ):
             raise TypeError(
-                "qmatrix or qmatrix_iqtree must be provided at class instantiation or the q property must be set to get the q object."
+                "qmatrix or qmatrix_iqtree must be provided at class "
+                "instantiation or the q property must be set to get the q "
+                "object."
             )
         return self._q
 
     @q.setter
     def q(self, value):
-        """Set q-matrix for phylogenetic tree."""
+        """Set q-matrix for phylogenetic tree.
+
+        Warnings:
+            q is deprecated. Use the ``iqtree`` property instead.
+        """
+        # warnings.warn(
+        #     "qmatrix object is deprecated. Use the iqtree property instead.",
+        #     DeprecationWarning,
+        # )
         self._q = value
+
+    @property
+    def iqtree(self):
+        """Get iqtree params from \*.iqtree file.
+
+        Returns:
+            dict: A dictionary containing the following keys:
+                - 'rate_matrix': DataFrame containing the rate matrix Q.
+                - 'rate_params': DataFrame containing the rate parameters R.
+                - 'best_fit_model': String containing the best-fit model.
+                - 'state_freq': DataFrame containing state frequencies.
+                - 'rate_heterogeneity': String containing the model of rate heterogeneity.
+        Raises:
+            AttributeError: If ``iqtree_filename`` was not provided to class instance.
+        """
+        if self.iqtree_filename is None:
+            raise AttributeError(
+                "iqtree_filename must be provided to access "
+                "the iqtree property."
+            )
+
+        if self.qmatrix_iqtree is not None or self.qmatrix is not None:
+            raise ValueError(
+                "qmatrix_iqtree and qmatrix are deprecated. Use "
+                "iqtree_filename."
+            )
+
+        iqtree_params = self.extract_iqtree_params(self.iqtree_filename)
+        return iqtree_params
+
+    @iqtree.setter
+    def iqtree(self, value):
+        """Set iqtree params object.
+
+        Args:
+            dict: A dictionary containing the following keys:
+                - 'rate_matrix': DataFrame containing the rate matrix Q.
+                - 'rate_params': DataFrame containing the rate parameters R.
+                - 'best_fit_model': String containing the best-fit model.
+                - 'state_freq': DataFrame containing state frequencies.
+                - 'rate_heterogeneity': String containing the model of rate heterogeneity.
+        """
+        if value is None:
+            self._iqtree_params = None
+        else:
+            if not isinstance(value, dict):
+                raise TypeError(
+                    f"iqtree property must be a dictionary, but got {type(value)}"
+                )
+
+            keys = [
+                "rate_matrix",
+                "rate_params",
+                "best_fit_model",
+                "state_freq",
+                "rate_heterogeneity",
+            ]
+
+            if any(k not in value for k in keys):
+                raise KeyError(
+                    f"iqtree object was missing one or more keys. The following keys are required: {keys}"
+                )
+
+            self._iqtree_params = value
 
     @property
     def site_rates(self):
@@ -3740,6 +3943,23 @@ class GenotypeData:
 
     @site_rates.setter
     def site_rates(self, value):
+        """Set site_rates object."""
+        self._site_rates = value
+
+    @property
+    def site_rates_iqtree_df(self):
+        """Get site rate data for phylogenetic tree as a 4-column dataframe."""
+        if self.siterates_iqtree is not None and self.siterates is None:
+            self._site_rates = self.read_siterates_df(self.siterates_iqtree)
+            self._validate_rates()
+        elif self.siterates_iqtree is None:
+            raise TypeError(
+                "siterates_iqtree must be provided at class instantiation or the site_rates_iqtree_df property must be set to get this property."
+            )
+        return self._site_rates
+
+    @site_rates_iqtree_df.setter
+    def site_rates_iqtree_df(self, value):
         """Set site_rates object."""
         self._site_rates = value
 
