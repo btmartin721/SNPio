@@ -158,6 +158,7 @@ profile_stats_*.txt
 
 # OS files
 .DS_Store
+nmt_*
 
 # pipenv
 #Pipfile.lock
