@@ -2,6 +2,94 @@ import re
 from itertools import product
 from collections import Counter
 
+import numpy as np
+from typing import Tuple, List
+
+
+def get_ref_alt(array: np.ndarray) -> Tuple[List[str], List[str]]:
+    """
+    Get the most frequent and second most frequent elements for each column in a 2D numpy array, ignoring IUPAC ambiguity codes.
+
+    Args:
+        array (np.ndarray or list): 2D numpy array or list where each column represents a set of values.
+
+    Returns:
+        Tuple[List[str], List[str]]: Two lists, where the first list (`ref`) contains the most frequent elements for each column, and the second list (`alt`) contains the second most frequent elements for each column. If there is no second most frequent element, the corresponding entry in `alt` is set to None.
+    """
+    if not isinstance(array, np.ndarray):
+        array = np.array(array)
+
+    # Transpose the array for easier column-wise operations
+    transposed_array = array.T
+
+    # Initialize lists to store the most and second most frequent elements for each column
+    ref = []
+    alt = []
+
+    # IUPAC ambiguity codes to be ignored
+    iupac_codes = {"R", "Y", "S", "W", "K", "M", "B", "D", "H", "V", "N"}
+
+    # Loop through each column
+    for col in transposed_array:
+        # Filter out IUPAC ambiguity codes
+        filtered_col = [e for e in col if e not in iupac_codes]
+
+        # Count occurrences of each unique value in the column
+        unique_elements, counts = np.unique(filtered_col, return_counts=True)
+
+        # Sort unique elements by their counts in descending order
+        sorted_indices = np.argsort(counts)[::-1]
+
+        # Get the most frequent element
+        if len(sorted_indices) > 0:
+            most_frequent = unique_elements[sorted_indices][0]
+            ref.append(most_frequent)
+        else:
+            ref.append(None)
+
+        # Check for a second most frequent element
+        if len(sorted_indices) > 1:
+            second_most_frequent = unique_elements[sorted_indices][1]
+            alt.append(second_most_frequent)
+        else:
+            alt.append(None)
+
+    return ref, alt
+
+
+def get_iupac_codes():
+    # Define the IUPAC genotype codes
+    iupac_codes = {
+        ("A", "A"): "A",
+        ("C", "C"): "C",
+        ("G", "G"): "G",
+        ("T", "T"): "T",
+        ("A", "G"): "R",
+        ("G", "A"): "R",
+        ("C", "T"): "Y",
+        ("T", "C"): "Y",
+        ("G", "C"): "S",
+        ("C", "G"): "S",
+        ("A", "T"): "W",
+        ("T", "A"): "W",
+        ("G", "T"): "K",
+        ("T", "G"): "K",
+        ("A", "C"): "M",
+        ("C", "A"): "M",
+        ("G", "G"): "G",
+        ("T", "T"): "T",
+        ("A", "N"): "N",
+        ("C", "N"): "N",
+        ("G", "N"): "N",
+        ("T", "N"): "N",
+        ("N", "A"): "N",
+        ("N", "C"): "N",
+        ("N", "G"): "N",
+        ("N", "T"): "N",
+    }
+
+    return iupac_codes
+
 
 def blacklist_missing(loci, threshold, iupac=False):
     """
@@ -264,6 +352,7 @@ def get_iupac_caseless(char):
         "H": ["N", "N"],
         "V": ["N", "N"],
         "-9": ["N", "N"],
+        "?": ["N", "N"],
     }
     ret = iupac[char]
     if lower:
