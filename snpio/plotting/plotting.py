@@ -1859,7 +1859,7 @@ class Plotting:
 
             pandas.DataFrame: Per-individual and per-population missing data proportions.
         """
-
+        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "plots")
         Path(plot_dir).mkdir(parents=True, exist_ok=True)
         
         if not isinstance(df, pd.DataFrame):
@@ -1989,10 +1989,6 @@ class Plotting:
             if file_prefix is None
             else f"{file_prefix}_missingness"
         )
-
-        plot_dir = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "plots")
-
-        Path(plot_dir).mkdir(exist_ok=True, parents=True)
 
         fig.savefig(
             os.path.join(plot_dir, f"{fname}.{plot_format}"),

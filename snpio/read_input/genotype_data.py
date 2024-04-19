@@ -2945,8 +2945,6 @@ class GenotypeData:
         Args:
             plot_dir_prefix (str, optional): Prefix for output directory. Defaults to "snpio".
 
-            file_prefix (str, optional): Prefix for output plot filename. If ``file_prefix`` is None, then no prefix will be prepended to the filename. Defaults to None.
-
             zoom (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
 
             horizontal_space (float, optional): Set the width spacing between subplots. If your plots are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
@@ -2969,7 +2967,6 @@ class GenotypeData:
             bar_color=bar_color,
             heatmap_palette=heatmap_palette,
             plot_format=plot_format,
-            plot_dir=os.path.join(f"{prefix}_output", "plots"),
             dpi=dpi,
         )
 
