@@ -9,6 +9,7 @@ import warnings
 from collections import Counter, OrderedDict, defaultdict
 from datetime import datetime
 from pathlib import Path
+from scipy.stats import hmean
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -28,6 +29,8 @@ import numpy as np
 import pandas as pd
 import toytree as tt
 from toytree.TreeParser import TreeParser
+
+from snpio.utils import misc
 
 """
 NOTE:  Monkey patching a method in toytree because
@@ -3241,6 +3244,88 @@ class GenotypeData:
             indpop = df.copy()
 
         return loc, ind, poploc, poptot, indpop
+
+    def calculate_hs_ht(self, snp_data, populations):
+        dat = pd.DataFrame(snp_data)
+        dat.replace(["N", "-", ".", "?"], [np.nan, np.nan, np.nan, np.nan], inplace=True)
+        dat['Population'] = populations[:len(dat)]   
+
+        results = []
+
+        iupac_mapping = {
+            "R": ("A", "G"),
+            "Y": ("C", "T"),
+            "S": ("G", "C"),
+            "W": ("A", "T"),
+            "K": ("G", "T"),
+            "M": ("A", "C"),
+        }
+
+        for locus in dat.columns[:-1]:
+            locus_data = dat[['Population', locus]].dropna()
+            if locus_data.empty:
+                results.append({
+                    "Hs": np.nan, "Hs_corrected": np.nan, "Ht": np.nan, "Ht_corrected": np.nan,
+                    "HarmN": np.nan, "Npop": np.nan
+                })
+                continue
+
+            locus_data[locus] = locus_data[locus].apply(lambda x: iupac_mapping.get(x, (x, x)))
+            locus_data = locus_data.explode(locus)
+
+            allele_frequencies = locus_data.groupby('Population')[locus].value_counts(normalize=True).unstack(fill_value=0)
+            if allele_frequencies.shape[0] < 2:
+                results.append({
+                    "Hs": np.nan, "Hs_corrected": np.nan, "Ht": np.nan, "Ht_corrected": np.nan,
+                    "HarmN": np.nan, "Npop": allele_frequencies.shape[0]
+                })
+                continue
+
+            hs = (1 - (allele_frequencies**2).sum(axis=1)).mean()
+            total_allele_frequencies = locus_data[locus].value_counts(normalize=True)
+            ht = 1 - (total_allele_frequencies**2).sum()
+
+            pop_sizes = 2 * locus_data['Population'].value_counts()
+            harmonic_n = hmean(pop_sizes)
+            hs_corrected = hs * ((2.0 * harmonic_n) / ((2.0 * harmonic_n) - 1.0))
+            ht_corrected = ht + (hs_corrected / (harmonic_n * 2.0))
+
+            results.append({
+                "Hs": hs, "Hs_corrected": hs_corrected, "Ht": ht, "Ht_corrected": ht_corrected,
+                "HarmN": harmonic_n, "Npop": allele_frequencies.shape[0]
+            })
+
+        results_df = pd.DataFrame(results)
+        return results_df
+
+    # prototype implementation; needs file creation etc
+    def locstats(
+        self
+    ):
+        # missingness
+        df = pd.DataFrame(self.snp_data)
+        df.replace(
+            ["N", "-", ".", "?"],
+            [np.nan, np.nan, np.nan, np.nan],
+            inplace=True,
+        )
+        if not isinstance(df, pd.DataFrame):
+            df = misc.validate_input_type(df, return_type="df")
+        loc, _, _, _, _ = self.calc_missing(df)
+
+        # minor allele counts
+        counts = self.calculate_allele_counts(self.snp_data)
+        mac = [min(int(num) for num in value.split(',') if int(num) > 0) for value in counts]
+
+        # Hs and Ht
+        HsHt = self.calculate_hs_ht(self.snp_data, self._populations)
+
+        # add other columns 
+        HsHt['MAC'] = mac
+        HsHt['MissProp'] = loc
+
+        return HsHt
+        
 
     def copy(self):
         """Create a deep copy of the GenotypeData object.
