@@ -653,11 +653,17 @@ class NRemover2:
 
         alignment_array = alignment
 
+        # NOTE: This return 1.0 (i.e., all data missing) if there are no 
+        # individuals remaining after filtering. 
+        # NA could also be appropriate but for now using 1.0
         def missing_data_proportion(column, indices):
-            missing_count = sum(
-                column[i] in {"N", "-", ".", "?"} for i in indices
-            )
-            return missing_count / len(indices)
+            if len(indices) > 1:
+                missing_count = sum(
+                    column[i] in {"N", "-", ".", "?"} for i in indices
+                )
+                return missing_count / len(indices)
+            else:
+                return 1.0
 
         def not_exceeds_threshold(column):
             missing_props = {}
