@@ -1,91 +1,19 @@
 import copy
 import gzip
 import os
-import random
-import re
 import sys
 import textwrap
 import warnings
-from collections import Counter, OrderedDict, defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-
-# from memory_profiler import profile
+from typing import Dict, List, Optional, Tuple, Union
 
 import h5py
-import requests
-
-# from memory_profiler import profile
-
-# Make sure python version is >= 3.8
-if sys.version_info < (3, 8):
-    raise ImportError("Python < 3.8 is not supported!")
-
 import numpy as np
 import pandas as pd
-import toytree as tt
-from toytree.TreeParser import TreeParser
-
-"""
-NOTE:  Monkey patching a method in toytree because
-There is a bug in the method that makes it incompatible
-with Python 3.11. It tries to open a file with 'rU', which
-is deprecated in Python 3.11.
-"""
-###############################################################
-# Monkey patching begin
-###############################################################
-original_get_data_from_intree = TreeParser.get_data_from_intree
-
-
-def patched_get_data_from_intree(self):
-    """
-    Load data from a file or string and return as a list of strings.
-    The data contents could be one newick string; a multiline NEXUS format
-    for one tree; multiple newick strings on multiple lines; or multiple
-    newick strings in a multiline NEXUS format. In any case, we will read
-    in the data as a list on lines.
-
-    NOTE: This method is monkey patched from the toytree package (v2.0.5) because there is a bug that appears in
-    Python 11 where it tries to open a file using 'rU'. 'rU' is is deprecated in Python 11, so I changed it to just
-    ``with open(self.intree, 'r')``\. This has been fixed on the GitHub version of toytree,
-    but it is not at present fixed in the pip or conda versions.
-    """
-
-    # load string: filename or data stream
-    if isinstance(self.intree, (str, bytes)):
-        # strip it
-        self.intree = self.intree.strip()
-
-        # is a URL: make a list by splitting a string
-        if any([i in self.intree for i in ("http://", "https://")]):
-            response = requests.get(self.intree)
-            response.raise_for_status()
-            self.data = response.text.strip().split("\n")
-
-        # is a file: read by lines to a list
-        elif os.path.exists(self.intree):
-            with open(self.intree, "r") as indata:
-                self.data = indata.readlines()
-
-        # is a string: make into a list by splitting
-        else:
-            self.data = self.intree.split("\n")
-
-    # load iterable: iterable of newick strings
-    elif isinstance(self.intree, (list, set, tuple)):
-        self.data = list(self.intree)
-
-
-TreeParser.get_data_from_intree = patched_get_data_from_intree
-##########################################################################
-# Done monkey patching.
-##########################################################################
-
 import pysam
+import toytree as tt
 from Bio.Align import MultipleSeqAlignment
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
@@ -95,13 +23,14 @@ from snpio.plotting.plotting import Plotting as Plotting
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils import sequence_tools
 from snpio.utils.custom_exceptions import UnsupportedFileTypeError
-from snpio.utils.misc import (
-    class_performance_decorator,
-    get_int_iupac_dict,
-    get_onehot_dict,
-)
+from snpio.utils.misc import (class_performance_decorator, get_int_iupac_dict,
+                              get_onehot_dict)
 
-# from cyvcf2 import VCF
+# Make sure python version is >= 3.8
+if sys.version_info < (3, 8):
+    raise ImportError("Python < 3.8 is not supported!")
+
+warnings.simplefilter(action="ignore", category=FutureWarning)
 
 
 # Global resource data dictionary
