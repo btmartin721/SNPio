@@ -286,9 +286,7 @@ class NRemover2:
                 )
 
                 if name != "Filter missing data (sample)":
-                    loci_removed = len(self.alignment[0]) - len(
-                        filtered_alignment[0]
-                    )
+                    loci_removed = len(self.alignment[0]) - len(filtered_alignment[0])
                     loci_removed_per_step.append((name, loci_removed))
 
                     retained_indices_global = original_indices[indices]
@@ -297,9 +295,14 @@ class NRemover2:
                     # Use a temporary variable to store filtered alignment
                     temp_filtered_alignment = filtered_alignment
                 else:
-                    self.sample_indices = indices
-                    self.samples = [self.samples[i] for i in indices]
-                    temp_filtered_alignment = filtered_alignment
+                    try:
+                        self.sample_indices = indices
+                        self.samples = [self.samples[i] for i in indices]
+                        temp_filtered_alignment = filtered_alignment
+                    except Exception as e:
+                        print(self.samples)
+                        print(indices)
+                        raise AssertionError(f"Error filtering samples: {e}")
 
                 # Update self.alignment here if conditions are met
                 self.alignment = temp_filtered_alignment
@@ -310,9 +313,7 @@ class NRemover2:
         self.loci_indices.sort()
         aln_after = deepcopy(self.alignment)
 
-        self.print_filtering_report(
-            aln_before, aln_after, loci_removed_per_step
-        )
+        self.print_filtering_report(aln_before, aln_after, loci_removed_per_step)
 
         if included_steps is None:
             included_steps = [
@@ -359,9 +360,7 @@ class NRemover2:
         if self.sample_indices is None:
             self.sample_indices = range(len(self.popgenio.samples))
 
-        popmap = {
-            k: v for k, v in self.popgenio.popmap.items() if k in self.samples
-        }
+        popmap = {k: v for k, v in self.popgenio.popmap.items() if k in self.samples}
 
         if self.popgenio.filetype == "vcf":
             vcf_attributes = self.popgenio.subset_vcf_data(
@@ -387,9 +386,7 @@ class NRemover2:
 
         if self.sample_indices is not None:
             self.popgenio.popmap = {
-                k: v
-                for k, v in self.popgenio.popmap.items()
-                if k in self.samples
+                k: v for k, v in self.popgenio.popmap.items() if k in self.samples
             }
 
         with open(popmap_filename, "w") as fout:
@@ -462,9 +459,7 @@ class NRemover2:
             raise TypeError("Threshold must be an integer or a float.")
 
         # Randomly select loci to keep
-        subset_indices = np.random.choice(
-            total_loci, size=n_to_keep, replace=False
-        )
+        subset_indices = np.random.choice(total_loci, size=n_to_keep, replace=False)
 
         # Subset the alignment
         subset_alignment = alignment[:, subset_indices]
@@ -485,9 +480,7 @@ class NRemover2:
             indices (np.ndarray): The locus indices that were retained after filtering.
         """
         if isinstance(threshold, bool):
-            raise TypeError(
-                "thin must be None, an integer, or a float, but got bool."
-            )
+            raise TypeError("thin must be None, an integer, or a float, but got bool.")
 
         if self.popgenio.filetype != "vcf":
             raise AttributeError(
@@ -562,23 +555,15 @@ class NRemover2:
         """
         axis = 1 if is_sample_filter else 0
 
-        new_missing_counts = np.sum(
-            np.isin(alignment_array, missing_chars), axis=axis
-        )
+        new_missing_counts = np.sum(np.isin(alignment_array, missing_chars), axis=axis)
 
         # Calculate the mean missing data proportion among all the columns
         missing_prop = new_missing_counts / alignment_array.shape[axis]
 
         if calculate_stdev:
-            std_missing_prop = np.std(
-                new_missing_counts / alignment_array.shape[axis]
-            )
+            std_missing_prop = np.std(new_missing_counts / alignment_array.shape[axis])
 
-        res = (
-            (missing_prop, std_missing_prop)
-            if calculate_stdev
-            else missing_prop
-        )
+        res = (missing_prop, std_missing_prop) if calculate_stdev else missing_prop
 
         return res
 
@@ -605,9 +590,7 @@ class NRemover2:
 
         alignment_array = alignment
 
-        missing_counts = np.sum(
-            np.isin(alignment_array, ["N", "-", ".", "?"]), axis=0
-        )
+        missing_counts = np.sum(np.isin(alignment_array, ["N", "-", ".", "?"]), axis=0)
         mask = missing_counts / alignment_array.shape[0] <= threshold
 
         # Get the indices of the True values in the mask
@@ -617,9 +600,7 @@ class NRemover2:
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
-            missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 filtered_alignment_array,
                 missing_prop,
@@ -654,9 +635,7 @@ class NRemover2:
         alignment_array = alignment
 
         def missing_data_proportion(column, indices):
-            missing_count = sum(
-                column[i] in {"N", "-", ".", "?"} for i in indices
-            )
+            missing_count = sum(column[i] in {"N", "-", ".", "?"} for i in indices)
             return missing_count / len(indices)
 
         def not_exceeds_threshold(column):
@@ -665,11 +644,7 @@ class NRemover2:
             for pop, sample_ids in populations.items():
                 # Get sampleID indices for given population, if not removed
                 # with filter_missing_sample
-                indices = [
-                    i
-                    for i, sid in enumerate(sample_ids)
-                    if sid in self.samples
-                ]
+                indices = [i for i, sid in enumerate(sample_ids) if sid in self.samples]
                 missing_prop = missing_data_proportion(column, indices)
 
                 if missing_prop <= max_missing:
@@ -698,11 +673,7 @@ class NRemover2:
             mean_missing_props = [mmp[1] for mmp in mask_and_missing_props]
 
             key_values = {
-                key: [
-                    d.get(key)
-                    for d in mean_missing_props
-                    if d.get(key) is not None
-                ]
+                key: [d.get(key) for d in mean_missing_props if d.get(key) is not None]
                 for key in set().union(*mean_missing_props)
             }
 
@@ -716,9 +687,7 @@ class NRemover2:
         else:
             return filtered_alignment_array, mask_indices
 
-    def filter_missing_sample(
-        self, threshold, alignment=None, return_props=False
-    ):
+    def filter_missing_sample(self, threshold, alignment=None, return_props=False):
         """Filters out sequences with missing data proportion greater than the given threshold.
 
         Args:
@@ -742,9 +711,7 @@ class NRemover2:
 
         alignment_array = alignment
 
-        missing_counts = np.sum(
-            np.isin(alignment_array, ["N", "-", ".", "?"]), axis=1
-        )
+        missing_counts = np.sum(np.isin(alignment_array, ["N", "-", ".", "?"]), axis=1)
 
         mask = missing_counts / alignment_array.shape[1] <= threshold
 
@@ -756,8 +723,7 @@ class NRemover2:
 
         # Convert the filtered alignment array back to a list of SeqRecord objects
         filtered_alignment = [
-            filtered_alignment_array[i, :]
-            for i, index in enumerate(mask_indices)
+            filtered_alignment_array[i, :] for i, index in enumerate(mask_indices)
         ]
 
         if return_props:
@@ -804,9 +770,7 @@ class NRemover2:
                     base_count[base] += 1
                 elif base not in {"N", "-", ".", "?"}:
                     try:
-                        ambig_bases = SeqUtils.IUPACData.ambiguous_dna_values[
-                            base
-                        ]
+                        ambig_bases = SeqUtils.IUPACData.ambiguous_dna_values[base]
                         for ambig_base in ambig_bases:
                             base_count[ambig_base] += 1
                     except KeyError:
@@ -843,9 +807,7 @@ class NRemover2:
         filtered_alignment_array = alignment_array[:, mask]
 
         if return_props:
-            missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 filtered_alignment_array,
                 missing_prop,
@@ -854,9 +816,7 @@ class NRemover2:
         else:
             return filtered_alignment_array, mask_indices
 
-    def filter_non_biallelic(
-        self, threshold=None, alignment=None, return_props=False
-    ):
+    def filter_non_biallelic(self, threshold=None, alignment=None, return_props=False):
         """Filters out loci (columns) that are not biallelic.
 
         Args:
@@ -915,9 +875,7 @@ class NRemover2:
 
             return len([count for count in base_count.values() if count > 0])
 
-        unique_base_counts = np.apply_along_axis(
-            count_unique_bases, 0, alignment_array
-        )
+        unique_base_counts = np.apply_along_axis(count_unique_bases, 0, alignment_array)
         mask = unique_base_counts == 2
 
         # Get the indices of the True values in the mask
@@ -928,9 +886,7 @@ class NRemover2:
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
-            filt_missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            filt_missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 orig_missing_prop,
                 filt_missing_prop,
@@ -983,16 +939,12 @@ class NRemover2:
 
         # Check if the HDF5 file exists
         if not os.path.exists(hdf5_path):
-            raise FileNotFoundError(
-                f"The HDF5 file {hdf5_path} does not exist."
-            )
+            raise FileNotFoundError(f"The HDF5 file {hdf5_path} does not exist.")
 
         # Read the chromosome information from the HDF5 file
         with h5py.File(hdf5_path, "r") as f:
             if "chrom" not in f.keys():
-                raise KeyError(
-                    "The key 'chrom' is not present in the HDF5 file."
-                )
+                raise KeyError("The key 'chrom' is not present in the HDF5 file.")
             chrom_data = f["chrom"][:]
 
         # Find the indices of each unique chromosome
@@ -1049,9 +1001,7 @@ class NRemover2:
 
         return counts
 
-    def filter_monomorphic(
-        self, threshold=None, alignment=None, return_props=False
-    ):
+    def filter_monomorphic(self, threshold=None, alignment=None, return_props=False):
         """Filters out monomorphic sites from an alignment.
 
         Args:
@@ -1106,9 +1056,7 @@ class NRemover2:
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
-            filt_missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            filt_missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 orig_missing_prop,
                 filt_missing_prop,
@@ -1149,9 +1097,7 @@ class NRemover2:
         }
         return iupac_dict.get(base.upper(), {"N"})
 
-    def filter_singletons(
-        self, threshold=None, alignment=None, return_props=False
-    ):
+    def filter_singletons(self, threshold=None, alignment=None, return_props=False):
         """
         Filters out singletons from an alignment.
 
@@ -1178,13 +1124,9 @@ class NRemover2:
             """
             column_list = column.tolist()
             alleles = {
-                allele
-                for allele in column_list
-                if allele not in ["N", "-", ".", "?"]
+                allele for allele in column_list if allele not in ["N", "-", ".", "?"]
             }
-            allele_count = {
-                allele: column_list.count(allele) for allele in alleles
-            }
+            allele_count = {allele: column_list.count(allele) for allele in alleles}
 
             if len(alleles) == 2:
                 min_allele = min(alleles, key=lambda x: allele_count[x])
@@ -1205,9 +1147,7 @@ class NRemover2:
 
         if return_props:
             orig_missing_prop = self.calc_missing_proportions(alignment_array)
-            filt_missing_prop = self.calc_missing_proportions(
-                filtered_alignment_array
-            )
+            filt_missing_prop = self.calc_missing_proportions(filtered_alignment_array)
             return (
                 orig_missing_prop,
                 filt_missing_prop,
@@ -1458,9 +1398,7 @@ class NRemover2:
             if mask is None:
                 for i, (threshold, array) in enumerate(zip(thresholds, p)):
                     flattened_proportions.extend(array)
-                    flattened_thresholds.extend(
-                        [f"{threshold:.2f}"] * len(array)
-                    )
+                    flattened_thresholds.extend([f"{threshold:.2f}"] * len(array))
 
                 df = pd.DataFrame(
                     {
@@ -1487,8 +1425,7 @@ class NRemover2:
                 for population, proportions in prop_dict.items():
                     temp_df = pd.DataFrame(
                         {
-                            "Threshold": [f"{threshold:.2f}"]
-                            * len(proportions),
+                            "Threshold": [f"{threshold:.2f}"] * len(proportions),
                             "Proportion": proportions,
                             "Type": [population] * len(proportions),
                         }
@@ -1498,13 +1435,9 @@ class NRemover2:
             df = pd.concat(df_list, ignore_index=True)
             return df
 
-        df_sample = generate_df(
-            sample_missing_data_proportions, thresholds, "Sample"
-        )
+        df_sample = generate_df(sample_missing_data_proportions, thresholds, "Sample")
 
-        df_global = generate_df(
-            global_missing_data_proportions, thresholds, "Global"
-        )
+        df_global = generate_df(global_missing_data_proportions, thresholds, "Global")
 
         df_populations = generate_population_df(
             population_missing_data_proportions, thresholds
@@ -1629,9 +1562,7 @@ class NRemover2:
             None.
         """
         if isinstance(value, MultipleSeqAlignment):
-            self._alignment = np.array(
-                [list(str(record.seq)) for record in value]
-            )
+            self._alignment = np.array([list(str(record.seq)) for record in value])
         else:
             self._alignment = value
 
@@ -1681,9 +1612,9 @@ class NRemover2:
         """
         population_sequences = {}
         for population_name in self.populations:
-            population_sequences[
+            population_sequences[population_name] = self.get_population_sequences(
                 population_name
-            ] = self.get_population_sequences(population_name)
+            )
         return population_sequences
 
     @classmethod
