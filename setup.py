@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="snpio",
-    version="1.0.6.2",
+    version="1.0.7",
     url="https://github.com/btmartin721/SNPio",
     author="Bradley T. Martin and Tyler K. Chafin",
     author_email="evobio721@gmail.com",
@@ -30,17 +30,16 @@ setup(
     install_requires=[
         "biopython",
         "bokeh",
-        "ete3",
         "holoviews",
         "kneed",
         "matplotlib",
-        "numpy<2.0",
+        "numpy",
         "pandas",
         "panel",
         "plotly",
         "requests",
-        "versioned-hdf5",
         "pysam",
+        "h5py",
         "scikit-learn",
         "scipy",
         "seaborn",
