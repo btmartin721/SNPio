@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "SNPio"
+version = "1.0.1.2"
+authors = [
+    { name="Bradley T. Martin", email="evobio721@gmail.com" }, 
+    { name="Tyler K. Chafin", email="tylerkchafin@gmail.com" } 
+]
+description = "Reads and writes VCF, PHYLIP, and STRUCTURE files and performs data filtering on the alignment."
+keywords=[
+        "genomics",
+        "bioinformatics",
+        "population genetics",
+        "SNP",
+        "VCF",
+        "PHYLIP",
+        "STRUCTURE",
+        "missing data",
+        "filtering",
+        "MAF",
+        "biallelic"
+]
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "GPL3 License"}
+classifiers=[
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11"
+]
+dependencies = [
+    "biopython",
+    "bokeh",
+    "ete3",
+    "holoviews",
+    "kneed",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "panel",
+    "plotly",
+    "requests",
+    "cyvcf2",
+    "scikit-learn",
+    "scipy",
+    "seaborn",
+    "toytree",
+    "kaleido",
+    "psutil"
+]
+
+[project.optional-dependencies]
+docs = ["sphinx<7", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
+intel = ["scikit-learn-intelex"]
+
+[project.urls]
+Repository = "https://github.com/btmartin721/SNPio.git"
+"Bug Tracker" = "https://github.com/btmartin721/SNPio/issues"
+Documentation = "https://snpio.readthedocs.io/en/latest/"
