@@ -19,12 +19,20 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from pysam import VariantFile
 
+from snpio.utils.logging import setup_logger
 from snpio.plotting.plotting import Plotting as Plotting
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils import sequence_tools
-from snpio.utils.custom_exceptions import UnsupportedFileTypeError
-from snpio.utils.misc import (class_performance_decorator, get_int_iupac_dict,
-                              get_onehot_dict)
+from snpio.utils.custom_exceptions import UnsupportedFileTypeError, SequenceLengthError
+from snpio.utils.misc import (
+    class_performance_decorator,
+    get_gt2iupac,
+    get_int_iupac_dict,
+    get_iupac2gt,
+    get_onehot_dict,
+)
+
+logger = setup_logger(__name__)
 
 # Make sure python version is >= 3.8
 if sys.version_info < (3, 8):
@@ -32,10 +40,8 @@ if sys.version_info < (3, 8):
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-
 # Global resource data dictionary
 resource_data = {}
-
 
 @class_performance_decorator(measure=False)
 class GenotypeData:
@@ -50,9 +56,7 @@ class GenotypeData:
             - '?'
             - '.'
 
-        Thus, it treats gaps as missing data.
-
-        If using PHYLIP or STRUCTURE formats, all sites will also be forced to be biallelic. If you need >2 alleles, you must input a VCF file.
+        If using PHYLIP or STRUCTURE formats, all sites will be forced to be biallelic. If you need >2 alleles, you must input a VCF file.
 
         Please keep these things in mind when using GenotypeData.
 
@@ -128,13 +132,7 @@ class GenotypeData:
         tree (NewickTree or None): Newick tree object.
 
     Methods:
-        read_structure: Read data from a Structure file.
-
         read_vcf: Read data from a VCF file.
-
-        read_phylip: Read data from a Phylip file.
-
-        read_phylip: Read data from a Phylip file.
 
         read_012: Read data from a custom 012-encoded file format.
 
@@ -148,11 +146,7 @@ class GenotypeData:
 
         siterates_from_file: Read site rates from file with only site rates in single column.
 
-        write_structure: Write data to a Structure file.
-
         write_vcf: Write data to a VCF file.
-
-        write_phylip: Write data to a Phylip file.
 
         read_popmap: Read in a popmap file.
 
@@ -257,6 +251,7 @@ class GenotypeData:
         self.verbose = verbose
         self.measure = kwargs.get("measure", False)
         self.supported_filetypes = ["vcf", "phylip", "structure", "auto"]
+        self._snp_data = []
 
         self._kwargs = {
             "filename": filename,
@@ -279,6 +274,7 @@ class GenotypeData:
             self._vcf_attributes = kwargs["vcf_attributes"]
         else:
             self._vcf_attributes = None
+            
         is_subset = True if "is_subset" in kwargs else False
 
         self._samples: List[str] = []
@@ -293,33 +289,19 @@ class GenotypeData:
         self.vcf_header = None
 
         if self.qmatrix is not None and self.qmatrix_iqtree is not None:
-            raise TypeError(
-                "qmatrix and qmatrix_iqtree cannot both be provided."
-            )
+            raise TypeError("qmatrix and qmatrix_iqtree cannot both be provided.")
 
         if self.siterates is not None and self.siterates_iqtree is not None:
-            raise TypeError(
-                "siterates and siterates_iqtree cannot both be defined"
-            )
+            raise TypeError("siterates and siterates_iqtree cannot both be defined")
 
         self._loci_indices = kwargs.get("loci_indices", None)
         self._sample_indices = kwargs.get("sample_indices", None)
-
-        if self.filetype == "auto":
-            filetype = self._detect_file_format(filename)
-
-            if not filetype:
-                raise AssertionError(
-                    "File type could not be automatically detected. Please check the file for formatting errors or specify the file format as either 'phylip', 'structure', 'vcf', or '012' instead of 'auto'."
-                )
 
         if self.filetype not in self.supported_filetypes:
             raise UnsupportedFileTypeError(
                 self.filetype, supported_types=self.supported_filetypes
             )
-
-        self._read_aln(filetype, popmapfile)
-
+            
         if self.loci_indices is None:
             self._loci_indices = list(range(self.num_snps))
         if self.sample_indices is None:
@@ -367,140 +349,6 @@ class GenotypeData:
                         chunk_size=self.chunk_size,
                     )
 
-    def _detect_file_format(self, filename: str) -> str:
-        """
-        Check the filetype and call the appropriate function to read the file format.
-
-        Args:
-            filetype (Optional[str], default=None): Filetype. Supported values include: "phylip", "structure", "vcf", and "012".
-            popmapfile (Optional[str], default=None): Path to population map file.
-
-        Raises:
-            OSError: If no filetype is specified.
-            OSError: If an unsupported filetype is provided.
-        """
-        try:
-            with open(filename, "r") as fin:
-                lines = fin.readlines()
-        except UnicodeDecodeError:
-            with gzip.open(filename, "rt") as fin:
-                lines = fin.readlines()
-
-        lines = [line.strip() for line in lines]
-
-        # Check for VCF format
-        if (
-            any(line.startswith("##fileformat=VCF") for line in lines)
-            or any(line.startswith("#CHROM") for line in lines)
-            or any(line.startswith("##FORMAT") for line in lines)
-            or any(line.startswith("##INFO") for line in lines)
-        ):
-            return "vcf"
-
-        # Check for PHYLIP format
-        try:
-            if len(list(map(int, lines[0].split()))) == 2:
-                num_samples, num_loci = map(int, lines[0].split())
-
-                if num_samples == len(lines[1:]):
-                    line = lines[1]
-                    seqs = line.split()[1]
-                    if num_loci == len(list(seqs)):
-                        return "phylip"
-        except ValueError:
-            pass
-
-        # Check for STRUCTURE or encoded 012 format
-        lines = lines[1:]
-
-        def is_integer(n):
-            try:
-                int(n)
-                return True
-            except ValueError:
-                return False
-
-        gt = [
-            line
-            for line in lines
-            if all(is_integer(col.strip()) for col in line.split()[3:])
-        ]
-
-        if gt:
-            # Check for STRUCTURE format
-            for line in lines:
-                line = line.strip()
-                if not line:
-                    continue
-                cols = line.split()
-
-                if any(int(x) > 2 for x in cols[3:]):
-                    return "structure"
-        # Check for encoded 012 format
-        elif (
-            sum(x == "0" for line in lines for x in line.split())
-            / sum(1 for line in lines[1:] for x in line.split())
-            > 0.5
-        ):
-            return "012"
-        return False
-
-    def _read_aln(
-        self, filetype: Optional[str] = None, popmapfile: Optional[str] = None
-    ) -> None:
-        """
-        Check the filetype and call the appropriate function to read the file format.
-
-        Args:
-            filetype (Optional[str] = None): Filetype. Supported values include: "phylip", "structure", "vcf", and "012".
-            popmapfile (Optional[str] = None): Path to population map file.
-
-        Raises:
-            OSError: If no filetype is specified.
-            OSError: If an unsupported filetype is provided.
-        """
-        if filetype is None:
-            raise OSError("No filetype specified.\n")
-        else:
-            if filetype.lower() == "phylip":
-                self.filetype = filetype
-                self.read_phylip()
-            elif filetype.lower() == "structure":
-                self.filetype = "structure"
-                has_popids = True if popmapfile is None else False
-                self.read_structure(popids=has_popids)
-            elif filetype == "012":
-                self.filetype = filetype
-                self.read_012()
-            elif filetype == "vcf":
-                self.filetype = filetype
-                self.read_vcf()
-            elif filetype is None:
-                raise TypeError(
-                    "filetype argument must be provided, but got NoneType."
-                )
-            else:
-                raise OSError(f"Unsupported filetype provided: {filetype}\n")
-
-    def _check_filetype(self, filetype: str) -> None:
-        """
-        Validate that the filetype is correct.
-
-        Args:
-            filetype (str): Filetype to use.
-
-        Raises:
-            TypeError: If the provided filetype does not match the current filetype.
-        """
-        if self.filetype is None:
-            self.filetype = filetype
-        elif self.filetype == filetype:
-            pass
-        else:
-            raise TypeError(
-                "GenotypeData read_XX() call does not match filetype!\n"
-            )
-
     def read_tree(self, treefile: str) -> tt.tree:
         """
         Read Newick-style phylogenetic tree into toytree object.
@@ -542,9 +390,7 @@ class GenotypeData:
         q = self._blank_q_matrix()
 
         if not label:
-            print(
-                "Warning: Assuming the following nucleotide order: A, C, G, T"
-            )
+            print("Warning: Assuming the following nucleotide order: A, C, G, T")
 
         if not os.path.isfile(fname):
             raise FileNotFoundError(f"File {fname} not found!")
@@ -627,9 +473,7 @@ class GenotypeData:
         qdf = pd.DataFrame(q)
         return qdf.T
 
-    def _blank_q_matrix(
-        self, default: float = 0.0
-    ) -> Dict[str, Dict[str, float]]:
+    def _blank_q_matrix(self, default: float = 0.0) -> Dict[str, Dict[str, float]]:
         """
         Create a blank Q-matrix dictionary initialized with default values.
 
@@ -715,275 +559,6 @@ class GenotypeData:
         fin.close()
         return s
 
-    def _validate_seq_lengths(self) -> None:
-        """Validate that all sequences have the same length.
-
-        Raises:
-            ValueError: If not all sequences (rows) are the same length.
-        """
-        # Make sure all sequences are the same length.
-        all_same = all(len(row) == self.num_snps for row in self._snp_data)
-
-        if not all_same:
-            bad_rows = [
-                i
-                for i, row in enumerate(self.num_snps)
-                if len(row) != self.num_snps
-            ]
-
-            bad_sampleids = [self._samples[i] for i in bad_rows]
-            raise ValueError(
-                f"The following sequences in the alignment were of unequal lengths: {','.join(bad_sampleids)}"
-            )
-
-    def read_structure(self, popids: bool = True) -> None:
-        """
-        Read a structure file and automatically detect its format.
-
-        Args:
-            popids (bool, optional): True if population IDs are present as the 2nd column in the structure file, otherwise False. Defaults to True.
-
-        Raises:
-            ValueError: If sample names do not match for the two-row format.
-
-            ValueError: If population IDs do not match for the two-row format.
-
-            ValueError: If not all sequences (rows) are the same length.
-        """
-        if self.verbose:
-            print(f"\nReading structure file {self.filename}...")
-
-        # Detect the format of the structure file
-        onerow = self.detect_format()
-
-        snp_data = list()
-        with open(self.filename, "r") as fin:
-            if not onerow:
-                firstline = None
-                for line in fin:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if not firstline:
-                        firstline = line.split()
-                        continue
-                    else:
-                        secondline = line.split()
-                        if firstline[0] != secondline[0]:
-                            raise ValueError(
-                                f"Two rows per individual was "
-                                f"specified but sample names do not match: "
-                                f"{firstline[0]} and {secondline[0]}\n"
-                            )
-
-                        ind = firstline[0]
-                        pop = None
-                        if popids:
-                            if firstline[1] != secondline[1]:
-                                raise ValueError(
-                                    f"Two rows per individual was "
-                                    f"specified but population IDs do not "
-                                    f"match {firstline[1]} {secondline[1]}\n"
-                                )
-                            pop = firstline[1]
-                            self._populations.append(pop)
-                            firstline = firstline[2:]
-                            secondline = secondline[2:]
-                        else:
-                            firstline = firstline[1:]
-                            secondline = secondline[1:]
-                        self._samples.append(ind)
-                        genotypes = merge_alleles(firstline, secondline)
-                        snp_data.append(genotypes)
-                        firstline = None
-            else:  # If onerow:
-                for line in fin:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    firstline = line.split()
-                    ind = firstline[0]
-                    pop = None
-                    if popids:
-                        pop = firstline[1]
-                        self._populations.append(pop)
-                        firstline = firstline[2:]
-                    else:
-                        firstline = firstline[1:]
-                    self._samples.append(ind)
-                    genotypes = merge_alleles(firstline, second=None)
-                    snp_data.append(genotypes)
-                    firstline = None
-
-        snp_data = [
-            list(map(self._genotype_to_iupac, row)) for row in snp_data
-        ]
-        self._snp_data = snp_data
-        self._validate_seq_lengths()
-
-        self._ref, self._alt, self._alt2 = self._get_ref_alt_alleles(
-            self._snp_data
-        )
-
-        if self.verbose:
-            print(f"STRUCTURE file successfully loaded!")
-            print(
-                f"\nFound {self.num_snps} SNPs and {self.num_inds} "
-                f"individuals...\n"
-            )
-
-    def write_structure(
-        self,
-        output_file: str,
-        genotype_data=None,
-        snp_data: List[List[str]] = None,
-        samples: List[str] = None,
-        verbose: bool = False,
-    ) -> None:
-        """
-        Write a structure file.
-
-        Args:
-            output_file (str): The output filename.
-
-            genotype_data (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
-
-            snp_data (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided.
-
-            samples (List[str], optional): List of sample IDs.
-
-            verbose (bool, optional): If True, status updates are printed.
-
-        Raises:
-            ValueError: If genotypes are not presented as a pair for each SNP.
-
-            TypeError: If using snp_data, samples must also be provided.
-        """
-        if verbose:
-            print(f"\nWriting structure file {output_file}...")
-
-        if genotype_data is not None and snp_data is not None:
-            raise TypeError(
-                "genotype_data and snp_data cannot both be NoneType"
-            )
-
-        elif genotype_data is None and snp_data is None:
-            snp_data = self.snp_data
-            samples = self.samples
-            snpsdict = self.snpsdict
-
-        elif genotype_data is not None and snp_data is None:
-            snp_data = genotype_data.snp_data
-            samples = genotype_data.samples
-            snpsdict = genotype_data.snpsdict
-
-        elif genotype_data is None and snp_data is not None:
-            if samples is None:
-                raise TypeError(
-                    "If using snp_data, samples must also be provided."
-                )
-            snpsdict = self._make_snpsdict(samples=samples, snp_data=snp_data)
-
-        with open(output_file, "w") as fout:
-            for sample in samples:
-                genotypes = list(
-                    map(self._iupac_to_genotype, snpsdict[sample])
-                )
-
-                genotypes = [
-                    allele
-                    for genotype in genotypes
-                    for allele in genotype.split("/")
-                ]
-
-                # The genotypes must be presented as a pair for each SNP
-                if len(genotypes) % 2 != 0:
-                    raise ValueError(
-                        f"Genotypes for sample {sample} are not presented as pairs."
-                    )
-
-                # Split the genotypes into two lines for each sample
-                # Selects every other element of the list.
-                firstline_genotypes = genotypes[::2]
-                secondline_genotypes = genotypes[1::2]
-
-                fout.write(
-                    sample
-                    + "\t"
-                    + "\t".join(map(str, firstline_genotypes))
-                    + "\n"
-                )
-                fout.write(
-                    sample
-                    + "\t"
-                    + "\t".join(map(str, secondline_genotypes))
-                    + "\n"
-                )
-
-        if verbose:
-            print("Successfully wrote STRUCTURE file!")
-
-    def detect_format(self) -> bool:
-        """
-        Detect the format of the structure file (onerow or tworow).
-
-        Returns:
-            bool: True if the file is in one-row format, False if it is in two-row format.
-        """
-        with open(self.filename, "r") as fin:
-            first_line = fin.readline().split()
-            second_line = fin.readline().split()
-
-        # If the first two lines have the same sample name, then
-        # it's a two-row format
-        onerow = first_line[0] != second_line[0]
-        return onerow
-
-    def read_phylip(self) -> None:
-        """
-        Populates GenotypeData object by parsing a Phylip file.
-
-        Raises:
-            ValueError: If all sequences are not the same length as specified in the header line.
-
-            ValueError: If the number of individuals differs from the header line.
-        """
-        if self.verbose:
-            print(f"\nReading phylip file {self.filename}...")
-
-        self._check_filetype("phylip")
-        snp_data = list()
-        with open(self.filename, "r") as fin:
-            first = True
-            for line in fin:
-                line = line.strip()
-                if not line:  # If blank line.
-                    continue
-                if first:
-                    first = False
-                    continue
-                cols = line.split()
-                inds = cols[0]
-                seqs = cols[1]
-                snps = [snp for snp in seqs]  # Split each site.
-                snp_data.append(snps)
-
-                self._samples.append(inds)
-
-        self._snp_data = snp_data
-        self._validate_seq_lengths()
-
-        self._ref, self._alt, self._alt2 = self._get_ref_alt_alleles(
-            self._snp_data
-        )
-
-        if self.verbose:
-            print(f"PHYLIP file successfully loaded!")
-            print(
-                f"\nFound {self.num_snps} SNPs and {self.num_inds} "
-                f"individuals...\n"
-            )
-
     def read_vcf(self) -> None:
         """
         Read a VCF file into a GenotypeData object.
@@ -1019,9 +594,7 @@ class GenotypeData:
 
         if self.verbose:
             print(f"VCF file successfully loaded!")
-            print(
-                f"\nFound {self.num_snps} SNPs and {self.num_inds} individuals...\n"
-            )
+            print(f"\nFound {self.num_snps} SNPs and {self.num_inds} individuals...\n")
 
     # @profile
     def get_vcf_attributes(
@@ -1080,9 +653,7 @@ class GenotypeData:
         format_fields = list((vcf.header.formats))
         format_fields = [x for x in format_fields if x != "GT"]
 
-        outdir = os.path.join(
-            f"{self.prefix}_output", "gtdata", "alignments", "vcf"
-        )
+        outdir = os.path.join(f"{self.prefix}_output", "gtdata", "alignments", "vcf")
         Path(outdir).mkdir(exist_ok=True, parents=True)
         h5_outfile = os.path.join(outdir, "vcf_attributes.h5")
 
@@ -1091,9 +662,7 @@ class GenotypeData:
             chrom_dset = f.create_dataset(
                 "chrom", (0,), maxshape=(None,), dtype=h5py.string_dtype()
             )
-            pos_dset = f.create_dataset(
-                "pos", (0,), maxshape=(None,), dtype=int
-            )
+            pos_dset = f.create_dataset("pos", (0,), maxshape=(None,), dtype=int)
             vcf_id_dset = f.create_dataset(
                 "vcf_id", (0,), maxshape=(None,), dtype=h5py.string_dtype()
             )
@@ -1109,9 +678,7 @@ class GenotypeData:
                 maxshape=(None,),
                 dtype=h5py.string_dtype(length=5),
             )
-            qual_dset = f.create_dataset(
-                "qual", (0,), maxshape=(None,), dtype=float
-            )
+            qual_dset = f.create_dataset("qual", (0,), maxshape=(None,), dtype=float)
             vcf_filter_dset = f.create_dataset(
                 "filter",
                 (0,),
@@ -1142,9 +709,7 @@ class GenotypeData:
                 k: info_group.create_dataset(
                     k,
                     (0,),  # 1-dimensional shape
-                    maxshape=(
-                        None,
-                    ),  # Allow expansion along the first dimension
+                    maxshape=(None,),  # Allow expansion along the first dimension
                     dtype=h5py.string_dtype(),
                 )
                 for k in info_fields
@@ -1223,9 +788,7 @@ class GenotypeData:
                         qual_dset.resize((qual_dset.shape[0] + len(data),))
                         qual_dset[-len(data) :] = data
                     elif data_type == "vcf_filter":
-                        vcf_filter_dset.resize(
-                            (vcf_filter_dset.shape[0] + len(data),)
-                        )
+                        vcf_filter_dset.resize((vcf_filter_dset.shape[0] + len(data),))
 
                         try:
                             vcf_filter_dset[-len(data) :] = np.squeeze(data)
@@ -1241,9 +804,7 @@ class GenotypeData:
                     elif data_type == "info":
                         for k, v in data.items():
                             v_str = np.array(v, dtype=str)
-                            info_dsets[k].resize(
-                                (info_dsets[k].shape[0] + len(v_str),)
-                            )
+                            info_dsets[k].resize((info_dsets[k].shape[0] + len(v_str),))
                             info_dsets[k][-len(v_str) :] = v_str
 
                     elif data_type == "calldata":
@@ -1276,9 +837,7 @@ class GenotypeData:
 
         snp_data = np.array(snp_data, dtype=str)
 
-        dir_path = os.path.join(
-            f"{self.prefix}_output", "gtdata", "alignments", "vcf"
-        )
+        dir_path = os.path.join(f"{self.prefix}_output", "gtdata", "alignments", "vcf")
         Path(dir_path).mkdir(exist_ok=True, parents=True)
         file_path = os.path.join(dir_path, "vcf_attributes.h5")
 
@@ -1297,9 +856,7 @@ class GenotypeData:
             gt_array = np.array(gt)
 
             try:
-                alt_array = [ref] + list(
-                    alt
-                )  # Adding the reference at the beginning
+                alt_array = [ref] + list(alt)  # Adding the reference at the beginning
             except TypeError:
                 alt_array = [ref] + list(".")
 
@@ -1357,9 +914,7 @@ class GenotypeData:
             elif data_type == "vcf_filter":
                 data_containers["vcf_filter"].append(variant.filter)
             elif data_type == "format":
-                data_containers["format"].append(
-                    ":".join(list(variant.format.keys()))
-                )
+                data_containers["format"].append(":".join(list(variant.format.keys())))
             elif data_type == "snp_data":
                 gt = [
                     variant.samples[sample].get("GT", "./.")
@@ -1373,9 +928,7 @@ class GenotypeData:
                 for k in info_fields:
                     value = variant.info.get(k, ".")
                     processed_value = (
-                        ",".join(list(value))
-                        if isinstance(value, tuple)
-                        else value
+                        ",".join(list(value)) if isinstance(value, tuple) else value
                     )
                     data_containers["info"][k].append(processed_value)
 
@@ -1384,13 +937,13 @@ class GenotypeData:
                     if field != "GT":
                         key = field
                         value = [
-                            ",".join(
-                                list(variant.samples[sample].get(field, (".")))
+                            (
+                                ",".join(
+                                    list(variant.samples[sample].get(field, (".")))
+                                )
+                                if isinstance(variant.samples[sample].get(field), tuple)
+                                else variant.samples[sample].get(field, ".")
                             )
-                            if isinstance(
-                                variant.samples[sample].get(field), tuple
-                            )
-                            else variant.samples[sample].get(field, ".")
                             for sample in variant.samples
                         ]
                         data_containers["calldata"][key].append(value)
@@ -1450,9 +1003,7 @@ class GenotypeData:
             alleles = []
             for genotype in column:
                 if genotype not in ["N", "-", "?"]:
-                    alleles.extend(
-                        iupac_codes.get(genotype, (genotype, genotype))
-                    )
+                    alleles.extend(iupac_codes.get(genotype, (genotype, genotype)))
                 elif genotype in ["A", "C", "G", "T"]:
                     alleles.extend([genotype, genotype])
 
@@ -1479,14 +1030,10 @@ class GenotypeData:
                 allele_counts.items(), key=lambda x: x[1], reverse=True
             )
 
-            second_most_common_allele = (
-                sorted_counts[0][0] if sorted_counts else None
-            )
+            second_most_common_allele = sorted_counts[0][0] if sorted_counts else None
             second_most_common_alleles.append(second_most_common_allele)
 
-            less_common_alleles = [
-                allele for allele, count in sorted_counts[1:]
-            ]
+            less_common_alleles = [allele for allele, count in sorted_counts[1:]]
             less_common_alleles_list.append(
                 less_common_alleles if less_common_alleles else None
             )
@@ -1524,66 +1071,6 @@ class GenotypeData:
         snpdata_tuples = np.stack(snpdata_tuples, axis=-1)
 
         return snpdata_tuples
-
-    def write_phylip(
-        self,
-        output_file: str,
-        genotype_data=None,
-        snp_data: List[List[str]] = None,
-        samples: List[str] = None,
-        verbose: bool = False,
-    ):
-        """
-        Write the alignment as a PHYLIP file.
-
-        Args:
-            output_file (str): Name of the output phylip file.
-
-            genotype_data (GenotypeData, optional): GenotypeData instance. Uses snp_data from the provided GenotypeData object to write the file. genotype_data and snp_data cannot both be provided.
-
-            snp_data (List[List[str]], optional): snp_data object obtained from a GenotypeData object. genotype_data and snp_data cannot both be provided. If snp_data is not None, then samples must also be provided.
-
-            samples (List[str], optional): List of sample IDs. Must be provided if snp_data is not None.
-
-            verbose (bool, optional): If True, status updates are printed.
-
-        Raises:
-            TypeError: If genotype_data and snp_data are both provided.
-            TypeError: If samples is not provided when snp_data is provided.
-            ValueError: If samples and snp_data are not the same length.
-        """
-        if verbose:
-            print(f"\nWriting to PHYLIP file {output_file}...")
-
-        if genotype_data is not None and snp_data is not None:
-            raise TypeError(
-                "genotype_data and snp_data cannot both be NoneType"
-            )
-        elif genotype_data is None and snp_data is None:
-            snp_data = self.snp_data
-            samples = self.samples
-        elif genotype_data is not None and snp_data is None:
-            snp_data = genotype_data.snp_data
-            samples = genotype_data.samples
-        elif genotype_data is None and snp_data is not None:
-            if samples is None:
-                raise TypeError("samples must be provided if snp_data is None")
-
-        if len(samples) != len(snp_data):
-            raise ValueError(
-                f"samples and snp_data are not the same length: {len(samples)}, {len(snp_data)}"
-            )
-
-        with open(output_file, "w") as f:
-            aln = pd.DataFrame(snp_data)
-            n_samples, n_loci = aln.shape
-            f.write(f"{n_samples} {n_loci}\n")
-            for sample, sample_data in zip(samples, snp_data):
-                genotype_data = "".join(str(x) for x in sample_data)
-                f.write(f"{sample}\t{genotype_data}\n")
-
-        if verbose:
-            print(f"Successfully wrote PHYLIP file!")
 
     def calculate_ns(self, snp_data):
         ns = [
@@ -1625,39 +1112,6 @@ class GenotypeData:
             af.append(frequency)
         return af
 
-    def calculate_allele_counts(self, snp_data):
-        # IUPAC ambiguity characters mapping to pairs of nucleotides
-        iupac_mapping = {
-            "R": ("A", "G"),
-            "Y": ("C", "T"),
-            "S": ("G", "C"),
-            "W": ("A", "T"),
-            "K": ("G", "T"),
-            "M": ("A", "C"),
-        }
-
-        result = []
-        # Looping through sites
-        for site in zip(*snp_data):
-            count = Counter()
-            for nucleotide in site:
-                if nucleotide in iupac_mapping:
-                    # Incrementing count by 1 for both involved alleles in the case of heterozygous characters
-                    count[iupac_mapping[nucleotide][0]] += 1
-                    count[iupac_mapping[nucleotide][1]] += 1
-                elif nucleotide != "N":  # Ignoring missing values
-                    count[
-                        nucleotide
-                    ] += 2  # Increasing count by 2 for non-heterozygous nucleotides
-
-            # Formatting the counts as required
-            formatted_count = ",".join(
-                str(count[x]) for x in ["C", "A", "T", "G"]
-            )
-            result.append(formatted_count)
-
-        return result
-
     def write_vcf(
         self,
         output_filename: str,
@@ -1696,12 +1150,9 @@ class GenotypeData:
             }
 
             vcf_attributes["alt"] = [
-                [x] + y if y else [x]
-                for x, y in zip(vcf_attributes["alt"], self._alt2)
+                [x] + y if y else [x] for x, y in zip(vcf_attributes["alt"], self._alt2)
             ]
-            vcf_attributes["alt"] = [
-                ",".join(x) for x in vcf_attributes["alt"]
-            ]
+            vcf_attributes["alt"] = [",".join(x) for x in vcf_attributes["alt"]]
 
             # IUPAC ambiguity codes mapping
             iupac_mapping = {
@@ -1847,9 +1298,7 @@ class GenotypeData:
                     fmt_keys = list(set(fmt))
 
                     if len(fmt_keys) > 1:
-                        raise ValueError(
-                            "There was a discrepancy in the FORMAT keys."
-                        )
+                        raise ValueError("There was a discrepancy in the FORMAT keys.")
 
                     fmt_keys = str(fmt_keys[0])
                     fmt_keys = fmt_keys.strip().split(":")
@@ -1875,9 +1324,7 @@ class GenotypeData:
                         [
                             ":".join(
                                 [
-                                    e.decode()
-                                    if isinstance(e, bytes)
-                                    else str(e)
+                                    e.decode() if isinstance(e, bytes) else str(e)
                                     for e in row
                                 ]
                             )
@@ -1917,9 +1364,7 @@ class GenotypeData:
                         for key, value in info.items()
                     }
 
-                    info_arrays = np.array(
-                        list(info_arrays.values()), dtype=str
-                    )
+                    info_arrays = np.array(list(info_arrays.values()), dtype=str)
 
                     # Join the elements along the last axis
                     info_result = np.apply_along_axis(
@@ -1950,9 +1395,7 @@ class GenotypeData:
                     ]
                     new_lines = [
                         replace_alleles(row, ref, alt)
-                        for row, ref, alt in zip(
-                            lines, ref_alleles, alt_alleles
-                        )
+                        for row, ref, alt in zip(lines, ref_alleles, alt_alleles)
                     ]
                     new_lines = ["\t".join(x) + "\n" for x in lines]
 
@@ -2010,8 +1453,7 @@ class GenotypeData:
         if self.verbose:
             print(f"012 file successfully loaded!")
             print(
-                f"\nFound {self.num_snps} SNPs and {self.num_inds} "
-                f"individuals...\n"
+                f"\nFound {self.num_snps} SNPs and {self.num_inds} " f"individuals...\n"
             )
 
     def convert_012(
@@ -2245,67 +1687,8 @@ class GenotypeData:
                 f" SNP column indices found in the log file {outfile} had all missing data and were excluded from the alignment.\n"
             )
 
-        # TODO: skip and impute_mode are now deprecated.
-        if skip > 0:
-            if impute_mode:
-                print(
-                    f"\nWarning: Skipping {skip} non-biallelic sites following "
-                    "imputation\n"
-                )
-            else:
-                print(f"\nWarning: Skipping {skip} non-biallelic sites\n")
-
-        for s in new_snps:
-            if impute_mode:
-                imp_snps.append(s)
-            else:
-                snps_012.append(s)
-
-        if impute_mode:
-            return (
-                imp_snps,
-                valid_sites,
-                np.count_nonzero(~np.isnan(valid_sites)),
-            )
-        else:
-            return snps_012
-
-    def _convert_alleles(
-        self,
-        data: np.ndarray,
-        ref_alleles: np.ndarray,
-        alt_alleles: np.ndarray,
-    ) -> np.ndarray:
-        """
-        Replaces the values of a 3D numpy array according to provided conditions.
-
-        This method replaces the values in the array where the values "A", "G", "T", "C" equal to the ref allele are set to "0", the values "A", "T", "G", "C" that are equal to the alt allele should be "1", and the values equal to "N" are set to "N".
-
-        Args:
-            data (np.ndarray): A 3D numpy array holding the original data of shape (n_loci, n_samples, 2).
-
-            ref_alleles (np.ndarray): A numpy array holding the reference alleles for each column in ``data``\.
-
-            alt_alleles (np.ndarray): A numpy array holding the alternate alleles for each column in ``data``\.
-
-        Returns:
-            np.ndarray: A new 3D numpy array with values replaced according to the provided conditions.
-        """
-
-        # Create a new array to hold the output, initially filled with 'N'
-        new_data = np.full_like(data, "N")
-
-        # Reshape ref_alleles and alt_alleles for broadcasting
-        ref_alleles = ref_alleles[:, None, None]
-        alt_alleles = alt_alleles[:, None, None]
-
-        # Set locations matching the ref allele to '0'
-        new_data[data == ref_alleles] = "0"
-
-        # Set locations matching the alt allele to '1'
-        new_data[data == alt_alleles] = "1"
-
-        return new_data
+        snps_012 = [s for s in new_snps]
+        return snps_012
 
     def _make_snpsdict(
         self, samples: List[str] = None, snp_data: List[List[str]] = None
@@ -2415,9 +1798,7 @@ class GenotypeData:
             np.ndarray: Original format data.
         """
 
-        onehot_dict = (
-            get_onehot_dict() if encodings_dict is None else encodings_dict
-        )
+        onehot_dict = get_onehot_dict() if encodings_dict is None else encodings_dict
 
         # Create inverse dictionary (from list to key)
         inverse_onehot_dict = {tuple(v): k for k, v in onehot_dict.items()}
@@ -2431,9 +1812,7 @@ class GenotypeData:
             decoded_list = []
             for j in range(len(onehot_data[0])):
                 # Look up original key using one-hot encoded list
-                decoded_list.append(
-                    inverse_onehot_dict[tuple(onehot_data[i][j])]
-                )
+                decoded_list.append(inverse_onehot_dict[tuple(onehot_data[i][j])])
             decoded_outer_list.append(decoded_list)
 
         return np.array(decoded_outer_list)
@@ -2471,9 +1850,7 @@ class GenotypeData:
 
         outer_list = list()
 
-        n_rows = (
-            len(self._samples) if encodings_dict is None else len(snp_data)
-        )
+        n_rows = len(self._samples) if encodings_dict is None else len(snp_data)
 
         for i in range(n_rows):
             int_iupac = list()
@@ -2502,9 +1879,7 @@ class GenotypeData:
         )
 
         # Create inverse dictionary (from integer to key)
-        inverse_int_encodings_dict = {
-            v: k for k, v in int_encodings_dict.items()
-        }
+        inverse_int_encodings_dict = {v: k for k, v in int_encodings_dict.items()}
 
         if isinstance(int_encoded_data, np.ndarray):
             int_encoded_data = int_encoded_data.tolist()
@@ -2515,9 +1890,7 @@ class GenotypeData:
             decoded_list = []
             for j in range(len(int_encoded_data[0])):
                 # Look up original key using integer encoding
-                decoded_list.append(
-                    inverse_int_encodings_dict[int_encoded_data[i][j]]
-                )
+                decoded_list.append(inverse_int_encodings_dict[int_encoded_data[i][j]])
             decoded_outer_list.append(decoded_list)
 
         return np.array(decoded_outer_list)
@@ -2906,9 +2279,7 @@ class GenotypeData:
             inplace=True,
         )
 
-        report_path = os.path.join(
-            f"{plot_dir_prefix}_output", "gtdata", "reports"
-        )
+        report_path = os.path.join(f"{plot_dir_prefix}_output", "gtdata", "reports")
 
         Path(report_path).mkdir(exist_ok=True, parents=True)
 
@@ -2976,9 +2347,7 @@ class GenotypeData:
 
             header (bool, optional): Whether to include the header row in the file. Defaults to False.
         """
-        df.to_csv(
-            os.path.join(report_path, mypath), header=header, index=False
-        )
+        df.to_csv(os.path.join(report_path, mypath), header=header, index=False)
 
     def subset_vcf_data(
         self,
@@ -3028,9 +2397,7 @@ class GenotypeData:
                         # Handling "info" and "calldata" groups
                         filtered_group = filtered_file.create_group(key)
                         for inner_key in original_file[key].keys():
-                            original_shape = original_file[
-                                f"{key}/{inner_key}"
-                            ].shape
+                            original_shape = original_file[f"{key}/{inner_key}"].shape
                             dtype = original_file[f"{key}/{inner_key}"].dtype
                             filtered_shape = list(original_shape)
                             if len(original_shape) > 0:
@@ -3044,22 +2411,18 @@ class GenotypeData:
                             )  # Create dataset for each inner_key
 
                             # Process in chunks
-                            for start in range(
-                                0, len(loci_indices), chunk_size
-                            ):
-                                end = min(
-                                    start + chunk_size, len(loci_indices)
-                                )
+                            for start in range(0, len(loci_indices), chunk_size):
+                                end = min(start + chunk_size, len(loci_indices))
                                 loci_chunk = loci_indices[start:end]
 
                                 if len(original_shape) == 1:
-                                    data_chunk = original_file[
-                                        f"{key}/{inner_key}"
-                                    ][loci_chunk]
+                                    data_chunk = original_file[f"{key}/{inner_key}"][
+                                        loci_chunk
+                                    ]
                                 else:  # len(original_shape) == 2, so key must be "calldata" or "snp_data"
-                                    data_chunk = original_file[
-                                        f"{key}/{inner_key}"
-                                    ][loci_chunk, :][:, sample_indices]
+                                    data_chunk = original_file[f"{key}/{inner_key}"][
+                                        loci_chunk, :
+                                    ][:, sample_indices]
                                 filtered_dataset[start:end] = (
                                     data_chunk
                                     if len(filtered_shape) == 1
@@ -3078,20 +2441,15 @@ class GenotypeData:
         Returns:
             str: Corresponding IUPAC code for the input genotype. Returns 'N' if the genotype is not in the lookup dictionary.
         """
-        iupac_dict = {
-            "0/0": "A",
-            "1/1": "T",
-            "2/2": "C",
-            "3/3": "G",
-            "0/1": "W",
-            "0/2": "M",
-            "0/3": "R",
-            "1/2": "Y",
-            "1/3": "K",
-            "2/3": "S",
-            "-9/-9": "N",
-        }
-        return iupac_dict.get(genotype, "N")
+        iupac_dict = get_gt2iupac()
+        
+        gt = iupac_dict.get(genotype)
+        
+        if gt is None:
+            msg = f"Invalid Genotype: {genotype}"
+            logger.error(msg)
+            raise ValueError(msg)
+        return gt
 
     def _iupac_to_genotype(self, iupac_code: str) -> str:
         """
@@ -3103,24 +2461,16 @@ class GenotypeData:
         Returns:
             str: Corresponding genotype string for the input IUPAC code. Returns '-9/-9' if the IUPAC code is not in the lookup dictionary.
         """
-        genotype_dict = {
-            "A": "0/0",
-            "T": "1/1",
-            "C": "2/2",
-            "G": "3/3",
-            "W": "0/1",
-            "M": "0/2",
-            "R": "0/3",
-            "Y": "1/2",
-            "K": "1/3",
-            "S": "2/3",
-            "N": "-9/-9",
-        }
-        return genotype_dict.get(iupac_code, "-9/-9")
+        genotype_dict = get_iupac2gt()
+        
+        gt = genotype_dict.get(iupac_code)
+        if gt is None:
+            msg = f"Invalid IUPAC Code: {iupac_code}"
+            logger.error(msg)
+            raise ValueError(msg)
+        return gt
 
-    def calc_missing(
-        self, df: pd.DataFrame, use_pops: bool = True
-    ) -> Tuple[
+    def calc_missing(self, df: pd.DataFrame, use_pops: bool = True) -> Tuple[
         pd.Series,
         pd.Series,
         Optional[pd.DataFrame],
@@ -3296,7 +2646,9 @@ class GenotypeData:
         Returns:
             int: Number of SNPs per individual.
         """
-        return len(self._snp_data[0])
+        if self._snp_data:
+            return len(self._snp_data[0])
+        return 0
 
     @property
     def num_inds(self) -> int:
@@ -3305,7 +2657,9 @@ class GenotypeData:
         Returns:
             int: Number of individuals in input data.
         """
-        return len(self._snp_data)
+        if self._snp_data:
+            return len(self._snp_data)
+        return 0
 
     @property
     def populations(self) -> List[Union[str, int]]:
@@ -3401,6 +2755,19 @@ class GenotypeData:
                 )
         self._snp_data = value
         self._validate_seq_lengths()
+
+    def _validate_seq_lengths(self) -> None:
+        """
+        Validate that all sequences have the same length.
+
+        Raises:
+            SequenceLengthError: If sequences are of unequal lengths.
+        """
+        num_snps = len(self._snp_data[0])
+        for i, seq in enumerate(self._snp_data):
+            if len(seq) != num_snps:
+                logger.error(f"Sequence length mismatch at sample {self._samples[i]}.")
+                raise SequenceLengthError(self._samples[i])
 
     @property
     def genotypes_012(
@@ -3518,9 +2885,7 @@ class GenotypeData:
             TypeError: If the input value is not a MultipleSeqAlignment object, list, numpy array, or pandas DataFrame.
         """
         if isinstance(value, MultipleSeqAlignment):
-            alignment_array = np.array(
-                [list(str(record.seq)) for record in value]
-            )
+            alignment_array = np.array([list(str(record.seq)) for record in value])
         elif isinstance(value, pd.DataFrame):
             # Convert list, numpy array, or pandas DataFrame to list
             alignment_array = value.values.tolist()
@@ -3591,9 +2956,7 @@ class GenotypeData:
         self._sample_indices = value
         self._samples = [x for i, x in enumerate(self._samples) if i in value]
         self._populations = [
-            p
-            for i, (s, p) in zip(self._samples, self._populations)
-            if s in value
+            p for i, (s, p) in zip(self._samples, self._populations) if s in value
         ]
 
     @property
@@ -3623,11 +2986,7 @@ class GenotypeData:
             self._q = self.q_from_iqtree(self.qmatrix_iqtree)
         elif self.qmatrix_iqtree is None and self.qmatrix is not None:
             self._q = self.q_from_file(self.qmatrix)
-        elif (
-            self.qmatrix is None
-            and self.qmatrix_iqtree is None
-            and self._q is None
-        ):
+        elif self.qmatrix is None and self.qmatrix_iqtree is None and self._q is None:
             raise TypeError(
                 "qmatrix or qmatrix_iqtree must be provided at class instantiation or the q property must be set to get the q object."
             )
@@ -3642,9 +3001,7 @@ class GenotypeData:
     def site_rates(self):
         """Get site rate data for phylogenetic tree."""
         if self.siterates_iqtree is not None and self.siterates is None:
-            self._site_rates = self.siterates_from_iqtree(
-                self.siterates_iqtree
-            )
+            self._site_rates = self.siterates_from_iqtree(self.siterates_iqtree)
             self._validate_rates()
         elif self.siterates_iqtree is None and self.siterates is not None:
             self._site_rates = self.siterates_from_file(self.siterates)
