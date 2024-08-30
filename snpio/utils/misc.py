@@ -13,6 +13,36 @@ import psutil
 
 # from skopt import BayesSearchCV
 
+def get_gt2iupac():
+    return {
+        "1/1": "A",
+        "2/2": "C",
+        "3/3": "G",
+        "4/4": "T",
+        "1/2": "M",  # A/C
+        "1/3": "R",  # A/G
+        "1/4": "W",  # A/T
+        "2/3": "S",  # C/G
+        "2/4": "Y",  # C/T
+        "3/4": "K",  # G/T
+        "-9/-9": "N",  # Missing data
+        "-1/-1": "N", # Missing data
+    }
+
+def get_iupac2gt():
+    return {
+            "A": "1/1",
+            "C": "2/2",
+            "G": "3/3",
+            "T": "4/4",
+            "M": "1/2",  # A/C
+            "R": "1/3",  # A/G
+            "W": "1/4",  # A/T
+            "S": "2/3",  # C/G
+            "Y": "2/4",  # C/T
+            "K": "3/4",  # G/T
+            "N": "-9/-9",  # Missing data
+        }
 
 def get_int_iupac_dict():
     int_iupac_dict = {
