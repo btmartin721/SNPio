@@ -11,7 +11,31 @@ import numpy as np
 import pandas as pd
 import psutil
 
-# from skopt import BayesSearchCV
+def format_warning(message, category, filename, lineno) -> str:
+    """
+    Set the format of warnings.warn warnings.
+
+    This method defines the format of warning messages printed by the warnings module when using `warnings.warn()`.
+
+    Args:
+        message (str): Warning message to be printed.
+
+        category (str): Type of warning. See Python stdlib warnings module.
+
+        filename (str): Name of the Python file where the warning was raised.
+
+        lineno (str): Line number where the warning occurred.
+
+    Returns:
+        str: Formatted warning message.
+
+    Examples:
+        >>>warnings.formatwarning = format_warning
+
+    Note:
+        To set the format of warnings, use `warnings.formatwarning = self._format_warning`.
+    """
+    return f"{filename}:{lineno}: {category.__name__}:{message}"
 
 def get_gt2iupac():
     return {
