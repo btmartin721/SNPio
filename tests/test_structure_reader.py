@@ -1,6 +1,10 @@
 import os
 import unittest
+
+import numpy as np
+
 from snpio.io.structure_reader import StructureReader
+
 
 class TestStructureReader(unittest.TestCase):
     def setUp(self):
@@ -31,16 +35,35 @@ class TestStructureReader(unittest.TestCase):
 
         self.assertEqual(self.reader.num_snps, 8)
         self.assertEqual(self.reader.num_inds, 3)
+        self.assertEqual(self.reader.samples, ["Sample1", "Sample2", "Sample3"])
         self.assertEqual(
-            self.reader.samples, ["Sample1", "Sample2", "Sample3"]
-        )
-        self.assertEqual(
-            self.reader.snp_data,
+            self.reader.snp_data.tolist(),
             [
                 ["A", "A", "C", "C", "G", "G", "T", "T"],
                 ["T", "T", "G", "G", "C", "C", "A", "A"],
                 ["C", "C", "A", "A", "T", "T", "G", "G"],
             ],
+        )
+
+    def test_get_ref_alt_alleles(self):
+        # Example synthetic SNP data
+        data = np.array(
+            [
+                ["A/A", "A/G", "C/C", "T/T"],
+                ["A/A", "G/G", "C/C", "T/T"],
+                ["A/G", "A/G", "C/T", "T/C"],
+                ["A/G", "A/G", "C/C", "T/T"],
+                ["G/G", "A/A", "C/C", "C/C"],
+                ["A/G", "A/G", "C/C", "T/T"],
+                ["A/A", "G/G", "T/T", "T/T"],
+                ["A/A", "G/G", "C/C", "T/C"],
+                ["A/A", "A/G", "C/C", "C/C"],
+                ["G/G", "G/G", "C/C", "T/T"],
+            ]
+        )
+
+        most_common_alleles, second_most_common_alleles, less_common_alleles = (
+            self.reader._get_ref_alt_alleles(data)
         )
 
     def test_write_structure(self):
