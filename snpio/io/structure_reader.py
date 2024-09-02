@@ -1,13 +1,19 @@
 from pathlib import Path
+from typing import List, Optional
 
 import numpy as np
-from typing import Optional, List
 
-from snpio.utils.logging import setup_logger
 from snpio.read_input.genotype_data import GenotypeData
-from snpio.utils.custom_exceptions import AlignmentError, AlignmentFileNotFoundError, AlignmentFormatError, StructureAlignmentSampleMismatch
+from snpio.utils.custom_exceptions import (
+    AlignmentError,
+    AlignmentFileNotFoundError,
+    AlignmentFormatError,
+    StructureAlignmentSampleMismatch,
+)
+from snpio.utils.logging import setup_logger  # type: ignore
 
 logger = setup_logger(__name__)
+
 
 class StructureReader(GenotypeData):
     def __init__(
@@ -114,23 +120,30 @@ class StructureReader(GenotypeData):
 
                     samples.append(firstline[0])
                     alleles1 = firstline[1:] if not self._has_popids else firstline[2:]
-                    alleles2 = secondline[1:] if not self._has_popids else secondline[2:]
+                    alleles2 = (
+                        secondline[1:] if not self._has_popids else secondline[2:]
+                    )
 
-                    merged_alleles = np.array([f"{a1}/{a2}" for a1, a2 in zip(alleles1, alleles2)])
+                    merged_alleles = np.array(
+                        [f"{a1}/{a2}" for a1, a2 in zip(alleles1, alleles2)]
+                    )
                     snp_data.append(merged_alleles)
 
             self.samples = np.unique(samples).tolist()
-            
+
             if len(self.samples) != len(snp_data):
                 logger.error("Unexpected number of samples found.")
                 raise StructureAlignmentSampleMismatch(len(self.samples), len(snp_data))
-            
-            self._snp_data = [list(map(self._genotype_to_iupac, row)) for row in snp_data]
-            self._validate_seq_lengths()
+
+            self.snp_data = [
+                list(map(self._genotype_to_iupac, row)) for row in snp_data
+            ]
 
             if self.verbose:
                 logger.info(f"STRUCTURE file successfully loaded!")
-                logger.info(f"Found {self.num_snps} SNPs and {self.num_inds} individuals.")
+                logger.info(
+                    f"Found {self.num_snps} SNPs and {self.num_inds} individuals."
+                )
 
         except (AlignmentError, Exception) as e:
             msg = f"An error occurred while reading the STRUCTURE file: {e}"
@@ -166,22 +179,27 @@ class StructureReader(GenotypeData):
             snp_data = genotype_data.snp_data
             samples = genotype_data.samples
         elif genotype_data is None and snp_data is None:
-            snp_data = self._snp_data
+            snp_data = self.snp_data
             samples = self.samples
         elif genotype_data is None and snp_data is not None:
             if samples is None:
                 raise TypeError("samples must be provided if snp_data is provided.")
 
-
         try:
             with open(output_file, "w") as fout:
                 for sample, sample_data in zip(samples, snp_data):
                     # Convert IUPAC codes back to genotype format (e.g., 1/1, 2/2)
-                    genotypes = [self._iupac_to_genotype(iupac) for iupac in sample_data]
+                    genotypes = [
+                        self._iupac_to_genotype(iupac) for iupac in sample_data
+                    ]
 
                     if self._onerow:
                         # Flatten the genotype pairs and write to file in one-row format
-                        genotype_pairs = [allele for genotype in genotypes for allele in genotype.split("/")]
+                        genotype_pairs = [
+                            allele
+                            for genotype in genotypes
+                            for allele in genotype.split("/")
+                        ]
                         fout.write(f"{sample}\t" + "\t".join(genotype_pairs) + "\n")
                     else:
                         # Write the two alleles in two separate rows for two-row format
