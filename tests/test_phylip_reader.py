@@ -33,7 +33,7 @@ class TestPhylipReader(unittest.TestCase):
             self.reader.samples, ["Sample1", "Sample2", "Sample3", "Sample4", "Sample5"]
         )
         self.assertEqual(
-            self.reader.snp_data,
+            self.reader.snp_data.tolist(),
             [
                 ["A", "C", "G", "T", "A", "C", "G", "T", "A", "C"],
                 ["T", "C", "G", "A", "T", "C", "G", "A", "T", "A"],
@@ -66,7 +66,6 @@ class TestPhylipReader(unittest.TestCase):
 
         # Clean up
         os.remove(output_file)
-
 
 
 if __name__ == "__main__":
