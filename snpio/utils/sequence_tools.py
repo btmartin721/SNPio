@@ -3,6 +3,22 @@ from itertools import product
 from collections import Counter
 
 
+def get_iupac_tuple_mapping():
+    return {
+        ("A", "A"): "A",
+        ("A", "C"): "M",
+        ("A", "G"): "R",
+        ("A", "T"): "W",
+        ("C", "C"): "C",
+        ("C", "G"): "S",
+        ("C", "T"): "Y",
+        ("G", "G"): "G",
+        ("G", "T"): "K",
+        ("T", "T"): "T",
+        ("N", "N"): "N",
+    }
+
+
 def blacklist_missing(loci, threshold, iupac=False):
     """
     Identifies loci with a proportion of missing data above a given threshold.
