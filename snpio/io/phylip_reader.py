@@ -1,8 +1,9 @@
 from pathlib import Path
 from typing import List, Optional
 
+import numpy as np
+
 from snpio.read_input.genotype_data import GenotypeData
-from snpio.utils.logging import setup_logger
 from snpio.utils.custom_exceptions import (
     AlignmentError,
     AlignmentFileNotFoundError,
@@ -10,9 +11,11 @@ from snpio.utils.custom_exceptions import (
     PhylipAlignmentSampleMismatch,
     SequenceLengthError,
 )
+from snpio.utils.logging import setup_logger
 
 # Configure logging
 logger = setup_logger(__name__)
+
 
 class PhylipReader(GenotypeData):
     def __init__(
@@ -82,7 +85,7 @@ class PhylipReader(GenotypeData):
                     msg = "PHYLIP file header is missing or empty."
                     logger.error(msg)
                     raise AlignmentFormatError(msg)
-                
+
                 try:
                     n_samples, n_loci = map(int, header.split())
                 except ValueError:
@@ -99,36 +102,46 @@ class PhylipReader(GenotypeData):
                         msg = f"PHYLIP file line does not contain enough columns. Expected 2, but got: {len(cols)}"
                         logger.error(msg)
                         raise AlignmentFormatError(msg)
-                    
+
                     if len(cols) > 2:
                         msg = f"PHYLIP file contains too many columns. Expected 2, but got: {len(cols)}"
                         logger.error(msg)
                         raise AlignmentFormatError(msg)
-                    
+
                     inds, seqs = cols[0], cols[1]
                     if len(seqs) != n_loci:
                         raise SequenceLengthError(inds)
-                    
+
                     snp_data.append(list(seqs))
                     if inds not in self.samples:
                         self.samples.append(inds)
 
-            self._snp_data = snp_data
-            
-            if n_samples != len(snp_data) or len(self.samples) != len(snp_data) or len(self.samples) != n_samples:
+            self.snp_data = snp_data
+
+            if (
+                n_samples != len(snp_data)
+                or len(self.samples) != len(snp_data)
+                or len(self.samples) != n_samples
+            ):
                 msg = "Unexpected number of samples encountered."
                 logger.error(msg)
-                PhylipAlignmentSampleMismatch(n_samples, len(self.samples), len(snp_data))
-            self._ref, self._alt, self._alt2 = self._get_ref_alt_alleles(snp_data)
+                PhylipAlignmentSampleMismatch(
+                    n_samples, len(self.samples), len(snp_data)
+                )
+            self._ref, self._alt, self._alt2 = self._get_ref_alt_alleles(
+                np.array(snp_data)
+            )
 
             if self.verbose:
                 logger.info(f"PHYLIP file successfully loaded!")
-                logger.info(f"Found {self.num_snps} SNPs and {self.num_inds} individuals.")
+                logger.info(
+                    f"Found {self.num_snps} SNPs and {self.num_inds} individuals."
+                )
         except (AlignmentError, Exception) as e:
             msg = f"An error occurred while reading the PHYLIP file: {e}"
             logger.error(msg)
             raise
-        
+
         self._validate_seq_lengths()
 
     def write_phylip(
@@ -162,7 +175,7 @@ class PhylipReader(GenotypeData):
             logger.error(msg)
             raise TypeError(msg)
         elif genotype_data is None and snp_data is None:
-            snp_data = self._snp_data
+            snp_data = self.snp_data
             samples = self.samples
         elif genotype_data is not None and snp_data is None:
             snp_data = genotype_data.snp_data
@@ -174,7 +187,7 @@ class PhylipReader(GenotypeData):
                 raise TypeError(msg)
 
         self._validate_seq_lengths()
-        
+
         try:
             with open(output_file, "w") as f:
                 n_samples, n_loci = len(samples), len(snp_data[0])
@@ -189,10 +202,6 @@ class PhylipReader(GenotypeData):
             msg = f"An error occurred while writing the PHYLIP file: {e}"
             logger.error(msg)
             raise
-
-    @property
-    def snp_data(self) -> List[List[str]]:
-        return self._snp_data
 
     @property
     def ref(self) -> List[str]:
