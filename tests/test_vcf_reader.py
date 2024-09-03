@@ -2,9 +2,7 @@ import os
 import textwrap
 import unittest
 
-import h5py
 import numpy as np
-from pysam import VariantFile
 
 from snpio.io.vcf_reader import VCFReader
 
@@ -31,7 +29,9 @@ class TestVCFReader(unittest.TestCase):
         with open(self.test_vcf, "w") as f:
             f.write(vcf_content.strip())
 
-        self.reader = VCFReader(filename=self.test_vcf, verbose=False)
+        self.reader = VCFReader(
+            filename=self.test_vcf, filetype="vcf", chunk_size=2, verbose=False
+        )
 
     def tearDown(self):
         if os.path.exists(self.test_vcf):
@@ -47,30 +47,9 @@ class TestVCFReader(unittest.TestCase):
         expected_snp_data = [["R", "G"], ["T", "Y"]]
         np.testing.assert_array_equal(self.reader.snp_data, expected_snp_data)
 
-    def test_get_vcf_attributes(self):
-        hdf5_file_path, snp_data, _ = self.reader.get_vcf_attributes(
-            VariantFile(self.test_vcf, mode="r")
-        )
-        self.assertTrue(os.path.exists(hdf5_file_path))
-
-        with h5py.File(hdf5_file_path, "r") as f:
-            chrom_data = f["chrom"][:]
-            pos_data = f["pos"][:]
-            ref_data = f["ref"][:]
-            alt_data = f["alt"][:]
-            snp_data = self.reader.snp_data
-            np.testing.assert_array_equal(chrom_data, np.array([b"1", b"1"]))
-            np.testing.assert_array_equal(pos_data, np.array([100, 200]))
-            np.testing.assert_array_equal(ref_data, np.array([b"G", b"T"]))
-            np.testing.assert_array_equal(alt_data, np.array([b"A", b"C"]))
-            self.assertEqual(snp_data.shape, (2, 2))
-
     def test_write_vcf(self):
         self.reader.load_aln()
-        self.reader.write_vcf(
-            output_filename=self.test_output_vcf,
-            hdf5_file_path=self.reader._vcf_attributes,
-        )
+        self.reader.write_vcf(output_filename=self.test_output_vcf, chunk_size=2)
 
         with open(self.test_output_vcf, "r") as f:
             output_vcf_content = f.readlines()
