@@ -2,7 +2,7 @@ import random
 import textwrap
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
@@ -17,16 +17,40 @@ logger = setup_logger(__name__)
 
 
 class VCFReader(GenotypeData):
+
     def __init__(
-        self, filename: Optional[str] = None, popmapfile: Optional[str] = None, **kwargs
+        self,
+        filename: Optional[str] = None,
+        popmapfile: Optional[str] = None,
+        chunk_size: int = 1000,
+        force_popmap: bool = False,
+        exclude_pops: Optional[List[str]] = None,
+        include_pops: Optional[List[str]] = None,
+        plot_format: str = "png",
+        prefix: str = "snpio",
+        verbose: bool = True,
+        sample_indices: np.ndarray = None,
+        loci_indices: np.ndarray = None,
+        **kwargs,
     ) -> None:
         super().__init__(
-            filename=filename, filetype="vcf", popmapfile=popmapfile, **kwargs
+            filename=filename,
+            filetype="vcf",
+            popmapfile=popmapfile,
+            force_popmap=force_popmap,
+            exclude_pops=exclude_pops,
+            include_pops=include_pops,
+            plot_format=plot_format,
+            prefix=prefix,
+            verbose=verbose,
+            sample_indices=sample_indices,
+            loci_indices=loci_indices,
+            chunk_size=chunk_size,
         )
         self.vcf_header = None
+        self.num_records = 0
 
-        if self.filename:
-            self.load_aln()
+        self._vcf_attributes_fn: str = kwargs.get("vcf_attributes", None)
 
     def load_aln(self) -> None:
         """Reads a VCF file into the VCFReader object."""
@@ -38,8 +62,8 @@ class VCFReader(GenotypeData):
             self.num_records = sum(1 for _ in vcf)
             vcf.reset()
 
-            self._vcf_attributes, self.snp_data, self.samples = self.get_vcf_attributes(
-                vcf
+            self._vcf_attributes_fn, self.snp_data, self.samples = (
+                self.get_vcf_attributes(vcf, chunk_size=self.chunk_size)
             )
 
         logger.info(
@@ -47,35 +71,80 @@ class VCFReader(GenotypeData):
         )
 
     def get_vcf_attributes(
-        self, vcf, chunk_size=1000
+        self, vcf: VariantFile, chunk_size: int = 1000
     ) -> Tuple[str, np.ndarray, np.ndarray]:
-        """Extracts VCF attributes and returns them in an efficient manner."""
-        snp_data = []
+        """Extracts VCF attributes and returns them in an efficient manner with chunked processing."""
 
         h5_outfile = Path("vcf_output/gtdata/alignments/vcf/vcf_attributes.h5")
         h5_outfile.parent.mkdir(exist_ok=True, parents=True)
 
+        snp_data = []
+        sample_names = np.array(vcf.header.samples)
+
         with h5py.File(h5_outfile, "w") as f:
-            chrom_dset = f.create_dataset("chrom", (self.num_records,), dtype="S20")
-            pos_dset = f.create_dataset("pos", (self.num_records,), dtype=np.int32)
-            ref_dset = f.create_dataset("ref", (self.num_records,), dtype="S1")
-            alt_dset = f.create_dataset("alt", (self.num_records,), dtype="S20")
+            chrom_dset = f.create_dataset("chrom", (0,), maxshape=(None,), dtype="S20")
+            pos_dset = f.create_dataset("pos", (0,), maxshape=(None,), dtype=np.int32)
+            ref_dset = f.create_dataset("ref", (0,), maxshape=(None,), dtype="S1")
+            alt_dset = f.create_dataset("alt", (0,), maxshape=(None,), dtype="S20")
 
-            sample_names = np.array(vcf.header.samples)
+            chrom_chunk, pos_chunk, ref_chunk, alt_chunk, snp_chunk = [], [], [], [], []
 
-            for i, variant in enumerate(vcf.fetch()):
-                chrom_dset[i] = variant.chrom.encode("utf-8")
-                pos_dset[i] = variant.pos
-                ref_dset[i] = variant.ref.encode("utf-8")
-                alt_dset[i] = b",".join([a.encode("utf-8") for a in variant.alts])
+            for variant in vcf.fetch():
+                chrom_chunk.append(variant.chrom.encode("utf-8"))
+                pos_chunk.append(variant.pos)
+                ref_chunk.append(variant.ref.encode("utf-8"))
+                alt_chunk.append(b",".join([a.encode("utf-8") for a in variant.alts]))
 
                 gt_data = [variant.samples[sample]["GT"] for sample in sample_names]
                 transformed_gt = self.transform_gt(
                     np.array(gt_data), variant.ref, variant.alts
                 )
-                snp_data.append(transformed_gt)
+                snp_chunk.append(transformed_gt)
 
-            snp_data = np.array(snp_data)
+                # Process chunk if it reaches the specified chunk size
+                if len(chrom_chunk) == chunk_size:
+                    # Extend the datasets
+                    current_size = chrom_dset.shape[0]
+                    new_size = current_size + chunk_size
+                    chrom_dset.resize((new_size,))
+                    pos_dset.resize((new_size,))
+                    ref_dset.resize((new_size,))
+                    alt_dset.resize((new_size,))
+
+                    # Write the chunk data
+                    chrom_dset[current_size:new_size] = chrom_chunk
+                    pos_dset[current_size:new_size] = pos_chunk
+                    ref_dset[current_size:new_size] = ref_chunk
+                    alt_dset[current_size:new_size] = alt_chunk
+
+                    snp_data.extend(snp_chunk)
+
+                    # Reset the chunk lists
+                    chrom_chunk, pos_chunk, ref_chunk, alt_chunk, snp_chunk = (
+                        [],
+                        [],
+                        [],
+                        [],
+                        [],
+                    )
+
+            # Handle any remaining data in the chunks
+            if chrom_chunk:
+                current_size = chrom_dset.shape[0]
+                new_size = current_size + len(chrom_chunk)
+                chrom_dset.resize((new_size,))
+                pos_dset.resize((new_size,))
+                ref_dset.resize((new_size,))
+                alt_dset.resize((new_size,))
+
+                chrom_dset[current_size:new_size] = chrom_chunk
+                pos_dset[current_size:new_size] = pos_chunk
+                ref_dset[current_size:new_size] = ref_chunk
+                alt_dset[current_size:new_size] = alt_chunk
+
+                snp_data.extend(snp_chunk)
+
+        snp_data = np.array(snp_data)
 
         return str(h5_outfile), snp_data, sample_names
 
@@ -126,14 +195,14 @@ class VCFReader(GenotypeData):
         self,
         output_filename: str,
         hdf5_file_path: Optional[str] = None,
-        chunk_size=1000,
+        chunk_size: int = 1000,
     ):
         """Writes the GenotypeData object data to a VCF file."""
         if self.verbose:
-            logger.info("\nWriting VCF file...")
+            logger.info("Writing VCF file...")
 
         if hdf5_file_path is None:
-            hdf5_file_path = self.vcf_attributes
+            hdf5_file_path = self._vcf_attributes_fn
 
         with h5py.File(hdf5_file_path, "r") as hdf5_file:
             with open(output_filename, "w") as f:
@@ -151,7 +220,8 @@ class VCFReader(GenotypeData):
                     )
 
                     for i in range(len(chrom)):
-                        # Construct the ALT field by combining alternate and less common alleles
+                        # Construct the ALT field by combining alternate and
+                        # less common alleles
                         alt_alleles_str = alt_alleles[i]
                         if other_alleles[i]:
                             alt_alleles_str = ",".join(
@@ -183,7 +253,7 @@ class VCFReader(GenotypeData):
                         f.write("\t".join(row) + "\n")
 
         if self.verbose:
-            logger.info("\nSuccessfully wrote VCF file!\n")
+            logger.info("Successfully wrote VCF file!")
 
     def _replace_alleles(
         self,
@@ -276,7 +346,8 @@ class VCFReader(GenotypeData):
                             heterozygous_counts.get(allele2, 0) + 1
                         )
                 elif genotype not in {"N", "-", "."}:
-                    # If genotype is a single allele (e.g., 'G'), add it twice (homozygous)
+                    # If genotype is a single allele (e.g., 'G'), add it twice
+                    # (homozygous)
                     alleles.append(genotype)
                     alleles.append(genotype)
 
@@ -287,7 +358,8 @@ class VCFReader(GenotypeData):
             # Count allele frequencies
             allele_counts = Counter(alleles)
 
-            # Sort alleles by frequency, then by fewest heterozygous counts, then alphabetically
+            # Sort alleles by frequency, then by fewest heterozygous counts,
+            # then alphabetically
             sorted_alleles = sorted(
                 allele_counts.items(),
                 key=lambda x: (-x[1], heterozygous_counts.get(x[0], 0), x[0]),
@@ -328,11 +400,3 @@ class VCFReader(GenotypeData):
         )
 
         return vcf_header
-
-    def get_reverse_iupac_mapping(self) -> Dict[str, Tuple[str, str]]:
-        """Creates a reverse mapping from IUPAC codes to allele tuples."""
-        forward_mapping = self._iupac_code()  # e.g., {('A', 'G'): 'R', ...}
-        reverse_mapping = {}
-        for alleles, code in forward_mapping.items():
-            reverse_mapping[code] = alleles
-        return reverse_mapping
