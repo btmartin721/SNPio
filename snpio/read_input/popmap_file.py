@@ -1,4 +1,3 @@
-import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -83,9 +82,7 @@ class ReadPopmap:
             IOError: Raises an exception if there is an error writing to the output file.
         """
         with open(output_file, "w") as f:
-            sorted_dict = dict(
-                sorted(self._popdict.items(), key=lambda item: item[1])
-            )
+            sorted_dict = dict(sorted(self._popdict.items(), key=lambda item: item[1]))
 
             for key, value in sorted_dict.items():
                 f.write(f"{key}: {value}\n")
@@ -124,14 +121,10 @@ class ReadPopmap:
 
         """
         if len(set(samples)) != len(samples):
-            raise ValueError(
-                "There are duplicate sample IDs in the popmapfile."
-            )
+            raise ValueError("There are duplicate sample IDs in the popmapfile.")
 
         # Sort by alignment order.
-        self._popdict = {
-            k: self._popdict[k] for k in samples if k in self._popdict
-        }
+        self._popdict = {k: self._popdict[k] for k in samples if k in self._popdict}
 
         for samp in samples:
             if samp not in self._popdict:
