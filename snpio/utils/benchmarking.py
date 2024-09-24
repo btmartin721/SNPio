@@ -8,6 +8,58 @@ import psutil
 
 from snpio.plotting.plotting import Plotting
 
+import functools
+import time
+import psutil  # For CPU and memory monitoring
+from memory_profiler import memory_usage  # To measure memory footprint
+
+
+def measure_execution_time(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # Monitor start time, CPU, and memory usage before execution
+        start_time = time.time()
+        start_cpu = psutil.cpu_percent(interval=None)
+        start_memory = memory_usage(-1, interval=0.1, timeout=1)
+
+        result = func(*args, **kwargs)
+
+        # Monitor end time, CPU, and memory usage after execution
+        end_time = time.time()
+        end_cpu = psutil.cpu_percent(interval=None)
+        end_memory = memory_usage(-1, interval=0.1, timeout=1)
+
+        # Calculate performance metrics
+        execution_time = end_time - start_time
+        avg_cpu_load = (start_cpu + end_cpu) / 2
+        memory_footprint = max(end_memory) - min(start_memory)
+
+        # Log the performance metrics
+        logger = args[0].logger if hasattr(args[0], "logger") else None
+        if logger:
+            logger.info(f"{func.__name__} executed in {execution_time:.2f} seconds.")
+            logger.info(f"Average CPU Load: {avg_cpu_load:.2f}%")
+            logger.info(f"Memory Footprint: {memory_footprint:.2f} MB")
+
+        # Add the performance data to the resource_data dictionary
+        if hasattr(args[0], "resource_data"):
+            # Initialize an empty list if the key doesn't exist
+            if func.__name__ not in args[0].resource_data:
+                args[0].resource_data[func.__name__] = []
+
+            # Append the new performance data to the list
+            args[0].resource_data[func.__name__].append(
+                {
+                    "cpu_load": avg_cpu_load,
+                    "memory_footprint": memory_footprint,
+                    "execution_time": execution_time,
+                }
+            )
+
+        return result
+
+    return wrapper
+
 
 def measure_performance_for_instance_method(func):
     """
@@ -124,10 +176,8 @@ class Benchmark:
     def plot_performance(
         genotype_data,
         resource_data: Dict[str, Any],
-        fontsize: int = 14,
-        plot_type="png",
         color: str = "#8C56E3",
-        figsize: Tuple[int] = (16, 9),
+        figsize: Tuple[int] = (18, 10),
     ) -> None:
         """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time.
 
@@ -137,10 +187,6 @@ class Benchmark:
             genotype_data (GenotypeData): Initialized GenotypeData object to use.
 
             resource_data (dict): Dictionary with performance data. Keys are method names, and values are dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
-
-            fontsize (int, optional): Font size to be used in the plot. Defaults to 14.
-
-            plot_type (str): Plot type to use. One of: 'png', 'jpg', or 'pdf'. Defaults to 'png'.
 
             color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
 
@@ -153,11 +199,6 @@ class Benchmark:
         plot_dir = plot_dir / "gtdata" / "plots" / "performance"
         plot_dir.mkdir(exist_ok=True, parents=True)
 
-        Plotting.plot_performance(
-            resource_data,
-            fontsize=fontsize,
-            color=color,
-            figsize=figsize,
-            plot_dir=plot_dir,
-            plot_type=plot_type,
-        )
+        plotting = Plotting(genotype_data=genotype_data, **genotype_data.plot_kwargs)
+
+        plotting.plot_performance(resource_data, color=color, figsize=figsize)
