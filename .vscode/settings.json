@@ -4,5 +4,16 @@
     "editor.defaultFormatter": "vscode.json-language-features"
   },
   "python.analysis.autoFormatStrings": true,
-  "python.analysis.autoImportCompletions": true
+  "python.analysis.autoImportCompletions": true,
+  "python.testing.unittestArgs": [
+    "-v",
+    "-s",
+    "./tests",
+    "-p",
+    "test*.py"
+  ],
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.defaultInterpreterPath": "C:/Users/evobi/Documents/SNPio/.snpio-dev/bin/python",
+  "python.REPL.enableREPLSmartSend": false,
 }
