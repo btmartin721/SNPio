@@ -1,53 +1,46 @@
-from snpio import GenotypeData, NRemover2, Plotting
+from snpio import NRemover2, Plotting, VCFReader
+from snpio.utils.benchmarking import Benchmark
 
 
 def main():
     # Read the alignment, popmap, and tree files
-    gd = GenotypeData(
-        filename="example_data/vcf_files/phylogen_subset14K.vcf",
+    gd = VCFReader(
+        filename="example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
         popmapfile="example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,
-        filetype="auto",
-        qmatrix_iqtree="example_data/trees/test.qmat",
-        siterates_iqtree="example_data/trees/test.rate",
-        guidetree="example_data/trees/test.tre",
         chunk_size=5000,
+        verbose=False,
+        benchmark=True,
     )
+
+    nrm = NRemover2(gd)
+
+    nrm.search_thresholds(
+        thresholds=[0.5, 0.75, 1.0],
+        maf_thresholds=[0.0, 0.01, 0.05],
+        mac_thresholds=[2],
+    )
+
+    Benchmark.plot_performance(nrm.genotype_data, nrm.genotype_data.resource_data)
+
+    # gd.missingness_reports()
+
+    gd_filt = (
+        nrm.filter_missing_pop(0.8)
+        .filter_singletons(exclude_heterozygous=False)
+        .filter_biallelic(exclude_heterozygous=False)
+        .filter_monomorphic(exclude_heterozygous=False)
+        .filter_mac(2)
+        .filter_missing_sample(0.8)
+        .filter_missing(0.8)
+        .resolve()
+    )
+
+    nrm.plot_sankey_filtering_report()
 
     # Make missingness report plots.
-    gd.missingness_reports(file_prefix="unfiltered")
-
-    # Run a PCA and make a scatterplot on the unfiltered data.
-    Plotting.run_pca(gd, file_prefix="unfiltered")
-
-    # Run the NRemover class to filter out missing data.
-    nrm = NRemover2(gd)
-    gd_filtered = nrm.nremover(
-        max_missing_global=0.5,
-        max_missing_pop=0.5,
-        max_missing_sample=0.8,
-        singletons=True,
-        biallelic=True,
-        unlinked_only=True,
-        monomorphic=True,
-        min_maf=0.01,
-        search_thresholds=True,
-    )
-
-    # Make another missingness report plot for filtered data.
-    gd_filtered.missingness_reports(file_prefix="filtered")
-
-    # Run a PCA on the filtered data and make a scatterplot.
-    Plotting.run_pca(gd_filtered, file_prefix="filtered")
-
-    gd_filtered.write_vcf("example_data/vcf_files/nremover_test.vcf")
-    gd_filtered.write_phylip("example_data/phylip_files/nremover_test.phy")
-    gd_filtered.write_structure(
-        "example_data/structure_files/nremover_test.str"
-    )
-
-    print(gd_filtered.alignment)
-    print(gd_filtered.tree)
+    gd_filt.missingness_reports(prefix="filtered")
+    gd_filt.write_vcf("example_data/vcf_files/nremover_test.vcf")
 
 
 if __name__ == "__main__":
