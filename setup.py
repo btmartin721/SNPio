@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="snpio",
-    version="1.0.7",
+    version="1.0.8",
     url="https://github.com/btmartin721/SNPio",
     author="Bradley T. Martin and Tyler K. Chafin",
     author_email="evobio721@gmail.com",
@@ -44,8 +44,10 @@ setup(
         "scipy",
         "seaborn",
         "toytree",
+        "tqdm",
         "kaleido",
         "psutil",
+        "memory-profiler",
     ],
     extras_require={
         "docs": ["sphinx<7", "sphinx-rtd-theme", "sphinx-autodoc-typehints"],
