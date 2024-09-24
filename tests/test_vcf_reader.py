@@ -61,8 +61,8 @@ class TestVCFReader(unittest.TestCase):
             '##INFO=<ID=VAF,Number=A,Type=Float,Description="Variant Allele Frequency">\n',
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n',
             "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2\n",
-            "1\t100\t.\tG\tA\t.\t.\t.\tGT\t0/1\t0/0\n",
-            "1\t200\t.\tT\tC\t.\t.\t.\tGT\t0/0\t0/1\n",
+            "1\t100\t.\tG\tA\t.\tPASS\t.\tGT\t0/1\t0/0\n",
+            "1\t200\t.\tT\tC\t.\tPASS\t.\tGT\t0/0\t0/1\n",
         ]
 
         self.assertEqual(output_vcf_content, expected_output_vcf_content)
