@@ -6,47 +6,30 @@ import numpy as np
 import pandas as pd
 
 from snpio.read_input.genotype_data import GenotypeData
-from snpio.utils import misc, sequence_tools
+from snpio.utils import logging, misc, sequence_tools
+
+logger = logging.setup_logger(__name__)
 
 
 class GenotypeEncoder(GenotypeData):
 
     def __init__(
         self,
-        filename: Optional[str] = None,
-        popmapfile: Optional[str] = None,
-        force_popmap: bool = False,
-        exclude_pops: Optional[List[str]] = None,
-        include_pops: Optional[List[str]] = None,
-        guidetree: Optional[str] = None,
-        qmatrix_iqtree: Optional[str] = None,
-        qmatrix: Optional[str] = None,
-        siterates: Optional[str] = None,
-        siterates_iqtree: Optional[str] = None,
         plot_format: Optional[str] = "png",
-        prefix="snpio",
+        prefix: str = "snpio",
         verbose: bool = True,
         **kwargs,
     ) -> None:
 
         # Initialize the parent class GenotypeData
         super().__init__(
-            filename=filename,
-            filetype="012",
-            popmapfile=popmapfile,
-            force_popmap=force_popmap,
-            exclude_pops=exclude_pops,
-            include_pops=include_pops,
-            guidetree=guidetree,
-            qmatrix_iqtree=qmatrix_iqtree,
-            qmatrix=qmatrix,
-            siterates=siterates,
-            siterates_iqtree=siterates_iqtree,
             plot_format=plot_format,
             prefix=prefix,
             verbose=verbose,
             **kwargs,
         )
+
+        self.filetype = "012"
 
     def read_012(self) -> None:
         """
@@ -56,7 +39,7 @@ class GenotypeEncoder(GenotypeData):
             ValueError: Sequences differ in length.
         """
         if self.verbose:
-            print(f"\nReading 012-encoded file {self.filename}...")
+            logger.info(f"Reading 012-encoded file: {self.filename}...")
 
         self._check_filetype("012")
         snp_data = list()
@@ -74,7 +57,7 @@ class GenotypeEncoder(GenotypeData):
                 num_snps.append(len(snps))
                 num_inds += 1
                 snp_data.append(snps)
-                self._samples.append(inds)
+                self.samples.append(inds)
 
         if len(list(set(num_snps))) > 1:
             raise ValueError(
@@ -89,13 +72,13 @@ class GenotypeEncoder(GenotypeData):
         # Decodes 012 and converts to self.snp_data
         self.genotypes_012 = df
 
-        self._ref = None
-        self._alt = None
+        self.ref = None
+        self.alt = None
 
         if self.verbose:
-            print(f"012 file successfully loaded!")
-            print(
-                f"\nFound {self.num_snps} SNPs and {self.num_inds} " f"individuals...\n"
+            logger.info("012 file successfully loaded!")
+            logger.info(
+                f"Found {self.num_snps} SNPs and {self.num_inds} " f"individuals..."
             )
 
     def convert_012(
@@ -519,7 +502,7 @@ class GenotypeEncoder(GenotypeData):
         df_decoded.replace(dreplace, inplace=True)
 
         if write_output:
-            outfile = Path(f"{self.prefix}_output", "gtdata", "alignments", "012")
+            outfile = Path(f"{self.prefix}_output") / "gtdata" / "alignments" / "012"
 
         if ft.startswith("structure"):
             if ft.startswith("structure2row"):
