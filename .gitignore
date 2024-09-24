@@ -161,3 +161,7 @@ profile_stats_*.txt
 
 # pipenv
 #Pipfile.lock
+
+data_sorted.txt
+data.txt
+header.txt
