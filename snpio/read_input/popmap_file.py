@@ -1,7 +1,7 @@
-import sys
-from collections import Counter
-from pathlib import Path
-from typing import Dict, List, Union
+from collections import Counter, defaultdict
+from typing import Dict, List, Optional, Union
+
+import numpy as np
 
 from snpio.plotting.plotting import Plotting
 
@@ -14,6 +14,8 @@ class ReadPopmap:
     Args:
         filename (str): Filename for the population map.
             The population map file to be read and parsed.
+
+        logger (logging): Logger object.
 
         verbose (bool): Verbosity setting (True or False).
             If True, enables verbose output. If False, suppresses verbose output.
@@ -29,12 +31,14 @@ class ReadPopmap:
         ```
     """
 
-    def __init__(self, filename: str, verbose: bool = True) -> None:
+    def __init__(self, filename: str, logger: object, verbose: bool = True) -> None:
         """Class constructor."""
         self.filename: str = filename
         self.verbose = verbose
         self._popdict: Dict[str, str] = dict()
         self._sample_indices = None
+        self.logger = logger
+
         self.read_popmap()
 
     def read_popmap(self) -> None:
@@ -43,7 +47,7 @@ class ReadPopmap:
         The dictionary will have SampleIDs as keys and the associated population ID as the values.
 
         Raises:
-            AssertionError: Raises an exception if the population map file does not have two columns or is not tab-delimited.
+            AssertionError: Raises an exception if the population map file does not have two columns or is not whitespace-delimited.
 
             AssertionError: Raises an exception if the dictionary object is empty after reading the population map file.
         """
@@ -55,10 +59,9 @@ class ReadPopmap:
                 cols = line.split()
 
                 if len(cols) > 2:
-                    raise AssertionError(
-                        f"Invalid number of columns in tab-delimited popmap "
-                        f"file. Expected 2, but got {len(cols)}"
-                    )
+                    msg = f"Invalid number of columns in whitespace-delimited popmap file. Expected 2, but got {len(cols)}"
+                    self.logger.error(msg)
+                    raise AssertionError(msg)
 
                 ind = cols[0]
                 pop = cols[1]
@@ -67,7 +70,7 @@ class ReadPopmap:
         if not self._popdict:
             raise AssertionError(
                 "Found empty popmap file. Please check to see if the popmap "
-                "file is a two-column, tab-delimited file with no header line."
+                "file is a two-column, whitespace-delimited file with no header line."
             )
 
     def write_popmap(self, output_file: str) -> None:
@@ -87,23 +90,26 @@ class ReadPopmap:
             for key, value in sorted_dict.items():
                 f.write(f"{key}: {value}\n")
 
-    def get_pop_counts(self, plot_dir_prefix: str) -> None:
+    def get_pop_counts(self, genotype_data) -> None:
         """Print out unique population IDs and their counts.
 
         Prints the unique population IDs along with their respective counts. It also generates a plot of the population counts.
 
         Args:
-            plot_dir_prefix (str): Prefix for output directory.
+            genotype_data (GenotypeData): GenotypeData object containing the alignment data.
         """
         # Count the occurrences of each unique value
         value_counts = Counter(self._popdict.values())
 
         if self.verbose:
+            msg = "\n\nFound the following populations:\nPopulation\tCount\n"
             for value, count in value_counts.items():
-                print(f"{value:<10}{count:<10}")
-            print("\n\n")
+                msg += f"\n{value:<10}{count:<10}"
+            msg += "\n"
+            self.logger.info(msg)
 
-        Plotting.plot_pop_counts(list(self._popdict.values()), plot_dir_prefix)
+        plotting = Plotting(genotype_data, **genotype_data.plot_kwargs)
+        plotting.plot_pop_counts(list(self._popdict.values()))
 
     def validate_popmap(
         self, samples: List[str], force: bool = False
@@ -121,21 +127,34 @@ class ReadPopmap:
 
         """
         if len(set(samples)) != len(samples):
-            raise ValueError("There are duplicate sample IDs in the popmapfile.")
+            counter = Counter(samples)
+            duplicates = [item for item, count in counter.items() if count > 1]
+            msg = (
+                f"Duplicate sample IDs found in the popmapfile: {','.join(duplicates)}"
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         # Sort by alignment order.
         self._popdict = {k: self._popdict[k] for k in samples if k in self._popdict}
 
-        for samp in samples:
-            if samp not in self._popdict:
-                return False
-        for samp in self._popdict.keys():
-            if samp not in samples:
-                return False
+        if force:
+            # Create a boolean array where True indicates presence in popmap
+            self._sample_indices = np.isin(samples, list(self._popdict.keys()))
+        else:
+            for samp in samples:
+                if samp not in self._popdict:
+                    return False
+            for samp in self._popdict.keys():
+                if samp not in samples:
+                    return False
         return True
 
     def subset_popmap(
-        self, samples: List[str], include: List[str], exclude: List[str]
+        self,
+        samples: List[str],
+        include: Optional[List[str]],
+        exclude: Optional[List[str]],
     ) -> None:
         """Subset the population map based on inclusion and exclusion criteria.
 
@@ -147,8 +166,7 @@ class ReadPopmap:
             include (List[str]): List of populations to include in the subset.
                 The populations to include in the subset of the population map.
 
-            exclude (List[str]): List of populations to exclude from the subset.
-                The populations to exclude from the subset of the population map.
+            exclude (List[str]): List of populations to exclude from the subset of the population map.
 
         Raises:
             ValueError: Raises an exception if populations are present in both include and exclude lists.
@@ -164,55 +182,65 @@ class ReadPopmap:
         if include is not None and exclude is not None:
             include_set = set(include)
             exclude_set = set(exclude)
-            common = include_set & exclude_set
+            common = ",".join(list(include_set & exclude_set))
             if common:
-                raise ValueError(
-                    f"populations {common} were in both include_pops and exclude_pops"
+                msg = (
+                    f"Populations found in both include_pops and exclude_pops: {common}"
                 )
+                self.logger.error(msg)
+                raise ValueError(msg)
 
         if include is not None:
-            if not isinstance(include, list):
-                raise TypeError(
-                    f"include_pops must be a list of strings, but got {type(include)}"
-                )
+            self._validate_pop_subset_lists(include)
 
             popmap = {k: v for k, v in self._popdict.items() if v in include}
-
-            inc_idx = [i for i, x in enumerate(samples) if x in popmap]
+            inc_idx = np.isin(samples, list(popmap.keys()))  # Boolean array
         else:
-            inc_idx = list(range(len(samples)))
+            inc_idx = np.ones(len(samples), dtype=bool)  # All True
 
         if exclude is not None:
-            if not isinstance(exclude, list):
-                raise TypeError(
-                    f"include_pops must be a list of strings, but got {type(include)}"
-                )
+            self._validate_pop_subset_lists(exclude)
 
             if include is None:
                 popmap = self._popdict
 
             popmap = {k: v for k, v in popmap.items() if v not in exclude}
-
-            exc_idx = [i for i, x in enumerate(samples) if x in popmap]
-
+            exc_idx = np.isin(samples, list(popmap.keys()))  # Boolean array
         else:
-            exc_idx = list(range(len(samples)))
+            exc_idx = np.ones(len(samples), dtype=bool)  # All True
 
         if not popmap:
-            raise ValueError(
-                "popmap was empty after subseting with 'include_pops' and 'exclude_pops'"
-            )
+            msg = "popmap was empty after subseting with 'include_pops' and 'exclude_pops'"
+            self.logger.error(msg)
+            raise ValueError(msg)
 
-        indices = list(set(inc_idx) & set(exc_idx))
-        indices.sort()
+        # Boolean intersection of inclusion and exclusion conditions
+        indices = np.logical_and(inc_idx, exc_idx)
 
         if self._sample_indices is None:
             self._sample_indices = indices
         else:
-            indices_uniq = list(set(indices) & set(self._sample_indices))
-            indices_uniq.sort()
-            self._sample_indices = indices_uniq
+            self._sample_indices = np.logical_and(indices, self._sample_indices)
+
         self._popdict = popmap
+
+    def _validate_pop_subset_lists(self, l, lname="include_pops"):
+        """
+        Validates the elements in the given list `l` to ensure they are all of type `str`\.
+
+        Args:
+            l (list): The list to be validated.
+            lname (str, optional): The name of the list being validated. Defaults to "include_pops".
+
+        Raises:
+            TypeError: If any element in the list is not of type `str`.
+
+        """
+        if not all(isinstance(x, str) for x in l):
+            all_types = set([type(x) for x in l])
+            msg = f"Invalid type encountered in '{lname}'. Expected str, but got: {all_types}"
+            self.logger.error(msg)
+            raise TypeError(msg)
 
     def _flip_dictionary(self, input_dict):
         """Flip the keys and values of a dictionary.
@@ -226,7 +254,7 @@ class ReadPopmap:
             dict: The flipped dictionary with the original values as keys and lists of original keys as values.
 
         """
-        flipped_dict = {}
+        flipped_dict = defaultdict(list)
         for sample_id, population_id in input_dict.items():
             if population_id in flipped_dict:
                 flipped_dict[population_id].append(sample_id)
@@ -244,34 +272,27 @@ class ReadPopmap:
         return self._popdict
 
     @popmap.setter
-    def popmap(self, value) -> Dict[str, str]:
+    def popmap(self, value: Dict[str, Union[str, int]]) -> None:
         """Setter for the population map dictionary.
 
         Args:
-            value (Dict[str, str]): Dictionary object with SampleIDs as keys and the associated population ID as the value.
-                The dictionary representing the population map to be set.
+            value (Dict[str, Union[str, int]]): Dictionary object with SampleIDs as keys and the associated population ID as the value.
 
         Raises:
             TypeError: Raises an exception if the value is not a dictionary object.
 
         """
-        if not isinstance(value, dict):
-            raise TypeError(
-                f"popmap must be a dictionary object, but got {type(value)}"
-            )
-
         self._popdict = value
 
     @property
-    def sample_indices(self) -> List[int]:
-        """Get the indices of the subset samples from the population map.
+    def sample_indices(self) -> np.ndarray:
+        """Get the indices of the subset samples from the population map as a boolean array.
 
         Returns:
-            List[int]: List of indices representing the subset samples.
-
+            np.ndarray: Boolean array representing the subset samples.
         """
         if self._sample_indices is None:
-            return list(range(len(self._popdict)))
+            return np.ones(len(self._popdict), dtype=bool)
         return self._sample_indices
 
     @property
@@ -291,10 +312,24 @@ class ReadPopmap:
         if idx in self._popdict:
             return self._popdict[idx]
         else:
-            sys.exit(f"\nSample {idx} not in popmap: {self.filename}\n")
+            msg = f"Sample {idx} not in popmap: {self.filename}"
+            self.logger.error(msg)
+            raise KeyError(msg)
 
     def __contains__(self, idx):
         if idx in self._popdict:
             return True
         else:
             return False
+
+    def __repr__(self):
+        return f"ReadPopmap(filename={self.filename}, verbose={self.verbose})"
+
+    def __str__(self):
+        output = ""
+        for key, value in self._popdict.items():
+            output += f"{key}\t{value}\n"
+        return output.strip()
+
+    def __iter__(self):
+        return iter(self._popdict)
