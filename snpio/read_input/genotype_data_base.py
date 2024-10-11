@@ -2,16 +2,9 @@ import random
 from typing import List, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 
-from snpio.utils.custom_exceptions import (
-    NoValidAllelesError,
-    SequenceLengthError,
-    AlignmentFormatError,
-)
-from snpio.utils.logging import setup_logger
-
-logger = setup_logger(__name__)
+from snpio.utils.custom_exceptions import NoValidAllelesError
+from snpio.utils.logging import LoggerManager
 
 
 class BaseGenotypeData:
@@ -26,7 +19,10 @@ class BaseGenotypeData:
         self._ref = []
         self._alt = []
 
-    def _load_data(self):
+        logman = LoggerManager(__name__, verbose=False, debug=False)
+        self.logger = logman.get_logger()
+
+    def _load_data(self) -> None:
         """Method to load data from file based on filetype"""
         raise NotImplementedError("Subclasses should implement this method")
 
@@ -42,9 +38,9 @@ class BaseGenotypeData:
 
         Returns:
             Tuple[np.ndarray, np.ndarray, List[np.ndarray]]:
-                - Most common alleles (likely ref)
-                - Second most common alleles (likely alt)
-                - Less common alleles (for potential multi-allelic sites)
+                - Most common alleles (likely ref).
+                - Second most common alleles (likely alt).
+                - Less common alleles (for potential multi-allelic sites).
         """
         # Initialize arrays to hold results
         most_common_alleles = np.full(data.shape[1], None, dtype=object)
@@ -75,7 +71,7 @@ class BaseGenotypeData:
 
             if valid_alleles.size == 0:
                 # If no valid alleles, log an error and raise an exception
-                logger.error(f"No valid alleles found in column {i}")
+                self.logger.error(f"No valid alleles found in column {i}")
                 raise NoValidAllelesError(i)
 
             # Use numpy's unique function with return_counts for counting
@@ -88,11 +84,12 @@ class BaseGenotypeData:
 
             # Warning for low allele counts or borderline cases
             if sorted_counts[0] <= 2:
-                logger.warning(
+                self.logger.warning(
                     f"Low allele count in column {i}: {sorted_alleles[0]} occurs only {sorted_counts[0]} times."
                 )
 
-            # If the top two alleles have the same count, choose by fewest heterozygous occurrences or randomly
+            # If the top two alleles have the same count, choose by fewest
+            # heterozygous occurrences or randomly
             if len(sorted_alleles) > 1 and sorted_counts[0] == sorted_counts[1]:
                 top_alleles = [sorted_alleles[0], sorted_alleles[1]]
                 heterozygous_top_counts = [
