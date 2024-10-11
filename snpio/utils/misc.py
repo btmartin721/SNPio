@@ -1,55 +1,16 @@
-import functools
-import time
+from typing import Dict, List, Union
 
 import numpy as np
 import pandas as pd
 
-from snpio.utils.logging import setup_logger
+from snpio.utils.logging import LoggerManager
 
-logger = setup_logger(__name__)
-
-
-def measure_execution_time(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        execution_time = end_time - start_time
-        logger.info(f"{func.__name__} executed in {execution_time:.2f} seconds.")
-        return result
-
-    return wrapper
+logman = LoggerManager(__name__, verbose=False, debug=False)
+logger = logman.get_logger()
 
 
-def format_warning(message, category, filename, lineno) -> str:
-    """
-    Set the format of warnings.warn warnings.
-
-    This method defines the format of warning messages printed by the warnings module when using `warnings.warn()`.
-
-    Args:
-        message (str): Warning message to be printed.
-
-        category (str): Type of warning. See Python stdlib warnings module.
-
-        filename (str): Name of the Python file where the warning was raised.
-
-        lineno (str): Line number where the warning occurred.
-
-    Returns:
-        str: Formatted warning message.
-
-    Examples:
-        >>>warnings.formatwarning = format_warning
-
-    Note:
-        To set the format of warnings, use `warnings.formatwarning = self._format_warning`.
-    """
-    return f"{filename}:{lineno}: {category.__name__}:{message}"
-
-
-def get_gt2iupac():
+def get_gt2iupac() -> Dict[str, str]:
+    """Get a dictionary of genotype to IUPAC ambiguity codes."""
     return {
         "1/1": "A",
         "2/2": "C",
@@ -66,7 +27,8 @@ def get_gt2iupac():
     }
 
 
-def get_iupac2gt():
+def get_iupac2gt() -> Dict[str, str]:
+    """Get a dictionary of IUPAC ambiguity codes to genotype."""
     return {
         "A": "1/1",
         "C": "2/2",
@@ -82,7 +44,8 @@ def get_iupac2gt():
     }
 
 
-def get_int_iupac_dict():
+def get_int_iupac_dict() -> Dict[str, int]:
+    """Get a dictionary of IUPAC ambiguity codes to integers."""
     int_iupac_dict = {
         "A": 0,
         "T": 1,
@@ -100,7 +63,8 @@ def get_int_iupac_dict():
     return int_iupac_dict
 
 
-def get_onehot_dict():
+def get_onehot_dict() -> Dict[str, List[float]]:
+    """Get a dictionary of IUPAC ambiguity codes to one-hot encoded vectors."""
     onehot_dict = {
         "A": [1.0, 0.0, 0.0, 0.0],
         "T": [0.0, 1.0, 0.0, 0.0],
@@ -119,9 +83,10 @@ def get_onehot_dict():
     return onehot_dict
 
 
-def validate_input_type(X, return_type="array"):
-    """
-    Validates the input type and returns it as a specified type.
+def validate_input_type(
+    X: Union[np.ndarray, pd.DataFrame, List[List[int]]], return_type: str = "array"
+) -> Union[np.ndarray, pd.DataFrame, List[List[int]]]:
+    """Validates the input type and returns it as a specified type.
 
     This function checks if the input `X` is a pandas DataFrame, numpy array, or a list of lists. It then converts `X` to the specified `return_type` and returns it.
 
@@ -139,8 +104,9 @@ def validate_input_type(X, return_type="array"):
         ValueError: If an unsupported `return_type` is provided. Supported types are "df", "array", and "list".
 
     Example:
-        X = [[1, 2, 3], [4, 5, 6]]
-        print(validate_input_type(X, "df"))  # Outputs: a DataFrame with the data from `X`.
+        >>> X = [[1, 2, 3], [4, 5, 6]]
+        >>> print(validate_input_type(X, "df"))  4
+        >>> # Outputs: a DataFrame with the data from `X`.
     """
     if not isinstance(X, (pd.DataFrame, np.ndarray, list)):
         raise TypeError(
