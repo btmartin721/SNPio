@@ -1,37 +1,41 @@
 import itertools
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from snpio.utils.benchmarking import Benchmark
-from snpio.utils.custom_exceptions import SequenceLengthError
-
 
 class FilteringHelper:
-    def __init__(self, nremover_instance):
+    def __init__(self, nremover_instance: Any) -> None:
         """
-        Initialize the helper class for NRemover2.
+        Initialize the FilteringHelper class.
 
         Args:
             nremover_instance (NRemover2): An instance of the NRemover2 class to access its attributes.
         """
         self.nremover = nremover_instance
         self.logger = self.nremover.logger
+        self.missing_vals = ["N", "-", ".", "?"]
 
-    def print_filtering_report(self):
+    def print_filtering_report(self) -> None:
         """
         Print a filtering report to the terminal.
 
+        This method generates and prints a report detailing the filtering process, including the number of loci and samples before and after filtering, and the percentage of missing data.
+
         Returns:
-            None.
+            None. The report is printed to the terminal.
 
         Raises:
-            SequenceLengthError: If there is no data left after filtering.
+            RuntimeError: If there is no data left after filtering.
+
+        Note:
+            This method should be called after filtering is complete.
+
+            If no data is removed during filtering, a warning is logged.
         """
-        if self.nremover.verbose:
-            self.logger.info("Printing filtering report.")
+        self.logger.info("Printing filtering report.")
 
         before_alignment = self.nremover.alignment.copy()
         after_alignment = self.nremover.alignment[self.nremover.sample_indices, :][
@@ -45,21 +49,27 @@ class FilteringHelper:
         samples_removed = num_samples_before - num_samples_after
 
         def missing_data_percent(aln):
+            """Calculates the percentage of missing data in an alignment.
+
+            Args:
+                aln (np.ndarray): A 2D numpy array representing an alignment.
+
+            Returns:
+                float: The percentage of missing data in the alignment.
+
+            Raises:
+                RuntimeError: If there is no data left after filtering.
+            """
             total = len(aln) * len(aln[0])
             if total == 0:
                 msg = "There is no data left after filtering."
                 self.logger.error(msg)
-                raise SequenceLengthError(msg)
-            missing = np.count_nonzero(np.isin(aln, ["N", "-", ".", "?"]))
+                raise RuntimeError(msg)
+            missing = np.count_nonzero(np.isin(aln, self.missing_vals))
             return (missing / total) * 100 if total else 0.0
 
         before = missing_data_percent(before_alignment)
         after = missing_data_percent(after_alignment)
-
-        msg = "Filtering Report: "
-        msg += f"\n\tLoci before filtering: {num_loci_before}"
-        msg += f"\n\tSamples before filtering: {num_samples_before}"
-        self.logger.info(msg)
 
         loci_unchanged = [
             self.nremover.loci_removed_per_step[k][1] == 0
@@ -80,12 +90,15 @@ class FilteringHelper:
             for key, value in self.nremover.loci_removed_per_step.items()
         ]
 
-        msg = "\n".join(rem_per_step)
-        msg += f"\n\nSamples removed: {samples_removed}"
+        msg = f"\nFiltering Report:"
+        msg += f"\nLoci before filtering: {num_loci_before}"
+        msg += f"\nSamples before filtering: {num_samples_before}"
+        msg += "\n".join(rem_per_step)
+        msg += f"\nSamples removed: {samples_removed}"
         msg += f"\nLoci remaining: {num_loci_after}"
         msg += f"\nSamples remaining: {num_samples_after}"
         msg += f"\nMissing data before filtering: {before:.2f}%"
-        msg += f"\nMissing data after filtering: {after:.2f}%\n"
+        msg += f"\nMissing data after filtering: {after:.2f}%\n\n"
         self.logger.info(msg)
 
     def search_thresholds(
@@ -98,16 +111,18 @@ class FilteringHelper:
         """
         Search across filtering thresholds and plot the filtering proportions.
 
-        The filtering logic is kept in the NRemover2 class while the plotting and threshold search logic is in this method.
+        This method searches through various combinations of filtering thresholds and plots the results. The filtering logic is handled by the NRemover2 class, while this method manages the plotting and threshold search.
 
         Args:
             thresholds (List[float], optional): A list of missing data thresholds to search. Defaults to None.
             maf_thresholds (List[float], optional): A list of minor allele frequency thresholds to search. Defaults to None.
             mac_thresholds (List[int], optional): A list of minor allele count thresholds to search. Defaults to None.
-            filter_order (List[str], optional): A list of filtering methods to apply in order. If None, then filtering methods will be provided in the following order: "filter_missing_sample", "filter_missing_pop", "filter_maf", "filter_mac", "filter_monomorphic", "filter_biallelic", "filter_singletons". Defaults to None.
+            filter_order (List[str], optional): A list of filtering methods to apply in order. If None, the default order is: "filter_missing_sample", "filter_missing_pop", "filter_maf", "filter_mac", "filter_monomorphic", "filter_biallelic", "filter_singletons". Defaults to None.
+
+        Returns:
+            None
         """
-        if self.nremover.verbose:
-            self.logger.info("Searching and plotting filtering thresholds.")
+        self.logger.info("Searching and plotting filtering thresholds.")
 
         self.nremover.search_mode = True
 
@@ -125,10 +140,9 @@ class FilteringHelper:
             )
         )
 
-        if self.nremover.verbose:
-            self.logger.info(
-                f"Searching {len(threshold_combinations)} threshold combinations..."
-            )
+        self.logger.info(
+            f"Searching {len(threshold_combinations)} threshold combinations..."
+        )
 
         for (
             threshold,
@@ -162,8 +176,26 @@ class FilteringHelper:
             self.nremover.filtering_methods.resource_data
         )
 
-    def _prepare_dataframes(self):
-        """Prepare DataFrames for plotting."""
+    def _prepare_dataframes(self) -> pd.DataFrame:
+        """Prepare DataFrames for plotting.
+
+        This method concatenates the sample and global DataFrames from the NRemover2 instance for plotting purposes.
+
+        Returns:
+            pd.DataFrame: A concatenated DataFrame containing sample and global data.
+
+        Raises:
+            ValueError: If there is no data to plot.
+
+        Note:
+            - This method should be called after filtering is complete.
+            - If no data is available for plotting, a ValueError is raised.
+            - The concatenated DataFrame is used for plotting the filtering results.
+            - The concatenated DataFrame contains the sample and global data.
+            - The sample data is stored in the 'df_sample_list' attribute of the NRemover2 instance.
+            - The global data is stored in the 'df_global_list' attribute of the NRemover2 instance.
+            - If no data is available for plotting, a ValueError is raised.
+        """
         df_sample = (
             pd.concat(self.nremover.df_sample_list)
             if self.nremover.df_sample_list
