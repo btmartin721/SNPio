@@ -3,7 +3,7 @@
     "configurations": [
         {
             "name": "Python: Debug run_snpio.py",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/run_snpio.py",
             "console": "integratedTerminal",
