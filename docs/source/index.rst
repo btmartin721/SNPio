@@ -1,8 +1,3 @@
-.. SNPio documentation master file, created by
-   sphinx-quickstart on Fri Jul 21 12:39:11 2023.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 Welcome to SNPio's documentation!
 =================================
 
@@ -15,8 +10,6 @@ Welcome to SNPio's documentation!
    snpio
    modules
    changelog
-
-
 
 Indices and tables
 ==================
