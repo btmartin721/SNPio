@@ -1,11 +1,10 @@
 import re
 from collections import Counter
-from itertools import product
+from typing import Any, List, Optional, Dict, Tuple
 
 
-def remove_items(all_list, bad_list):
-    """
-    Removes items from a list based on another list.
+def remove_items(all_list: List[Any], bad_list: List[Any]) -> List[Any]:
+    """Removes items from a list based on another list.
 
     This function takes a list and removes any items that are present in a second list.
 
@@ -18,16 +17,16 @@ def remove_items(all_list, bad_list):
         List[Any]: The first list with any items present in the second list removed.
 
     Example:
-        all_list = ['a', 'b', 'c', 'd']
-        bad_list = ['b', 'd']
-        print(remove_items(all_list, bad_list))  # Outputs: ['a', 'c']
+        >>> all_list = ['a', 'b', 'c', 'd']
+        >>> bad_list = ['b', 'd']
+        >>> print(remove_items(all_list, bad_list))
+        >>> # Outputs: ['a', 'c']
     """  # using list comprehension to perform the task
     return [i for i in all_list if i not in bad_list]
 
 
-def count_alleles(l, vcf=False):
-    """
-    Counts the total number of unique alleles in a list of genotypes.
+def count_alleles(l, vcf: bool = False) -> int:
+    """Counts the total number of unique alleles in a list of genotypes.
 
     This function takes a list of IUPAC or VCF-style (e.g. 0/1) genotypes and returns the total number of unique alleles. The genotypes can be in VCF or STRUCTURE-style format.
 
@@ -40,8 +39,9 @@ def count_alleles(l, vcf=False):
         int: The total number of unique alleles in the list.
 
     Example:
-        l = ['A/A', 'A/T', 'T/T', 'A/A', 'A/T']
-        print(count_alleles(l, vcf=True))  # Outputs: 2
+        >>> l = ['A/A', 'A/T', 'T/T', 'A/A', 'A/T']
+        >>> print(count_alleles(l, vcf=True))
+        >>> # Outputs: 2
 
     Note:
         The function removes any instances of "-9", "-", "N", -9, ".", "?" before counting the alleles.
@@ -56,7 +56,9 @@ def count_alleles(l, vcf=False):
     return len(set(all_items))
 
 
-def get_major_allele(l, num=None, vcf=False):
+def get_major_allele(
+    l: List[str], num: Optional[int] = None, vcf: bool = False
+) -> List[str]:
     """
     Returns the most common alleles in a list.
 
@@ -73,8 +75,8 @@ def get_major_allele(l, num=None, vcf=False):
         List[str]: The most common alleles in descending order.
 
     Example:
-        l = ['A/A', 'A/T', 'T/T', 'A/A', 'A/T']
-        print(get_major_allele(l, vcf=True))  # Outputs: ['A', 'T']
+        >>> l = ['A/A', 'A/T', 'T/T', 'A/A', 'A/T']
+        >>> print(get_major_allele(l, vcf=True))  # Outputs: ['A', 'T']
 
     Note:
         The function uses the Counter class from the collections module to count the occurrences of each allele.
@@ -100,7 +102,7 @@ def get_major_allele(l, num=None, vcf=False):
         return [x[0] for x in rets if x[0] in ["A", "T", "G", "C"]]
 
 
-def get_iupac_caseless(char):
+def get_iupac_caseless(char: str) -> List[str]:
     """Split IUPAC code to two primary characters, assuming diploidy.
 
     Gives all non-valid ambiguities as N.
@@ -140,7 +142,7 @@ def get_iupac_caseless(char):
     return ret
 
 
-def get_revComp_caseless(char):
+def get_revComp_caseless(char: str) -> str:
     """
     Returns the reverse complement of a nucleotide, while preserving case.
 
@@ -153,11 +155,12 @@ def get_revComp_caseless(char):
         str: The reverse complement of the input character, with the same case.
 
     Example:
-        char = 'a'
-        print(get_revComp_caseless(char))  # Outputs: 't'
+        >>> char = 'a'
+        >>> print(get_revComp_caseless(char))
+        >>> # Outputs: 't'
 
     Note:
-        The function supports the following IUPAC ambiguity codes: R (A/G), Y (C/T), S (G/C), W (A/T), K (G/T), M (A/C), B (C/G/T), D (A/G/T), H (A/C/T), V (A/C/G). It also supports N (any base) and - (gap).
+        - The function supports the following IUPAC ambiguity codes: R (A/G), Y (C/T), S (G/C), W (A/T), K (G/T), M (A/C), B (C/G/T), D (A/G/T), H (A/C/T), V (A/C/G). It also supports N (any base) and - (gap).
     """
     lower = False
     if char.islower():
@@ -187,9 +190,8 @@ def get_revComp_caseless(char):
     return ret
 
 
-def simplifySeq(seq):
-    """
-    Simplifies a DNA sequence by replacing all nucleotides and IUPAC ambiguity codes with asterisks.
+def simplifySeq(seq: str) -> str:
+    """Simplifies a DNA sequence by replacing all nucleotides and IUPAC ambiguity codes with asterisks.
 
     This function takes a DNA sequence and returns a simplified version where all nucleotides (A, C, G, T) and IUPAC ambiguity codes (R, Y, S, W, K, M, B, D, H, V) are replaced with asterisks (*). The function is case-insensitive.
 
@@ -200,8 +202,9 @@ def simplifySeq(seq):
         str: The simplified sequence, where all nucleotides and IUPAC ambiguity codes are replaced with asterisks (*).
 
     Example:
-        seq = 'ATGCRYSWKMBDHVN'
-        print(simplifySeq(seq))  # Outputs: '*************'
+        >>> seq = 'ATGCRYSWKMBDHVN'
+        >>> print(simplifySeq(seq))
+        >>> # Outputs: '*************'
 
     Note:
         The function supports the following IUPAC ambiguity codes: R (A/G), Y (C/T), S (G/C), W (A/T), K (G/T), M (A/C), B (C/G/T), D (A/G/T), H (A/C/T), V (A/C/G).
@@ -210,7 +213,7 @@ def simplifySeq(seq):
     return temp.translate(str.maketrans("RYSWKMBDHV", "**********"))
 
 
-def seqCounter(seq):
+def seqCounter(seq: str) -> Dict[str, int]:
     """
     Returns a dictionary of character counts in a DNA sequence.
 
@@ -220,11 +223,12 @@ def seqCounter(seq):
         seq (str): The DNA sequence to be counted.
 
     Returns:
-        dict: A dictionary where the keys are nucleotide characters and the values are their counts in the sequence. The dictionary also includes a 'VAR' key, which is the sum of the counts of all IUPAC ambiguity codes.
+        Dict[str, int]: A dictionary where the keys are nucleotide characters and the values are their counts in the sequence. The dictionary also includes a 'VAR' key, which is the sum of the counts of all IUPAC ambiguity codes.
 
     Example:
-        seq = 'ATGCRYSWKMBDHVN'
-        print(seqCounter(seq))  # Outputs: {'A': 1, 'N': 1, '-': 0, 'C': 1, 'G': 1, 'T': 1, 'R': 1, 'Y': 1, 'S': 1, 'W': 1, 'K': 1, 'M': 1, 'B': 1, 'D': 1, 'H': 1, 'V': 1, 'VAR': 10}
+        >>> seq = 'ATGCRYSWKMBDHVN'
+        >>> print(seqCounter(seq))
+        {'A': 1, 'N': 1, '-': 0, 'C': 1, 'G': 1, 'T': 1, 'R': 1, 'Y': 1, 'S': 1, 'W': 1, 'K': 1, 'M': 1, 'B': 1, 'D': 1, 'H': 1, 'V': 1, 'VAR': 10}
 
     Note:
         The function supports the following IUPAC ambiguity codes: R (A/G), Y (C/T), S (G/C), W (A/T), K (G/T), M (A/C), B (C/G/T), D (A/G/T), H (A/C/T), V (A/C/G). It also supports N (any base) and - (gap).
