@@ -1,49 +1,86 @@
-import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 import pandas as pd
 
-from snpio.read_input.genotype_data import GenotypeData
-from snpio.utils import logging, misc, sequence_tools
-
-logger = logging.setup_logger(__name__)
+from snpio.utils import misc, sequence_tools
+from snpio.utils.logging import LoggerManager
 
 
-class GenotypeEncoder(GenotypeData):
+class GenotypeEncoder:
+    """Encode genotypes to various formats suitable for machine learning.
 
-    def __init__(
-        self,
-        plot_format: Optional[str] = "png",
-        prefix: str = "snpio",
-        verbose: bool = True,
-        **kwargs,
-    ) -> None:
+    This class provides methods to encode genotypes to various formats suitable for machine learning, including 012, one-hot, and integer encodings, as well as the inverse operations.
 
-        # Initialize the parent class GenotypeData
-        super().__init__(
-            plot_format=plot_format,
-            prefix=prefix,
-            verbose=verbose,
-            **kwargs,
-        )
+    Example:
+        >>> # Import necessary modules
+        >>> from snpio import VCFReader, GenotypeEncoder
+        >>>
+        >>> # Initialize VCFReader and GenotypeEncoder objects
+        >>> gd = VCFReader(filename="my_vcf.vcf", popmapfile="my_popmap.txt")
+        >>> ge = GenotypeEncoder(gd)
+        >>>
+        >>> # Encode genotypes to 012, one-hot, and integer formats
+        >>> gt_012 = ge.genotypes_012
+        >>> gt_onehot = ge.genotypes_onehot(gt_012)
+        >>> gt_int = ge.genotypes_int(gt_012)
+        >>>
+        >>> # Inverse operations
+        >>> ge.genotypes_012 = gt_012
+        >>> ge.genotypes_onehot = gt_onehot
+        >>> ge.genotypes_int = gt_int
 
-        self.filetype = "012"
+    Attributes:
+        plot_format (str): Plot format for the data.
+        prefix (str): Prefix for the output directory.
+        verbose (bool): If True, display verbose output.
+        snp_data (List[List[str]]): List of lists of SNPs.
+        samples (List[str]): List of sample IDs.
+        filetype (str): File type of the data.
+        missing_vals (List[str]): List of missing values.
+        replace_vals (List[str]): List of values to replace missing values with.
+    """
+
+    def __init__(self, genotype_data: Any) -> None:
+        """Initialize the GenotypeEncoder object.
+
+        This class provides methods to encode genotypes to various formats suitable for machine learning, including 012, one-hot, and integer encodings, as well as the inverse operations.
+
+        Args:
+            genotype_data (GenotypeData): Initialized GenotypeData object.
+
+        Note:
+            The GenotypeData object must be initialized before creating an instance of this class.
+        """
+
+        self.plot_format = genotype_data.plot_format
+        self.prefix = genotype_data.prefix
+        self.verbose = genotype_data.verbose
+        self.snp_data = genotype_data.snp_data
+        self.samples = genotype_data.samples
+        debug = genotype_data.debug
+        self.filetype = "encoded"
+
+        self.missing_vals = ["N", "-", ".", "?"]
+        self.replace_vals = ["-9"] * len(self.missing_vals)
+
+        kwargs = {"verbose": self.verbose, "debug": debug}
+        logman = LoggerManager(__name__, prefix=self.prefix, **kwargs)
+        self.logger = logman.get_logger()
 
     def read_012(self) -> None:
-        """
-        Read 012-encoded comma-delimited file.
+        """Read 012-encoded comma-delimited file.
+
+        This method reads a 012-encoded comma-delimited file and stores the data in the GenotypeEncoder object.
 
         Raises:
             ValueError: Sequences differ in length.
         """
-        if self.verbose:
-            logger.info(f"Reading 012-encoded file: {self.filename}...")
+        self.logger.info(f"Reading 012-encoded file: {self.filename}...")
 
-        self._check_filetype("012")
-        snp_data = list()
-        num_snps = list()
+        self._check_filetype("encoded")
+        snp_data, num_snps = [], []
 
         with open(self.filename, "r") as fin:
             num_inds = 0
@@ -60,14 +97,13 @@ class GenotypeEncoder(GenotypeData):
                 self.samples.append(inds)
 
         if len(list(set(num_snps))) > 1:
-            raise ValueError(
-                "All sequences must be the same length; "
-                "at least one sequence differs in length from the others\n"
-            )
+            msg = "All sequences must be the same length. At least one sequence differs in length from the others"
+            self.logger.error(msg)
+            raise ValueError(msg)
 
+        miss_vals = ["NA", np.nan, pd.NA, "N", ".", "-", "?"]
         df = pd.DataFrame(snp_data)
-        df.replace("NA", "-9", inplace=True)
-        df = df.astype("int")
+        df = df.replace(miss_vals, ["-9"] * len(miss_vals)).astype(int)
 
         # Decodes 012 and converts to self.snp_data
         self.genotypes_012 = df
@@ -75,31 +111,31 @@ class GenotypeEncoder(GenotypeData):
         self.ref = None
         self.alt = None
 
-        if self.verbose:
-            logger.info("012 file successfully loaded!")
-            logger.info(
-                f"Found {self.num_snps} SNPs and {self.num_inds} " f"individuals..."
-            )
+        self.logger.info("012 file successfully loaded!")
+        self.logger.info(
+            f"\nFound:\n"
+            f"\t{self.num_inds} individuals...\n"
+            f"\t{self.num_snps} SNPs...\n"
+        )
 
-    def convert_012(
-        self,
-        snps: List[List[str]],
-    ) -> List[List[int]]:
-        """
-        Encode IUPAC nucleotides as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles.
+    def convert_012(self, snps: List[List[str]]) -> List[List[int]]:
+        """Encode IUPAC nucleotides as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles.
+
+        This method encodes IUPAC nucleotides as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles.
 
         Args:
             snps (List[List[str]]): 2D list of genotypes of shape (n_samples, n_sites).
 
         Returns:
-            List[List[int]], optional: 012-encoded genotypes as a 2D list of shape (n_samples, n_sites). Only returns value if ``impute_mode`` is True.
+            List[List[int]]: Encoded 012 genotypes.
 
-            List[int], optional: List of integers indicating bi-allelic site indexes.
+        Warning:
+            Monomorphic sites are detected and encoded as 0 (reference).
 
-            int, optional: Number of remaining valid sites.
+            Non-biallelic sites are detected and forced to be bi-allelic.
+
+            Sites with all missing data are detected and excluded from the alignment.
         """
-        warnings.formatwarning = misc.format_warning
-
         snps_012 = []
         new_snps = []
         monomorphic_sites = []
@@ -198,39 +234,34 @@ class GenotypeEncoder(GenotypeData):
         outdir = Path(f"{self.prefix}_output", "gtdata", "logs")
         outdir.mkdir(exist_ok=True, parents=True)
         if monomorphic_sites:
-            # TODO: Check here if column is all missing. What to do in this
-            # case? Error out?
-            fname = "monomorphic_sites.txt"
-            outfile = outdir / fname
+            # TODO: Check here if column is all missing.
+            # TODO: What to do in this case? Error out?
+            outfile = outdir / "monomorphic_sites.txt"
             with open(outfile, "w") as fout:
-                fout.write(",".join([str(x) for x in monomorphic_sites]))
+                mono_sites = [str(x) for x in monomorphic_sites]
+                fout.write(",".join(mono_sites))
 
-            warnings.warn(
-                f"\nMonomorphic sites detected. You can check the locus indices in the following log file: {outfile}\n"
+            self.logger.warning(
+                f"Monomorphic sites detected. You can check the locus indices in the following log file: {outfile}"
             )
 
         if non_biallelic_sites:
-            fname = "non_biallelic_sites.txt"
-            outfile = Path(outdir, fname)
+            outfile = outdir / "non_biallelic_sites.txt"
             with open(outfile, "w") as fout:
-                fout.write(",".join([str(x) for x in non_biallelic_sites]))
+                nba = [str(x) for x in non_biallelic_sites]
+                fout.write(",".join(nba))
 
-            warnings.warn(
-                f"\nSNP column indices listed in the log file {outfile} had >2 "
-                f"alleles and was forced to "
-                f"be bi-allelic. If that is not what you want, please "
-                f"fix or remove the column and re-run.\n"
+            self.logger.warning(
+                f"SNP column indices listed in the log file {outfile} had >2 alleles and was forced to be bi-allelic. If that is not desired, please fix or remove the column and re-run."
             )
 
         if all_missing:
-            fname = "all_missing.txt"
-            outfile = Path(outdir, fname)
+            outfile = outdir / "all_missing_sites.txt"
             with open(outfile, "w") as fout:
                 ",".join([str(x) for x in all_missing])
 
-            warnings.warn(
-                f" SNP column indices found in the log file {outfile} had all "
-                f"missing data and were excluded from the alignment.\n"
+            self.logger.warning(
+                f"SNP column indices found in the log file {outfile} had all missing data and were excluded from the alignment."
             )
 
         snps_012 = [s for s in new_snps]
@@ -241,8 +272,9 @@ class GenotypeEncoder(GenotypeData):
         snp_data: Union[np.ndarray, List[List[int]]],
         encodings_dict: Optional[Dict[str, int]] = None,
     ) -> np.ndarray:
-        """
-        Convert input data to one-hot encoded format.
+        """Convert input data to one-hot encoded format.
+
+        This method converts input data to one-hot encoded format.
 
         Args:
             snp_data (Union[np.ndarray, List[List[int]]]): Input 012-encoded data of shape (n_samples, n_SNPs).
@@ -259,8 +291,12 @@ class GenotypeEncoder(GenotypeData):
 
             Otherwise, if `encodings_dict` is provided, it will be used for conversion.
 
-        Warnings:
-            If the data file type is "phylip" or "structure" and ``encodings_dict`` is not provided, a default encoding will be used. It is recommended to provide custom encodings for accurate conversion.
+        Warning:
+            If the data file type is "structure1row" or "structure2row" and `encodings_dict` is not provided, default encodings for alleles are used.
+
+            If the data file type is "phylip" and `encodings_dict` is not provided, default encodings for nucleotides are used.
+
+            If the data file type is "structure" and `encodings_dict` is not provided, default encodings for alleles are used.
         """
 
         if encodings_dict is None:
@@ -286,13 +322,24 @@ class GenotypeEncoder(GenotypeData):
         onehot_data: Union[np.ndarray, List[List[float]]],
         encodings_dict: Optional[Dict[str, List[float]]] = None,
     ) -> np.ndarray:
-        """
-        Convert one-hot encoded data back to original format.
+        """Convert one-hot encoded data back to original format.
+
         Args:
             onehot_data (Union[np.ndarray, List[List[float]]]): Input one-hot encoded data of shape (n_samples, n_SNPs).
+
             encodings_dict (Optional[Dict[str, List[float]]]): Encodings to convert from one-hot encoding to original format. Defaults to None.
+
         Returns:
             np.ndarray: Original format data.
+
+        Note:
+            If the data file type is "phylip" or "vcf" and `encodings_dict` is not provided, default encodings based on IUPAC codes are used.
+
+            If the data file type is "structure" and `encodings_dict` is not provided, default encodings for alleles are used.
+
+            Otherwise, if `encodings_dict` is provided, it will be used for conversion.
+
+            If the input data is a numpy array, it will be converted to a list of lists before decoding.
         """
 
         onehot_dict = (
@@ -321,22 +368,24 @@ class GenotypeEncoder(GenotypeData):
         snp_data: Union[np.ndarray, List[List[int]]],
         encodings_dict: Optional[Dict[str, int]] = None,
     ) -> np.ndarray:
-        """
-        Convert input data to integer-encoded format (0-9) based on IUPAC codes.
+        """Convert input data to integer-encoded format (0-9) based on IUPAC codes.
+
+        This method converts input data to integer-encoded format (0-9) based on IUPAC codes. The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9.
 
         Args:
             snp_data (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input 012-encoded data.
+
             encodings_dict (Dict[str, int] or None): Encodings to convert structure to phylip format.
 
         Returns:
             numpy.ndarray: Integer-encoded data.
 
         Note:
-            If the data file type is "phylip" or "vcf" and `encodings_dict` is not provided, default encodings based on IUPAC codes are used.
+            If the data file type is "phylip" or "vcf" and ``encodings_dict`` is not provided, default encodings based on IUPAC codes are used.
 
-            If the data file type is "structure" and `encodings_dict` is not provided, default encodings for alleles are used.
+            If the data file type is "structure" and ``encodings_dict`` is not provided, default encodings for alleles are used.
 
-            Otherwise, if `encodings_dict` is provided, it will be used for conversion.
+            Otherwise, if ``encodings_dict`` is provided, it will be used for conversion.
         """
 
         if encodings_dict is None:
@@ -349,7 +398,7 @@ class GenotypeEncoder(GenotypeData):
 
         outer_list = list()
 
-        n_rows = len(self._samples) if encodings_dict is None else len(snp_data)
+        n_rows = len(self.samples) if encodings_dict is None else len(snp_data)
 
         for i in range(n_rows):
             int_iupac = list()
@@ -364,13 +413,24 @@ class GenotypeEncoder(GenotypeData):
         int_encoded_data: Union[np.ndarray, List[List[int]]],
         encodings_dict: Optional[Dict[str, int]] = None,
     ) -> np.ndarray:
-        """
-        Convert integer-encoded data back to original format.
+        """Convert integer-encoded data back to original format.
+
+        This method converts integer-encoded data back to the original format based on IUPAC codes. The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9.
+
         Args:
             int_encoded_data (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input integer-encoded data.
+
             encodings_dict (Dict[str, int] or None): Encodings to convert from integer encoding to original format.
+
         Returns:
             numpy.ndarray: Original format data.
+
+        Note:
+            If the data file type is "phylip" or "vcf" and `encodings_dict` is not provided, default encodings based on IUPAC codes are used.
+
+            If the data file type is "structure" and `encodings_dict` is not provided, default encodings for alleles are used.
+
+            Otherwise, if `encodings_dict` is provided, it will be used for conversion
         """
 
         int_encodings_dict = (
@@ -396,12 +456,13 @@ class GenotypeEncoder(GenotypeData):
 
     def decode_012(
         self,
-        X,
-        write_output=True,
-        is_nuc=False,
+        X: Union[np.ndarray, pd.DataFrame, List[List[int]]],
+        write_output: bool = True,
+        is_nuc: bool = False,
     ):
-        """
-        Decode 012-encoded or 0-9 integer-encoded imputed data to STRUCTURE or PHYLIP format.
+        """Decode 012-encoded or 0-9 integer-encoded imputed data to STRUCTURE or PHYLIP format.
+
+        This method decodes 012-encoded or 0-9 integer-encoded imputed data to IUPAC format. The decoded data can be saved to a file or returned as a DataFrame.
 
         Args:
             X (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
@@ -412,6 +473,9 @@ class GenotypeEncoder(GenotypeData):
 
         Returns:
             str or pandas.DataFrame: If write_output is True, returns the filename where the imputed data was written. If write_output is False, returns the decoded data as a DataFrame.
+
+        TODO:
+            - Check if VAE still uses IUPAC encodings.
         """
         if isinstance(X, pd.DataFrame):
             df = X.copy()
@@ -447,7 +511,9 @@ class GenotypeEncoder(GenotypeData):
         df_decoded = df.copy()
         df_decoded = df.copy().astype(object)
 
-        # VAE uses [A,T,G,C] encodings. The other NN methods use [0,1,2] encodings.
+        # TODO: Check if VAE still uses IUPAC encodings.
+        # VAE uses [A,T,G,C] encodings. The other NN methods use
+        # [0,1,2] encodings.
         if is_nuc:
             classes_int = range(10)
             classes_string = [str(x) for x in classes_int]
@@ -475,7 +541,8 @@ class GenotypeEncoder(GenotypeData):
         else:
             dreplace = dict()
             for col, ref, alt in zip(df.columns, self._ref, self._alt):
-                # if site is monomorphic, set alt and ref state the same
+                # if site is monomorphic, set alt and ref state the
+                # same
                 if alt is None:
                     alt = ref
                 ref2 = f"{ref}/{ref}"
@@ -499,10 +566,10 @@ class GenotypeEncoder(GenotypeData):
                 }
                 dreplace[col] = d
 
-        df_decoded.replace(dreplace, inplace=True)
+        df_decoded = df_decoded.replace(dreplace)
 
         if write_output:
-            outfile = Path(f"{self.prefix}_output") / "gtdata" / "alignments" / "012"
+            outfile = Path(f"{self.prefix}_output", "gtdata", "alignments", "012")
 
         if ft.startswith("structure"):
             if ft.startswith("structure2row"):
@@ -558,12 +625,7 @@ class GenotypeEncoder(GenotypeData):
                 df_decoded.insert(0, "sampleID", self._samples)
                 df_decoded.insert(1, "popID", self._populations)
 
-                df_decoded.to_csv(
-                    of,
-                    sep="\t",
-                    header=False,
-                    index=False,
-                )
+                df_decoded.to_csv(of, sep="\t", header=False, index=False)
 
         elif ft.startswith("phylip"):
             if write_output:
@@ -581,8 +643,7 @@ class GenotypeEncoder(GenotypeData):
 
         if write_output:
             return of
-        else:
-            return df_decoded.values.tolist()
+        return df_decoded.values.tolist()
 
     @property
     def genotypes_012(
@@ -590,44 +651,61 @@ class GenotypeEncoder(GenotypeData):
     ) -> Union[List[List[int]], np.ndarray, pd.DataFrame]:
         """Encoded 012 genotypes as a 2D list, numpy array, or pandas DataFrame.
 
-        The examples below show how to return the different format types.
+        This method encodes genotypes as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles. The encoded genotypes are returned as a 2D list, numpy array, or pandas DataFrame.
 
         Returns:
             List[List[int]], np.ndarray, or pd.DataFrame: encoded 012 genotypes.
 
-        Examples:
-            >>># Get a 2D list.
-            >>>gt_list = GenotypeData.genotypes_012(fmt="list")
-            >>>
-            >>># Get a numpy array.
-            >>>gt_array = GenotypeData.genotypes_012(fmt="numpy")
-            >>>
-            >>># Get a pandas DataFrame.
-            >>>gt_df = GenotypeData.genotypes_012(fmt="pandas")
+        Example:
+            >>> gd = VCFReader(filename="example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", popmapfile="example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, chunk_size=5000, verbose=False)
+            >>> ge = GenotypeEncoder(gd)
+            >>> gt012 = ge.genotypes_012
+            >>> print(gt012)
+            [["0", "1", "2"], ["0", "1", "2"], ["0", "1", "2"]]
         """
-        return self.convert_012(self.snp_data)
+        g012 = self.convert_012(self.snp_data)
+        self.logger.debug(f"Genotypes 012: {g012}")
+        return g012
 
     @genotypes_012.setter
-    def genotypes_012(self, value) -> List[List[int]]:
-        """Set the 012 genotypes. They will be decoded back to a 2D list of genotypes as ``snp_data``\.
+    def genotypes_012(self, value: np.ndarray) -> None:
+        """Set the 012 genotypes. They will be decoded back to a 2D list of genotypes as ``snp_data`` object.
+
+        012-encoded genotypes are returned as a 2D numpy array of shape (n_samples, n_sites). The encoding is as follows: 0=reference, 1=heterozygous, 2=alternate allele.
 
         Args:
             value (np.ndarray): 2D numpy array with 012-encoded genotypes.
         """
         self.snp_data = self.decode_012(value, write_output=False)
+        self.logger.debug(f"Decoded 012 genotypes: {self.snp_data}")
 
     @property
-    def genotypes_onehot(self) -> Union[np.ndarray, List[List[List[float]]]]:
+    def genotypes_onehot(self) -> np.ndarray:
         """One-hot encoded snps format of shape (n_samples, n_loci, 4).
+
+        One-hot encoded genotypes are returned as a 3D numpy array of shape (n_samples, n_loci, 4).  The one-hot encoding is as follows: A=[1, 0, 0, 0], T=[0, 1, 0, 0], G=[0, 0, 1, 0], C=[0, 0, 0, 1]. Missing values are encoded as [0, 0, 0, 0]. The one-hot encoding is based on the IUPAC ambiguity codes. Heterozygous sites are encoded as 0.5 for each allele.
 
         Returns:
             numpy.ndarray: One-hot encoded numpy array of shape (n_samples, n_loci, 4).
         """
-        return self.convert_onehot(self.snp_data)
+        gohe = self.convert_onehot(self.snp_data)
+        self.logger.debug(f"Genotypes one-hot encoded: {gohe}")
+        return gohe
 
     @genotypes_onehot.setter
-    def genotypes_onehot(self, value) -> List[List[int]]:
-        """Set the onehot-encoded genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
+    def genotypes_onehot(
+        self, value: Union[np.ndarray, List[List[List[int]]], pd.DataFrame]
+    ) -> None:
+        """Set the onehot-encoded genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``.
+
+        One-hot encoded genotypes are returned as a 3D numpy array of shape (n_samples, n_loci, 4).  The one-hot encoding is as follows: A=[1, 0, 0, 0], T=[0, 1, 0, 0], G=[0, 0, 1, 0], C=[0, 0, 0, 1]. Missing values are encoded as [0, 0, 0, 0]. The one-hot encoding is based on the IUPAC ambiguity codes. Heterozygous sites are encoded as 0.5 for each allele.
+
+        Args:
+            value (Union[np.ndarray, List[List[List[int]]], pd.DataFrame]): 3D numpy array with one-hot encoded genotypes.
+
+        Raises:
+            TypeError: If `value` is not of type pd.DataFrame, np.ndarray, or list.
+        """
         if isinstance(value, pd.DataFrame):
             X = value.to_numpy()
         elif isinstance(value, list):
@@ -635,28 +713,35 @@ class GenotypeEncoder(GenotypeData):
         elif isinstance(value, np.ndarray):
             X = value
         else:
-            raise TypeError(
-                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
-            )
+            msg = f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
+            self.logger.error(msg)
+            raise TypeError(msg)
 
         Xt = self.inverse_onehot(X)
         self.snp_data = Xt
+        self.logger.debug(f"Decoded one-hot genotypes: {Xt}")
 
     @property
     def genotypes_int(self) -> np.ndarray:
         """Integer-encoded (0-9 including IUPAC characters) snps format.
 
+        Integer-encoded genotypes are returned as a 2D numpy array of shape (n_samples, n_sites). The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9. Missing values are encoded as -9.
+
         Returns:
             numpy.ndarray: 2D array of shape (n_samples, n_sites), integer-encoded from 0-9 with IUPAC characters.
         """
-        arr = self.convert_int_iupac(self.snp_data)
-        return arr
+        gint = self.convert_int_iupac(self.snp_data)
+        self.logger.debug(f"Genotypes integer-encoded: {gint}")
+        return gint
 
     @genotypes_int.setter
     def genotypes_int(
         self, value: Union[pd.DataFrame, np.ndarray, List[List[int]], Any]
-    ) -> List[List[int]]:
-        """Set the integer-encoded (0-9) genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``\."""
+    ) -> None:
+        """Set the integer-encoded (0-9) genotypes. They will be decoded back to a 2D list of IUPAC genotypes as a ``snp_data`` object.
+
+        Integer-encoded genotypes are returned as a 2D numpy array of shape (n_samples, n_sites). The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9. Missing values are encoded as -9.
+        """
         if isinstance(value, pd.DataFrame):
             X = value.to_numpy()
         elif isinstance(value, list):
@@ -664,10 +749,10 @@ class GenotypeEncoder(GenotypeData):
         elif isinstance(value, np.ndarray):
             X = value
         else:
-            raise TypeError(
-                f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, "
-                f"or list, but got {type(value)}"
-            )
+            msg = f"genotypes_int must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
+            self.logger.error(msg)
+            raise TypeError(msg)
 
         Xt = self.inverse_int_iupac(X)
         self.snp_data = Xt
+        self.logger.debug(f"Decoded integer-encoded genotypes: {Xt}")
