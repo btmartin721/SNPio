@@ -1,70 +1,34 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
-# -- Path setup --------------------------------------------------------------
-
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
 import os
 import sys
-import sphinx_rtd_theme
 
-
+# Ensure path to project root is correct
 sys.path.insert(0, os.path.abspath("../.."))
-autodoc_mock_imports = ["cyvcf2"]
-
-
-# -- Project information -----------------------------------------------------
 
 project = "SNPio"
 copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
 author = "Bradley T. Martin and Tyler K. Chafin"
+release = "1.1.0"
 
-# The full version, including alpha/beta/rc tags
-release = "1.0"
-
-
-# -- General configuration ---------------------------------------------------
-
-# Add any Sphinx extension module names here, as strings. They can be
-# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
-# ones.
+# Sphinx extensions for documentation
 extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
-    "sphinx_autodoc_typehints",
+    "sphinx_autodoc_typehints",  # Ensure this package is installed
     "sphinx.ext.todo",
 ]
 
-# Display todos by setting to True
+# Include todos in the documentation
 todo_include_todos = True
 
-
-# Add any paths that contain templates here, relative to this directory.
+# Paths for templates
 templates_path = ["_templates"]
 
-# List of patterns, relative to source directory, that match files and
-# directories to ignore when looking for source files.
-# This pattern also affects html_static_path and html_extra_path.
+# Files or directories to ignore during documentation
 exclude_patterns = ["**/setup.rst", "**/tests.rst"]
 
-
-# -- Options for HTML output -------------------------------------------------
-
-# The theme to use for HTML and HTML Help pages.  See the documentation for
-# a list of builtin themes.
-#
+# HTML output theme
 html_theme = "sphinx_rtd_theme"
-html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
+# Optional GitHub URL (not supported natively by sphinx_rtd_theme)
+# You may want to integrate this using a custom extension
 github_url = "https://github.com/btmartin721/SNPio"
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-# html_static_path = ["_static"]

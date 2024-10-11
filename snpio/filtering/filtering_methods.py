@@ -1,6 +1,6 @@
 import inspect
 from pathlib import Path
-from typing import Tuple, Union
+from typing import Any, Dict, Tuple, Union
 
 import h5py
 import numpy as np
@@ -8,27 +8,61 @@ import pandas as pd
 from Bio.SeqUtils import IUPACData
 
 # Custom imports
+from snpio.utils.benchmarking import Benchmark
 from snpio.utils.custom_exceptions import AlignmentFormatError
-from snpio.utils.benchmarking import measure_execution_time
+
+measure_execution_time = Benchmark.measure_execution_time
 
 
 class FilteringMethods:
-    def __init__(self, nremover_instance):
-        """
-        Initialize FilteringMethods class with an instance of NRemover2.
+    def __init__(self, nremover_instance: Any) -> None:
+        """Initialize FilteringMethods class with an instance of NRemover2.
+
+        This class contains methods for filtering loci (columns) and samples (rows) based on various criteria.
 
         Args:
-            nremover_instance (NRemover2): An instance of NRemover2 to access its attributes.
+            nremover_instance (NRemover2): An instance of NRemover2 to access its attributes. The instance should be initialized with the alignment data and other attributes.
+
+        Returns:
+            None
+
+        Note:
+            The class uses the NRemover2 instance to access the alignment data and other attributes.
+
+            The class also uses the genotype_data attribute to access the resource data and other attributes.
+
+            The class uses the logger attribute to log messages.
+
+            The class uses the missing_vals attribute to define missing data values.
+
+            The class uses the _append_global_list method to append filtering results to the global list.
+
+            The class uses the _calculate_minor_allele_counts method to compute minor allele counts.
+
+            The class uses the _compute_maf_proportions method to compute minor allele frequencies.
+
+            The class uses the _update_loci_indices method to update loci indices based on a mask.
+
+            The class uses the _update_sample_indices method to update sample indices based on a mask.
+
+        Attributes:
+            nremover (NRemover2): An instance of NRemover2 to access its attributes.
+            logger (Logger): A logger object to log messages.
+            resource_data (dict): A dictionary containing resource data.
+            missing_vals (list): A list of missing data values.
         """
         self.nremover = nremover_instance
         self.logger = self.nremover.logger
         self.resource_data = self.nremover.genotype_data.resource_data
+        self.missing_vals = ["N", "-", ".", "?"]
+        self.ambiguous_bases = ["R", "Y", "S", "W", "K", "M"]
+        self.exclude_hets = self.missing_vals + self.ambiguous_bases
 
         if not self.resource_data:
             self.resource_data = {}
 
     @measure_execution_time
-    def filter_missing(self, threshold: float):
+    def filter_missing(self, threshold: float) -> Any:
         """Filters out columns (loci) with missing data proportion greater than the given threshold.
 
         Args:
@@ -42,10 +76,9 @@ class FilteringMethods:
             ValueError: If the threshold is not between 0.0 and 1.0 inclusive.
         """
 
-        if self.nremover.verbose:
-            self.logger.info(
-                f"Filtering loci with missing data proportion > {threshold:.2f}"
-            )
+        self.logger.info(
+            f"Filtering loci with missing data proportion > {threshold:.2f}"
+        )
 
         self.nremover.propagate_chain()
 
@@ -73,7 +106,7 @@ class FilteringMethods:
         )
 
         missing_counts = np.count_nonzero(
-            np.isin(alignment_array, ["N", "-", ".", "?"]), axis=0
+            np.isin(alignment_array, self.missing_vals), axis=0
         )
 
         num_samples = np.count_nonzero(self.nremover.sample_indices)
@@ -112,19 +145,32 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def filter_missing_pop(self, threshold: float):
-        """Filters loci based on missing data proportion per population."""
-        if self.nremover.verbose:
-            self.logger.info(
-                f"Filtering loci with missing data proportion > {threshold:.2f} in any population."
-            )
+    def filter_missing_pop(self, threshold: float) -> Any:
+        """Filters loci based on missing data proportion per population.
+
+        The method filters loci where the missing data proportion exceeds the given threshold in any population.
+
+        Args:
+            threshold (float): The maximum proportion of missing data allowed for a locus to be retained.
+
+        Returns:
+            NRemover2: The NRemover2 object with the filtered alignment's boolean loci_indices array set.
+        """
+        self.logger.info(
+            f"Filtering loci with missing data proportion > {threshold:.2f} in any population."
+        )
+
+        if self.nremover.popmap_inverse is None:
+            msg = "No population map data found. Cannot filter by population."
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         self.nremover.propagate_chain()
 
         # Check if any loci are still active
         if not np.any(self.nremover.loci_indices):
             self.logger.warning(
-                "No loci remain in the alignment. Adjust filtering parameters."
+                "No loci remain in the alignment. Try adjusting the filtering parameters."
             )
             return self.nremover
 
@@ -139,7 +185,7 @@ class FilteringMethods:
 
         if alignment_array.size == 0:
             self.logger.warning(
-                "No samples remain in the alignment. Adjust filtering parameters."
+                "No samples remain in the alignment. Try adjusting the filtering parameters."
             )
             return self.nremover
 
@@ -160,7 +206,7 @@ class FilteringMethods:
             # Calculate the missing data proportion for the current population
             missing_props = np.array(
                 [
-                    np.count_nonzero(np.isin(col[indices], ["N", "-", ".", "?"]))
+                    np.count_nonzero(np.isin(col[indices], self.missing_vals))
                     / len(indices)
                     for col in alignment_array.T
                 ]
@@ -208,29 +254,38 @@ class FilteringMethods:
 
         return self.nremover
 
-    def _compute_mac_counts(self, min_count: int):
+    def _compute_mac_counts(
+        self, min_count: int, exclude_heterozygous: bool = False
+    ) -> np.ndarray:
         """
         Computes a mask based on minor allele counts (MAC) for each locus.
 
         Args:
             min_count (int): The minimum minor allele count required to keep a locus.
 
+            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the MAC calculation. Defaults to False.
+
         Returns:
             np.ndarray: A boolean mask where True means the locus passes the filter.
         """
-        mac_counts = self._calculate_minor_allele_counts()
+        mac_counts = self._calculate_minor_allele_counts(
+            exclude_heterozygous=exclude_heterozygous
+        )
         return mac_counts >= min_count
 
     @measure_execution_time
-    def filter_mac(self, min_count: int):
-        """
-        Filters loci where the minor allele count is below the given minimum count.
+    def filter_mac(self, min_count: int, exclude_heterozygous: bool = False) -> Any:
+        """Filters loci where the minor allele count is below the given minimum count.
 
         Args:
             min_count (int): The minimum minor allele count to retain a locus.
+
+            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the MAC calculation. Defaults to False.
+
+        Returns:
+            self: The NRemover2 object with the filtered alignment's boolean loci_indices array set.
         """
-        if self.nremover.verbose:
-            self.logger.info(f"Filtering loci with minor allele count < {min_count}")
+        self.logger.info(f"Filtering loci with minor allele count < {min_count}")
 
         # Ensure propagation within the chain if needed
         self.nremover.propagate_chain()
@@ -242,7 +297,9 @@ class FilteringMethods:
             return self.nremover
 
         # Compute the minor allele counts for the loci
-        mac_mask = self.nremover._compute_mac_counts(min_count)
+        mac_mask = self.nremover._compute_mac_counts(
+            min_count, exclude_heterozygous=exclude_heterozygous
+        )
 
         self.logger.debug(f"mask {inspect.stack()[0][3]}: {mac_mask}")
         self.logger.debug(f"mask shape {inspect.stack()[0][3]}: {mac_mask.shape}")
@@ -275,12 +332,18 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def filter_maf(self, threshold: float):
-        """Filters loci where the minor allele frequency is below the threshold."""
-        if self.nremover.verbose:
-            self.logger.info(
-                f"Filtering loci with minor allele frequency < {threshold:.2f}"
-            )
+    def filter_maf(self, threshold: float) -> Any:
+        """Filters loci where the minor allele frequency is below the threshold.
+
+        Args:
+            threshold (float): The minimum minor allele frequency required to keep a locus.
+
+        Returns:
+            self: The NRemover2 object with the filtered alignment's boolean loci_indices array set.
+        """
+        self.logger.info(
+            f"Filtering loci with minor allele frequency < {threshold:.2f}"
+        )
 
         self.nremover.propagate_chain()
 
@@ -321,7 +384,7 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def filter_linked(self):
+    def filter_linked(self) -> Any:
         """
         Filters out linked loci based on VCF file CHROM information.
 
@@ -335,8 +398,7 @@ class FilteringMethods:
             FileNotFoundError: If the HDF5 file does not exist.
             KeyError: If the key 'chrom' is not present in the HDF5 file.
         """
-        if self.nremover.verbose:
-            self.logger.info("Filtering linked loci based on VCF file CHROM data.")
+        self.logger.info("Filtering linked loci based on VCF file CHROM data.")
 
         self.nremover.propagate_chain()
 
@@ -412,20 +474,18 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def filter_biallelic(self, exclude_heterozygous: bool):
-        """
-        Filters alignment to retain ONLY biallelic loci.
+    def filter_biallelic(self, exclude_heterozygous: bool = False) -> Any:
+        """Filters alignment to retain ONLY biallelic loci.
 
         Args:
-            exclude_heterozygous (bool, optional): If True, exclude heterozygous positions (IUPAC codes) from the biallelic filtering. Defaults to False.
+            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the biallelic filtering. This means that when set to True, only homozygous genotypes will be considered, and heterozygous genotypes will be ignored. Defaults to False.
 
         Returns:
             self: The NRemover2 object with the filtered alignment's boolean sample_indices array set.
         """
-        if self.nremover.verbose:
-            self.logger.info(
-                f"Filtering loci to retain only biallelic loci (exclude_heterozygous={exclude_heterozygous})."
-            )
+        self.logger.info(
+            f"Filtering loci to retain only biallelic loci (exclude_heterozygous={exclude_heterozygous})."
+        )
 
         self.nremover.propagate_chain()
 
@@ -452,7 +512,7 @@ class FilteringMethods:
             "K": ("G", "T"),  # G or T
             "M": ("A", "C"),  # A or C
         }
-        invalid_bases = np.array(["-", ".", "?", "N"])
+        invalid_bases = np.array(self.missing_vals)
 
         # Function to count unique valid bases
         def count_valid_bases(col, exclude_heterozygous):
@@ -501,20 +561,19 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def filter_monomorphic(self, exclude_heterozygous: bool):
-        """
-        Filters out monomorphic sites from an alignment. Monomorphic sites are those that contain only one unique valid allele.
+    def filter_monomorphic(self, exclude_heterozygous: bool = False) -> Any:
+        """Filters out monomorphic sites from an alignment. Monomorphic sites are those that contain only one unique valid allele.
 
         Args:
-            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the monomorphic filtering. Defaults to False.
+            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the monomorphic filtering.
+                                                Defaults to False.
 
         Returns:
             self: The NRemover2 object with the filtered alignment's boolean sample_indices array set.
         """
-        if self.nremover.verbose:
-            self.logger.info(
-                f"Filtering out monomorphic loci (exclude_heterozygous={exclude_heterozygous})."
-            )
+        self.logger.info(
+            f"Filtering out monomorphic loci (exclude_heterozygous={exclude_heterozygous})."
+        )
 
         self.nremover.propagate_chain()
 
@@ -524,23 +583,29 @@ class FilteringMethods:
             )
             return self.nremover
 
-        # Define invalid and ambiguous bases based on whether to exclude heterozygous sites
+        # Define invalid and ambiguous bases based on whether to exclude
+        # heterozygous sites
         if exclude_heterozygous:
-            invalid_bases = np.array(["-", ".", "?", "N", "R", "Y", "S", "W", "K", "M"])
+            invalid_bases = [self.exclude_hets]
         else:
-            invalid_bases = np.array(["-", ".", "?", "N"])
+            invalid_bases = [self.missing_vals]
 
-        # Function to count valid unique alleles in a column
-        def count_valid_alleles(col):
-            return np.count_nonzero([~np.isin(col, invalid_bases)])
+        # Filter out invalid bases and count the unique alleles in each column
+        polymorphic_mask = []
 
-        # Apply the count_valid_alleles function to each column
-        valid_allele_counts = np.squeeze(
-            np.apply_along_axis(count_valid_alleles, 0, self.nremover.alignment)
-        )
+        for i in range(self.nremover.alignment.shape[1]):
+            col = self.nremover.alignment[:, i]
+            # Filter out invalid bases
+            valid_alleles = col[~np.isin(col, invalid_bases)]
+            unique_alleles = np.unique(valid_alleles)
 
-        # Create a polymorphic loci mask (those with more than one valid allele)
-        polymorphic_mask = np.where(valid_allele_counts > 1, True, False)
+            # Check if the locus is polymorphic (more than one unique valid allele)
+            if len(unique_alleles) > 1:
+                polymorphic_mask.append(True)
+            else:
+                polymorphic_mask.append(False)
+
+        polymorphic_mask = np.array(polymorphic_mask, dtype=bool)
 
         # Map the polymorphic_mask back to the full loci_indices
         final_mask = np.logical_and(self.nremover.loci_indices, polymorphic_mask)
@@ -549,7 +614,6 @@ class FilteringMethods:
             self.logger.warning(
                 f"No data remain in the alignment after {inspect.stack()[0][3]}. Adjust filtering parameters."
             )
-            # Append this information to the filtering results dataframe
             return self.nremover
 
         t = None if self.nremover.search_mode else int(exclude_heterozygous)
@@ -559,18 +623,16 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def filter_singletons(self, exclude_heterozygous: bool):
-        """
-        Filters out singletons from an alignment. A singleton is defined as a locus where one variant appears only once.
+    def filter_singletons(self, exclude_heterozygous: bool = False) -> Any:
+        """Filters out singletons from an alignment. A singleton is defined as a locus where one variant appears only once.
 
         Args:
-            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the singleton filtering. Defaults to False.
+            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the singleton filtering. This means that when set to True, only homozygous genotypes will be considered, and heterozygous genotypes will be ignored. Defaults to False.
 
         Returns:
             self: The NRemover2 object with the filtered alignment's boolean sample_indices array set.
         """
-        if self.nremover.verbose:
-            self.logger.info("Filtering out singleton loci.")
+        self.logger.info("Filtering out singleton loci.")
 
         self.nremover.propagate_chain()
 
@@ -584,9 +646,9 @@ class FilteringMethods:
 
         # Define invalid bases based on whether we are excluding heterozygous positions
         if exclude_heterozygous:
-            invalid_bases = np.array(["-", ".", "?", "N", "R", "Y", "S", "W", "K", "M"])
+            invalid_bases = np.array(self.exclude_hets)
         else:
-            invalid_bases = np.array(["-", ".", "?", "N"])
+            invalid_bases = np.array(self.missing_vals)
 
         # Function to count valid alleles in a column
         def count_valid_alleles(col):
@@ -633,20 +695,16 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def random_subset_loci(self, size: Union[int, float]):
+    def random_subset_loci(self, size: Union[int, float]) -> Any:
         """Randomly subsets loci based on the `size` parameter.
 
         Args:
-            size (int or float): The number or proportion of loci to subset.
-                - If int, the exact number of loci to keep. Must be less than the total number of loci.
-                - If float, the proportion of loci to keep (must be in (0, 1]).
-                - If the number of loci to keep is greater than the total number of loci, the loci will be randomly sampled with replacement.
+            size (int or float): The number or proportion of loci to subset. If int, the exact number of loci to keep. Must be less than the total number of loci. If float, the proportion of loci to keep (must be in (0, 1]). If the number of loci to keep is greater than the total number of loci, the loci will be randomly sampled with replacement.
 
         Returns:
             self: The NRemover2 object with the filtered alignment's boolean loci_indices array set.
         """
-        if self.nremover.verbose:
-            self.logger.info("Randomly subsetting loci.")
+        self.logger.info("Randomly subsetting loci.")
 
         self.nremover.propagate_chain()
 
@@ -701,7 +759,7 @@ class FilteringMethods:
         return self.nremover
 
     @measure_execution_time
-    def thin_loci(self, size: Union[int, float]):
+    def thin_loci(self, size: Union[int, float]) -> Any:
         """Thins loci that are within `size` bases of another SNP.
 
         Uses the CHROM and POS fields of a VCF file to determine the locations of the loci.
@@ -712,8 +770,7 @@ class FilteringMethods:
         Returns:
             self: The NRemover2 object with the filtered alignment's boolean loci_indices array set.
         """
-        if self.nremover.verbose:
-            self.logger.infO(f"Thinning loci within {size} bases of another SNP.")
+        self.logger.infO(f"Thinning loci within {size} bases of another SNP.")
 
         self.nremover.propagate_chain()
 
@@ -778,7 +835,9 @@ class FilteringMethods:
 
         return self.nremover
 
-    def _append_global_list(self, method_name, loci_removed, loci_removed_prop):
+    def _append_global_list(
+        self, method_name: str, loci_removed: int, loci_removed_prop: float
+    ) -> None:
         self.nremover.df_global_list.append(
             pd.DataFrame(
                 {
@@ -792,7 +851,9 @@ class FilteringMethods:
             )
         )
 
-    def _append_sample_list(self, method_name, removed, removed_prop):
+    def _append_sample_list(
+        self, method_name: str, removed: int, removed_prop: float
+    ) -> None:
         self.nremover.df_sample_list.append(
             pd.DataFrame(
                 {
@@ -807,11 +868,10 @@ class FilteringMethods:
         )
 
     @measure_execution_time
-    def filter_missing_sample(self, threshold: float):
-        if self.nremover.verbose:
-            self.logger.info(
-                f"Filtering sequences (samples) with missing data proportion > {threshold:.2f}"
-            )
+    def filter_missing_sample(self, threshold: float) -> Any:
+        self.logger.info(
+            f"Filtering sequences (samples) with missing data proportion > {threshold:.2f}"
+        )
 
         self.nremover.propagate_chain()
 
@@ -836,7 +896,7 @@ class FilteringMethods:
             return self.nremover
 
         missing_counts = np.count_nonzero(
-            np.isin(alignment_array, ["-", ".", "?", "N"]), axis=1
+            np.isin(alignment_array, self.missing_vals), axis=1
         )
 
         # Calculate the proportion of missing data per sample based on the number of loci
@@ -875,14 +935,14 @@ class FilteringMethods:
         return self.nremover
 
     @staticmethod
-    def count_bases(column):
+    def count_bases(column: np.ndarray) -> Dict[str, int]:
         """Counts the occurrence of A, C, G, and T in the given column of SNP data, including handling heterozygous IUPAC characters by splitting counts among alleles.
 
         Args:
-            column (np.array): A numpy array of bases.
+            column (np.ndarray): A numpy array of bases.
 
         Returns:
-            dict: A dictionary with counts of 'A', 'C', 'G', 'T'.
+            Dict[str, int]: A dictionary with counts of 'A', 'C', 'G', 'T'.
         """
         # Define the target bases and initialize counts to zero
         base_count = {"A": 0, "C": 0, "G": 0, "T": 0}
@@ -913,7 +973,14 @@ class FilteringMethods:
     def _compute_maf_proportions(
         self, maf_threshold: float
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute MAF proportions and create a mask for loci based on the MAF threshold."""
+        """Compute MAF proportions and create a mask for loci based on the MAF threshold.
+
+        Args:
+            maf_threshold (float): The minimum minor allele frequency required to keep a locus.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: A tuple containing the MAF proportions and the mask for loci that pass the MAF threshold.
+        """
         alignment_array = (
             self.nremover.alignment[self.nremover.sample_indices, :][
                 :, self.nremover.loci_indices
@@ -951,8 +1018,15 @@ class FilteringMethods:
 
             return base_count
 
-        def minor_allele_frequency(column):
-            """Calculates the minor allele frequency for a given column of SNP data."""
+        def minor_allele_frequency(column: np.ndarray) -> float:
+            """Calculates the minor allele frequency for a given column of SNP data.
+
+            Args:
+                column (np.ndarray): A numpy array of bases.
+
+            Returns:
+                float: The minor allele frequency for the given column.
+            """
             counts = count_bases(column)
             valid_bases = {"A", "C", "G", "T"}
             counts = {
@@ -973,9 +1047,13 @@ class FilteringMethods:
         maf = np.apply_along_axis(minor_allele_frequency, 0, alignment_array)
         return maf >= maf_threshold
 
-    def _calculate_minor_allele_counts(self) -> np.ndarray:
-        """
-        Calculate the minor allele counts (MAC) for each locus in the alignment.
+    def _calculate_minor_allele_counts(
+        self, exclude_heterozygous: bool = False
+    ) -> np.ndarray:
+        """Calculate the minor allele counts (MAC) for each locus in the alignment.
+
+        Args:
+            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the MAC calculation. Defaults to False.
 
         Returns:
             np.ndarray: An array containing the minor allele count for each locus.
@@ -994,12 +1072,23 @@ class FilteringMethods:
             self.logger.warning(msg)
             return np.zeros(alignment_array.shape[1], dtype=int)
 
-        def count_bases(column):
-            """
-            Count occurrences of A, C, G, and T in a SNP data column, distributing heterozygous counts across alleles.
+        def count_bases(column: np.ndarray) -> Dict[str, int]:
+            """Count occurrences of A, C, G, and T in a SNP data column, distributing heterozygous counts across alleles.
+
+            Args:
+                column (np.ndarray): A numpy array of bases.
+
+            Returns:
+                Dict[str, int]: A dictionary with counts of 'A', 'C', 'G', 'T'.
             """
             base_count = {"A": 0, "C": 0, "G": 0, "T": 0}
-            valid_bases = np.array(["A", "C", "G", "T"])
+
+            if exclude_heterozygous:
+                valid_bases = np.array(["A", "C", "G", "T"])
+            else:
+                valid_bases = np.array(
+                    ["A", "C", "G", "T", "R", "Y", "S", "W", "K", "M"]
+                )
 
             for base in valid_bases:
                 base_count[base] = np.sum(column == base)
@@ -1017,8 +1106,15 @@ class FilteringMethods:
 
             return base_count
 
-        def minor_allele_count(column):
-            """Calculates the minor allele count for a given column of SNP data."""
+        def minor_allele_count(column: np.ndarray) -> int:
+            """Calculates the minor allele count for a given column of SNP data.
+
+            Args:
+                column (np.ndarray): A numpy array of bases.
+
+            Returns:
+                int: The minor allele count for the given column.
+            """
             counts = count_bases(column)
             valid_bases = {"A", "C", "G", "T"}
             counts = {
@@ -1034,5 +1130,4 @@ class FilteringMethods:
 
         # Calculate MAC for each column (locus) in the alignment_array
         mac = np.apply_along_axis(minor_allele_count, 0, alignment_array)
-
         return mac

@@ -165,3 +165,11 @@ profile_stats_*.txt
 data_sorted.txt
 data.txt
 header.txt
+
+snpio_filtered_output/
+
+vcf_output/
+
+.vscode/
+
+logs/

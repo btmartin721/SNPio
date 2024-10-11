@@ -4,6 +4,32 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.1.0 (2024-10-08)
+----------------------------
+
+Features
+~~~~~~~~~
+
+- Full refactor of the codebase to improve user-friendliness, maintainability and readability.
+    - Method chaining: All functions now return the object itself, allowing for method chaining and custom filtering orders with ``NRemover2``.
+    - Most objects now just take a ``GenotypeData`` object as input, making the code more modular and easier to maintain.
+    - Improved documentation and docstrings.
+    - Improved error handling.
+    - Improved logging. All logging is now done with the Python logging module via the custom ``LoggerManager`` class.
+    - Improved testing.
+    - Improved performance.
+        - Reduced memory usage.
+        - Reduced disk usage.
+        - Reduced CPU usage.
+        - Reduced execution time, particularly for reading, loading, filtering, and processing large VCF files.
+    - Improved plotting.
+    - Improved data handling.
+    - Improved file handling. All filenames now use pathlib.Path objects.
+    - Code modularity: Many functions are now in separate modules for better organization.
+    - Full unit tests for all functions.
+    - Full integration tests for all functions.
+    - Full documentation for all functions.
+
 Version 1.0.5 (2023-09-16)
 ----------------------------
 
@@ -98,4 +124,3 @@ Initial Release
     - Filters by minor allele frequence, monomorphic, and non-billelic sites
     - Filters with global (whole columns) and per-population, per-locus missing data thresholds.
 - Makes informative plots.
-

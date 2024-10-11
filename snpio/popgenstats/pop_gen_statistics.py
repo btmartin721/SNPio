@@ -1,31 +1,29 @@
+from ast import Not
+import multiprocessing
+from collections import Counter
+
+from functools import partial
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from scipy.stats import norm
-import multiprocessing
-from scipy.stats import chi2
+from kneed import KneeLocator
+from scipy.stats import chi2, norm
 from sklearn.decomposition import PCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_squared_error
-from kneed import KneeLocator
 
 # from ete3 import Tree
 from sklearn.model_selection import train_test_split
-
-# from xgboost import XGBClassifier
-# import allel
-from functools import partial
-import sys
-from collections import Counter
-
-from snpio.plotting.plotting import Plotting
-from snpio.filtering.nremover2 import NRemover2 as NRemover
-from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
+
+from snpio.filtering.nremover2 import NRemover2 as NRemover
+from snpio.plotting.plotting import Plotting
 
 
 class PopGenStatistics:
-    def __init__(self, popgenio):
+    def __init__(self, popgenio: Any) -> None:
         raise NotImplemented("PopGenStatistics has not yet been implemented.")
         if popgenio.filtered_alignment is not None:
             self.alignment = popgenio.filtered_alignment
@@ -273,9 +271,7 @@ class PopGenStatistics:
                 results_list = p.map(run_permutations_partial, sample_combinations)
                 results_df = pd.concat(results_list)
 
-        results_df.reset_index(drop=True, inplace=True)
-
-        return results_df
+        return results_df.reset_index(drop=True)
 
     def _run_permutations(self, test_type, n_boot, samples):
         """
@@ -521,6 +517,7 @@ class PopGenStatistics:
         return summary_stats
 
     def perform_amova(self):
+        raise NotImplementedError("AMOVA has not yet been implemented.")
         # Convert self.alignment to allel.HaplotypeArray format
         haplotype_array = allel.HaplotypeArray(self.alignment)
 
@@ -536,6 +533,7 @@ class PopGenStatistics:
         return amova_results
 
     def perform_samova(self, n_groups):
+        raise NotImplementedError("SAMOVA has not yet been implemented.")
         # Convert self.alignment to allel.HaplotypeArray format
         haplotype_array = allel.HaplotypeArray(self.alignment)
 
@@ -689,6 +687,7 @@ class PopGenStatistics:
         # tree = Tree(tree_file)
 
     def _impute_phylogeny(self, tree_file):
+        raise NotImplementedError("Phylogeny imputation has not yet been implemented.")
         if tree_file is None:
             raise ValueError(
                 "tree_file is required when using the phylogeny imputation method."

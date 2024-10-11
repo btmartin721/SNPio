@@ -11,7 +11,7 @@ snpio.utils.misc module
    :members:
    :show-inheritance:
 
-snpio.utils.sequence\_tools module
+snpio.utils.sequence_tools module
 ----------------------------------
 
 .. automodule:: snpio.utils.sequence_tools
