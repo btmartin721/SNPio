@@ -1,10 +1,10 @@
-snpio.read\_input package
+snpio.read_input package
 =========================
 
 Submodules
 ----------
 
-snpio.read\_input.genotype\_data module
+snpio.read_input.genotype_data module
 ---------------------------------------
 
 .. automodule:: snpio.read_input.genotype_data
@@ -12,7 +12,7 @@ snpio.read\_input.genotype\_data module
    :noindex:
    :show-inheritance:
 
-snpio.read\_input.popmap\_file module
+snpio.read_input.popmap_file module
 -------------------------------------
 
 .. automodule:: snpio.read_input.popmap_file
