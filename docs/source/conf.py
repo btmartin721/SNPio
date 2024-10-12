@@ -1,34 +1,57 @@
 import os
 import sys
 
-# Ensure path to project root is correct
-sys.path.insert(0, os.path.abspath("../.."))
-
+# -- Project information -----------------------------------------------------
 project = "SNPio"
 copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
 author = "Bradley T. Martin and Tyler K. Chafin"
 release = "1.1.0"
 
-# Sphinx extensions for documentation
+# -- Path setup --------------------------------------------------------------
+# Add the project's root directory to sys.path
+sys.path.insert(0, os.path.abspath("../.."))
+
+# -- Sphinx Extensions -------------------------------------------------------
+# Add extensions for autodoc, type hints, and more
 extensions = [
     "sphinx.ext.autodoc",
-    "sphinx.ext.napoleon",
-    "sphinx_autodoc_typehints",  # Ensure this package is installed
-    "sphinx.ext.todo",
+    "sphinx.ext.napoleon",  # Supports Google-style docstrings
+    "sphinx_autodoc_typehints",  # Type hints in function signatures
+    "sphinx.ext.todo",  # To-do directives in documentation
+    "sphinx.ext.viewcode",  # Add links to highlighted source code
 ]
 
-# Include todos in the documentation
+# Enable displaying todos
 todo_include_todos = True
 
-# Paths for templates
+# -- HTML output theme and customization -------------------------------------
+html_theme = "sphinx_rtd_theme"  # Read the Docs theme
+
+html_context = {
+    "display_github": True,  # Enable GitHub integration
+    "github_user": "btmartin721",  # GitHub username
+    "github_repo": "SNPio",  # GitHub repo
+    "github_version": "master",  # Branch to use
+    "conf_py_path": "/docs/source/",  # Path to docs in the repo
+    "current_version": "v1.1.0",  # Project version
+    "display_version": True,  # Display version number in the theme
+    "latest_version": "master",  # Define the latest stable version
+    "display_edit_on_github": True,  # Add 'Edit on GitHub' link
+}
+
+# Set paths for templates and static files (custom CSS)
 templates_path = ["_templates"]
+html_static_path = ["_static"]
 
-# Files or directories to ignore during documentation
-exclude_patterns = ["**/setup.rst", "**/tests.rst"]
+# Custom logo and favicon
+html_logo = "../../img/snpio_logo.png"
 
-# HTML output theme
-html_theme = "sphinx_rtd_theme"
 
-# Optional GitHub URL (not supported natively by sphinx_rtd_theme)
-# You may want to integrate this using a custom extension
-github_url = "https://github.com/btmartin721/SNPio"
+# Add custom CSS for further styling if needed
+def setup(app):
+    app.add_css_file("custom.css")  # Use a custom CSS file (if needed)
+
+
+# -- General configuration ---------------------------------------------------
+# Files or directories to ignore during build
+exclude_patterns = ["**/setup.rst", "**/tests.rst", "_build", "Thumbs.db", ".DS_Store"]
