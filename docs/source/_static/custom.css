@@ -1,0 +1,22 @@
+/* Style for the figure container */
+.custom-figure {
+    border: 1px solid #ddd;
+    padding: 10px;
+    margin: 20px auto;
+    text-align: center;
+    background-color: #f9f9f9;
+}
+
+/* Style for the figure caption */
+.custom-figure .caption {
+    font-style: normal;
+    font-size: 14px;
+    color: #333;
+    margin-top: 5px;
+}
+
+/* Bold style for the "Figure X:" part */
+.custom-figure .caption strong {
+    font-weight: bold;
+    font-style: normal;
+}
