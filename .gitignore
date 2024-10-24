@@ -173,3 +173,6 @@ vcf_output/
 .vscode/
 
 logs/
+_minted-input
+
+docs/source/*.rst
