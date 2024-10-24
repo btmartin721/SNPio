@@ -165,7 +165,7 @@ class GenotypeData(BaseGenotypeData):
         Args:
             filename (str, optional): Path to input file containing genotypes. Defaults to None.
 
-            filetype (str, optional): Type of input genotype file. Possible values include: 'phylip', 'structure', 'vcf', or '012'. Defaults to None.
+            filetype (str, optional): Type of input genotype file. Possible values include: 'phylip', 'structure', 'vcf', 'tree', or '012'. Defaults to None.
 
             popmapfile (str, optional): Path to population map file. If supplied and filetype is one of the STRUCTURE formats, then the structure file is assumed to have NO popID column. Defaults to None.
 
@@ -239,7 +239,7 @@ class GenotypeData(BaseGenotypeData):
         self.verbose = verbose
         self.chunk_size = chunk_size
 
-        self.supported_filetypes = ["vcf", "phylip", "structure"]
+        self.supported_filetypes = ["vcf", "phylip", "structure", "tree"]
         self._snp_data = None
         self.logger = logger
         self.debug = debug
@@ -287,8 +287,8 @@ class GenotypeData(BaseGenotypeData):
         self._popmap: Dict[str, Union[str, int]] = None
         self._popmap_inverse: Dict[str, List[str]] = None
 
-        self.loci_indices = loci_indices
-        self.sample_indices = sample_indices
+        self._loci_indices = loci_indices
+        self._sample_indices = sample_indices
 
         if self.filetype not in self.supported_filetypes:
             msg = f"Unsupported filetype provided to GenotypeData: {self.filetype}"
@@ -298,8 +298,8 @@ class GenotypeData(BaseGenotypeData):
             )
 
         self.kwargs["filetype"] = self.filetype
-        self.kwargs["loci_indices"] = self.loci_indices
-        self.kwargs["sample_indices"] = self.sample_indices
+        self.kwargs["loci_indices"] = self._loci_indices
+        self.kwargs["sample_indices"] = self._sample_indices
 
         self.iupac_mapping: Dict[Tuple[str, str], str] = self._iupac_from_gt_tuples()
 
