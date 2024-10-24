@@ -171,3 +171,12 @@ class LoggerManager:
         """
         if handler in self.logger.handlers:
             self.logger.removeHandler(handler)
+
+    def change_name(self, new_name: str) -> None:
+        """Changes the name of the logger.
+
+        Args:
+            new_name (str): The new name for the logger.
+        """
+        self.logger.name = new_name
+        self.name = new_name
