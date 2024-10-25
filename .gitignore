@@ -161,3 +161,15 @@ profile_stats_*.txt
 
 # pipenv
 #Pipfile.lock
+
+header.txt
+keybindings.json
+tasks.json
+data_sorted.txt
+data.txt
+filtered_missingness_report.png
+pca_missingness.html
+filtered_missingness_report.png
+pca_missingness.png
+
+filtering_results_sankey_thresholds*.html
