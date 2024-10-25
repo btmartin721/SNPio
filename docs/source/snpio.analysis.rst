@@ -15,7 +15,7 @@ snpio.analysis.genotype\_encoder module
 snpio.analysis.tree\_builder module
 -----------------------------------
 
-.. automodule:: snpio.analysis.tree_builder
+.. automodule:: snpio.analysis.tree_parser
    :members:
    :undoc-members:
    :show-inheritance:
