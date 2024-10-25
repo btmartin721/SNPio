@@ -4,6 +4,32 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.1.1 (2024-10-25)
+----------------------------
+
+Features
+~~~~~~~~~
+
+- Updated tree parsing functionality and added it to the ``TreeParser`` class in the ``analysis/tree_parser.py`` module to conform to refactor, and added new functionality to parse, modify, draw, and save Newick and NEXUS tree files.
+- ``siterates`` and ``qmatrix`` files now dynamically determine if they are in IQ-TREE format or if they are just in a simple tab-delimited or comma-delimited format.
+- ``site_rates`` and ``qmat`` are now read in as pandas DataFrames with less complex logic.
+- Added unit test for tree parsing.
+- Added integration test for tree parsing.
+- Added documentation for tree parsing.
+
+Bug Fixes
+~~~~~~~~~~
+
+- Fixed bug where the ``PhylipReader`` and ``StructureReader`` classes did not have the ``verbose`` and ``debug`` attributes.
+
+Changes
+~~~~~~~~
+
+- ``q`` property is now called ``qmat`` for clarity and easier searching in files.
+- Removed redundant ``siterates_iqtree`` and ``qmatrix_iqtree`` arguments attributes from the ``GenotypeData``, ``VCFReader``, ``PhylipReader``, ``StructureReader``, and ``TreeParser`` classes.
+- Added error handling for tree parsing.
+- Added error handling for ``siterates`` and ``qmatrix`` files.
+
 Version 1.1.0 (2024-10-08)
 ----------------------------
 
