@@ -518,6 +518,75 @@ You can also inversely convert the encoded data back to the original genotypes b
 
 This will automatically update the original genotype data in the GenotypeData object and convert it to the original format stored in the ``snp_data`` property of the GenotypeData object.
 
+Loading and Parsing Phylogenetic TreeParser
+-------------------------------------------
+
+SNPio also provides a ``TreeParser`` class to load and parse phylogenetic trees in Newick and NEXUS formats. The ``TreeParser`` class can read and parse tree files, modify tree structures, draw trees, and save trees in different formats.
+
+Here is an example of how to load and parse a phylogenetic tree using the ``TreeParser`` class:
+
+.. code-block:: python
+
+  from snpio import TreeParser
+
+  # Load a phylogenetic tree from a Newick file
+  tp = TreeParser("example_data/trees/test.tre", siterates="example_data/trees/test14K.rates", qmatrix="example_data/trees/test.iqtree", verbose=True)
+
+  tree = tp.read_tree()
+
+  # Save the tree in Newick format
+  tp.write_tree(tree, save_path="example_data/trees/test_newick.tre")
+
+  # Save the tree in NEXUS format
+  tp.write_tree(tree, save_path="example_data/trees/test_nexus.nex", nexus=True)
+
+  # Returns the tree in Newick format as a string
+  tp.write_tree(tree, save_path=None)
+
+  # Get the tree stats. Returns a dictionary of tree stats.
+  print(tp.tree_stats())
+
+  # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
+  # Use the '~' character to specify a regular expression pattern to match.
+  tp.reroot_tree("~EA")
+
+  # Get a distance matrix between all nodes in the tree.
+  print(tp.get_distance_matrix())
+
+  # Get the Rate Matrix Q from the Qmatrix file.
+  print(tp.qmat)
+
+  # Get the Site Rates from the Site Rates file.
+  print(tp.site_rates)
+
+  # Get a subtree with only the samples containing 'EA' in the sampleID.
+  # Use the '~' character to specify a regular expression pattern to select all
+  # tips containing the pattern.
+  subtree = tp.get_subtree("~EA")
+
+  # Prune the tree to remove samples containing 'ON' in the sampleID.
+  pruned_tree = tp.prune_tree("~ON")
+
+  # Write the subtree and pruned tree. Returns a Newick string if 'save_path'
+  # is None. Otherwise saves it to 'save_path'.
+  print(tp.write_tree(subtree, save_path=None))
+  print(tp.write_tree(pruned_tree, save_path=None))
+
+
+The ``TreeParser`` class provides several methods for working with phylogenetic trees, including reading, writing, and modifying trees. You can use these methods to analyze and manipulate phylogenetic trees for your research and analysis tasks.
+
+The ``TreeParser`` class also provides methods for calculating tree statistics, rerooting trees, getting distance matrices, and extracting subtrees based on sample IDs. These methods can help you analyze and visualize phylogenetic trees and extract relevant information for downstream analysis.
+
+The ``Rate matrix Q`` and ``Site Rates`` can be accessed from the Qmatrix and Site Rates files, respectively. These matrices can be used to calculate evolutionary distances and rates between samples in the phylogenetic tree. The ``siterates`` file can be output by IQ-TREE or specified as a one-column file with the rates for each site in the alignment (header optional). The ``qmatrix`` file can be obtained from the IQ-TREE standard output ('.iqtree' file) or from a stand-alone Qmatrix file with the rate matrix Q. In the latter case, the file should be a tab-delimited or comma-delimited file with the rate matrix Q with substitution rates in the order: "A, "C", "G", "T". A header line is optional.
+
+The rate matrix and site rates objects can be accessed by their corresponding properties:
+
+- ``tp.qmat``: Rate matrix Q.
+- ``tp.site_rates``: Site rates.
+
+For more information on the ``TreeParser`` class and its methods, please refer to the API documentation.
+
+
 Benchmarking the Performance
 ----------------------------
 
