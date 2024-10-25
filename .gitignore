@@ -162,6 +162,19 @@ profile_stats_*.txt
 # pipenv
 #Pipfile.lock
 
+data_sorted.txt
+data.txt
+header.txt
+
+snpio_filtered_output/
+
+vcf_output/
+
+.vscode/
+
+logs/
+_minted-input
+
 header.txt
 keybindings.json
 tasks.json

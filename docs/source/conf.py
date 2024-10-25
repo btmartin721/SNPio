@@ -1,70 +1,57 @@
-# Configuration file for the Sphinx documentation builder.
-#
-# This file only contains a selection of the most common options. For a full
-# list see the documentation:
-# https://www.sphinx-doc.org/en/master/usage/configuration.html
-
-# -- Path setup --------------------------------------------------------------
-
-# If extensions (or modules to document with autodoc) are in another directory,
-# add these directories to sys.path here. If the directory is relative to the
-# documentation root, use os.path.abspath to make it absolute, like shown here.
-#
 import os
 import sys
-import sphinx_rtd_theme
-
-
-sys.path.insert(0, os.path.abspath("../.."))
-autodoc_mock_imports = ["cyvcf2"]
-
 
 # -- Project information -----------------------------------------------------
-
 project = "SNPio"
 copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
 author = "Bradley T. Martin and Tyler K. Chafin"
+release = "1.1.0"
 
-# The full version, including alpha/beta/rc tags
-release = "1.0"
+# -- Path setup --------------------------------------------------------------
+# Add the project's root directory to sys.path
+sys.path.insert(0, os.path.abspath("../.."))
+
+# -- Sphinx Extensions -------------------------------------------------------
+# Add extensions for autodoc, type hints, and more
+extensions = [
+    "sphinx.ext.autodoc",
+    "sphinx.ext.napoleon",  # Supports Google-style docstrings
+    "sphinx_autodoc_typehints",  # Type hints in function signatures
+    "sphinx.ext.todo",  # To-do directives in documentation
+    "sphinx.ext.viewcode",  # Add links to highlighted source code
+]
+
+# Enable displaying todos
+todo_include_todos = True
+
+# -- HTML output theme and customization -------------------------------------
+html_theme = "sphinx_rtd_theme"  # Read the Docs theme
+
+html_context = {
+    "display_github": True,  # Enable GitHub integration
+    "github_user": "btmartin721",  # GitHub username
+    "github_repo": "SNPio",  # GitHub repo
+    "github_version": "master",  # Branch to use
+    "conf_py_path": "/docs/source/",  # Path to docs in the repo
+    "current_version": "v1.1.0",  # Project version
+    "display_version": True,  # Display version number in the theme
+    "latest_version": "master",  # Define the latest stable version
+    "display_edit_on_github": True,  # Add 'Edit on GitHub' link
+}
+
+# Set paths for templates and static files (custom CSS)
+templates_path = ["_templates"]
+html_static_path = ["_static"]
+
+# Custom logo and favicon
+html_logo = "../../img/snpio_logo.png"
+
+
+# Add custom CSS for further styling if needed
+def setup(app):
+    app.add_css_file("custom.css")  # Use a custom CSS file (if needed)
 
 
 # -- General configuration ---------------------------------------------------
-
-# Add any Sphinx extension module names here, as strings. They can be
-# extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
-# ones.
-extensions = [
-    "sphinx.ext.autodoc",
-    "sphinx.ext.napoleon",
-    "sphinx_autodoc_typehints",
-    "sphinx.ext.todo",
-]
-
-# Display todos by setting to True
-todo_include_todos = True
-
-
-# Add any paths that contain templates here, relative to this directory.
-templates_path = ["_templates"]
-
-# List of patterns, relative to source directory, that match files and
-# directories to ignore when looking for source files.
-# This pattern also affects html_static_path and html_extra_path.
-exclude_patterns = ["**/setup.rst", "**/tests.rst"]
-
-
-# -- Options for HTML output -------------------------------------------------
-
-# The theme to use for HTML and HTML Help pages.  See the documentation for
-# a list of builtin themes.
-#
-html_theme = "sphinx_rtd_theme"
-html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
-
-github_url = "https://github.com/btmartin721/SNPio"
-
-# Add any paths that contain custom static files (such as style sheets) here,
-# relative to this directory. They are copied after the builtin static files,
-# so a file named "default.css" will overwrite the builtin "default.css".
-# html_static_path = ["_static"]
+# Files or directories to ignore during build
+exclude_patterns = ["**/setup.rst", "**/tests.rst", "_build", "Thumbs.db", ".DS_Store"]

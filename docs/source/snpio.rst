@@ -9,9 +9,11 @@ Subpackages
 
    snpio.filtering
    snpio.plotting
-   snpio.popgenstats
+   snpio.io
+   snpio.analysis
    snpio.read_input
    snpio.utils
+   snpio.popgenstats
 
 Module contents
 ---------------

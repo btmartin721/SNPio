@@ -1,30 +1,29 @@
-import numpy as np
-import pandas as pd
-from scipy.stats import norm
+from ast import Not
 import multiprocessing
-from scipy.stats import chi2
-from sklearn.decomposition import PCA
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
-from kneed import KneeLocator
-from ete3 import Tree
-from sklearn.model_selection import train_test_split
-
-# from xgboost import XGBClassifier
-# import allel
-from functools import partial
-import sys
 from collections import Counter
 
-from snpio.plotting.plotting import Plotting
-from snpio.filtering.nremover2 import NRemover2 as NRemover
+from functools import partial
+from typing import Any
+
+import numpy as np
+import pandas as pd
+from kneed import KneeLocator
+from scipy.stats import chi2, norm
+from sklearn.decomposition import PCA
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.impute import SimpleImputer
+from sklearn.metrics import mean_squared_error
+
+# from ete3 import Tree
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import OneHotEncoder
+
+from snpio.filtering.nremover2 import NRemover2 as NRemover
+from snpio.plotting.plotting import Plotting
 
 
 class PopGenStatistics:
-    def __init__(self, popgenio):
+    def __init__(self, popgenio: Any) -> None:
         raise NotImplemented("PopGenStatistics has not yet been implemented.")
         if popgenio.filtered_alignment is not None:
             self.alignment = popgenio.filtered_alignment
@@ -36,9 +35,7 @@ class PopGenStatistics:
         self.nremover = NRemover(popgenio)
 
     def patterson_d_statistic_permutation(self, d1, d2, d3, outgroup):
-        alignment_array = np.array(
-            [list(rec) for rec in self.alignment], dtype=str
-        )
+        alignment_array = np.array([list(rec) for rec in self.alignment], dtype=str)
 
         d1_base = alignment_array[d1, :]
         d2_base = alignment_array[d2, :]
@@ -54,12 +51,8 @@ class PopGenStatistics:
             )
         )
 
-        abba_mask = np.logical_and(
-            d1_base == d2_base, d3_base == outgroup_base
-        )
-        baba_mask = np.logical_and(
-            d1_base == d3_base, d2_base == outgroup_base
-        )
+        abba_mask = np.logical_and(d1_base == d2_base, d3_base == outgroup_base)
+        baba_mask = np.logical_and(d1_base == d3_base, d2_base == outgroup_base)
 
         abba_count = np.sum(np.logical_and(abba_mask, not_gap_mask))
         baba_count = np.sum(np.logical_and(baba_mask, not_gap_mask))
@@ -70,9 +63,7 @@ class PopGenStatistics:
         return d_statistic
 
     def partitioned_d_statistic_permutation(self, d1, d2, d3, d4, outgroup):
-        alignment_array = np.array(
-            [list(rec) for rec in self.alignment], dtype=str
-        )
+        alignment_array = np.array([list(rec) for rec in self.alignment], dtype=str)
 
         d1_base = alignment_array[d1, :]
         d2_base = alignment_array[d2, :]
@@ -163,9 +154,7 @@ class PopGenStatistics:
                 continue
 
             # Calculate site pattern
-            pattern = "".join(
-                ["A" if a == alleles[4] else "B" for a in alleles[:4]]
-            )
+            pattern = "".join(["A" if a == alleles[4] else "B" for a in alleles[:4]])
 
             # Increment the corresponding site pattern count
             if pattern in site_patterns:
@@ -271,26 +260,18 @@ class PopGenStatistics:
                                        for each permutation.
         """
         # Create a partial function with the fixed test_type and n_boot arguments
-        run_permutations_partial = partial(
-            self._run_permutations, test_type, n_boot
-        )
+        run_permutations_partial = partial(self._run_permutations, test_type, n_boot)
 
         if n_processes is None or n_processes <= 1:
             # Run permutations sequentially
-            results_df = pd.concat(
-                map(run_permutations_partial, sample_combinations)
-            )
+            results_df = pd.concat(map(run_permutations_partial, sample_combinations))
         else:
             # Run permutations in parallel
             with multiprocessing.Pool(n_processes) as p:
-                results_list = p.map(
-                    run_permutations_partial, sample_combinations
-                )
+                results_list = p.map(run_permutations_partial, sample_combinations)
                 results_df = pd.concat(results_list)
 
-        results_df.reset_index(drop=True, inplace=True)
-
-        return results_df
+        return results_df.reset_index(drop=True)
 
     def _run_permutations(self, test_type, n_boot, samples):
         """
@@ -381,11 +362,7 @@ class PopGenStatistics:
 
         allele_counts = [
             Counter(
-                [
-                    seq[pos]
-                    for seq in pop_seqs
-                    if seq[pos] != "-" and seq[pos] != "N"
-                ]
+                [seq[pos] for seq in pop_seqs if seq[pos] != "-" and seq[pos] != "N"]
             )
             for pos in range(len(pop_seqs[0]))
         ]
@@ -401,9 +378,7 @@ class PopGenStatistics:
 
         return sfs
 
-    def calculate_2d_sfs(
-        self, population1, population2, filter_singletons=False
-    ):
+    def calculate_2d_sfs(self, population1, population2, filter_singletons=False):
         pop1_seqs = self.nremover.get_population_sequences(population1)
         pop2_seqs = self.nremover.get_population_sequences(population2)
         num_samples1 = len(pop1_seqs)
@@ -411,22 +386,14 @@ class PopGenStatistics:
 
         allele_counts1 = [
             Counter(
-                [
-                    seq[pos]
-                    for seq in pop1_seqs
-                    if seq[pos] != "-" and seq[pos] != "N"
-                ]
+                [seq[pos] for seq in pop1_seqs if seq[pos] != "-" and seq[pos] != "N"]
             )
             for pos in range(len(pop1_seqs[0]))
         ]
 
         allele_counts2 = [
             Counter(
-                [
-                    seq[pos]
-                    for seq in pop2_seqs
-                    if seq[pos] != "-" and seq[pos] != "N"
-                ]
+                [seq[pos] for seq in pop2_seqs if seq[pos] != "-" and seq[pos] != "N"]
             )
             for pos in range(len(pop2_seqs[0]))
         ]
@@ -471,10 +438,7 @@ class PopGenStatistics:
                 - (total_allele_counts**2).sum() / total_allele_counts.sum()
             )
             a = (p**2).div(nc, axis=0).sum(axis=0) - p_mean**2
-            b = (
-                p.mul(1 - p, axis=0).div(nc, axis=0).sum(axis=0)
-                - (1 - p_mean) * p_mean
-            )
+            b = p.mul(1 - p, axis=0).div(nc, axis=0).sum(axis=0) - (1 - p_mean) * p_mean
 
             fst = a / (a + b)
             return fst
@@ -505,9 +469,7 @@ class PopGenStatistics:
         Returns:
             pd.Series: A pandas Series containing the expected heterozygosity values.
         """
-        allele_freqs = (
-            self.alignment.replace({0: np.nan, 2: np.nan}).mean(axis=0) / 2
-        )
+        allele_freqs = self.alignment.replace({0: np.nan, 2: np.nan}).mean(axis=0) / 2
         he = 2 * allele_freqs * (1 - allele_freqs)
         return he
 
@@ -547,9 +509,7 @@ class PopGenStatistics:
         pi = self.nucleotide_diversity()
         fst = self.wrights_fst()
 
-        summary_stats = pd.DataFrame(
-            {"Ho": ho, "He": he, "Pi": pi, "Fst": fst}
-        )
+        summary_stats = pd.DataFrame({"Ho": ho, "He": he, "Pi": pi, "Fst": fst})
 
         if save_plots:
             self.plotting.plot_summary_statistics(summary_stats)
@@ -557,6 +517,7 @@ class PopGenStatistics:
         return summary_stats
 
     def perform_amova(self):
+        raise NotImplementedError("AMOVA has not yet been implemented.")
         # Convert self.alignment to allel.HaplotypeArray format
         haplotype_array = allel.HaplotypeArray(self.alignment)
 
@@ -567,13 +528,12 @@ class PopGenStatistics:
         ]
 
         # Perform AMOVA
-        amova_results = allel.stats.distance.amova(
-            haplotype_array, pop_indices
-        )
+        amova_results = allel.stats.distance.amova(haplotype_array, pop_indices)
 
         return amova_results
 
     def perform_samova(self, n_groups):
+        raise NotImplementedError("SAMOVA has not yet been implemented.")
         # Convert self.alignment to allel.HaplotypeArray format
         haplotype_array = allel.HaplotypeArray(self.alignment)
 
@@ -590,9 +550,7 @@ class PopGenStatistics:
 
         return samova_results
 
-    def perform_pca(
-        self, n_components="auto", save_plot=True, plot_dimensions=2
-    ):
+    def perform_pca(self, n_components="auto", save_plot=True, plot_dimensions=2):
         """
         Perform Principal Components Analysis (PCA) on self.alignment.
 
@@ -625,9 +583,7 @@ class PopGenStatistics:
         }
 
         # Convert the input alignment to a numpy array of sequences
-        alignment_array = np.array(
-            [list(str(record.seq)) for record in self.alignment]
-        )
+        alignment_array = np.array([list(str(record.seq)) for record in self.alignment])
 
         alignment_array = np.array(
             [[char_to_int[char] for char in row] for row in alignment_array]
@@ -654,15 +610,11 @@ class PopGenStatistics:
         pca.fit(X)
 
         if save_plot:
-            self.plotting.plot_pca(
-                pca, X, self.popmap, dimensions=plot_dimensions
-            )
+            self.plotting.plot_pca(pca, X, self.popmap, dimensions=plot_dimensions)
 
         return pca
 
-    def perform_dapc(
-        self, n_components=None, save_plot=True, plot_dimensions=2
-    ):
+    def perform_dapc(self, n_components=None, save_plot=True, plot_dimensions=2):
         """
         Perform Discriminant Analysis of Principal Components (DAPC) on self.alignment.
 
@@ -704,9 +656,7 @@ class PopGenStatistics:
         dapc.fit(pca_transformed, self.popmap["PopulationID"])
 
         if save_plot:
-            self.plotting.plot_dapc(
-                dapc, self.popmap, dimensions=plot_dimensions
-            )
+            self.plotting.plot_dapc(dapc, self.popmap, dimensions=plot_dimensions)
 
         return dapc
 
@@ -734,16 +684,17 @@ class PopGenStatistics:
             )
 
         # Load the tree
-        tree = Tree(tree_file)
+        # tree = Tree(tree_file)
 
     def _impute_phylogeny(self, tree_file):
+        raise NotImplementedError("Phylogeny imputation has not yet been implemented.")
         if tree_file is None:
             raise ValueError(
                 "tree_file is required when using the phylogeny imputation method."
             )
 
         # Load the tree
-        tree = Tree(tree_file)
+        # tree = Tree(tree_file)
 
         # Impute missing genotypes using the phylogenetic tree
         for site in self.alignment.columns:
@@ -755,6 +706,4 @@ class PopGenStatistics:
                         node = node.get_closest_leaf()[0]
 
                     # Impute the missing genotype with the genotype of the nearest non-missing neighbor
-                    self.alignment.at[sample, site] = self.alignment.at[
-                        node.name, site
-                    ]
+                    self.alignment.at[sample, site] = self.alignment.at[node.name, site]

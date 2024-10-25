@@ -1,355 +1,624 @@
 Getting Started
-====================
+===============
 
-This guide provides an overview of how to get started with the SNPio library. It covers the basic steps to read, manipulate, and analyze genotype data using the `GenotypeData` class.
+.. image:: ../../img/snpio_logo.png
+  :align: center
+  :alt: SNPio Logo
+  :width: 800px
+  :height: 400px
+  :scale: 100%
+  :class: img-responsive
+
+
+This guide provides an overview of how to get started with the SNPio library. It covers the basic steps to read, manipulate, and analyze genotype data using the VCFReader, PhylipReader, StructureReader, and NRemover2 classes. SNPio is designed to simplify the process of handling genotype data and preparing it for downstream analysis, such as population genetics, phylogenetics, and machine learning. The library supports various file formats, including VCF, PHYLIP, and STRUCTURE, and provides tools for filtering, encoding, and visualizing genotype data. This guide will help you get up and running with SNPio quickly and efficiently. 
+
+``VCFReader``, ``PhylipReader``, and ``StructureReader`` classes are used to read genotype data from VCF, PHYLIP, and STRUCTURE files, respectively. These classes load the data into a ``GenotypeData`` object that has various useful methods and properties. 
+
+The ``NRemover2`` class is used to filter genotype data based on various criteria, such as missing data, minor allele count, minor allele frequency, and more. The ``GenotypeEncoder`` class is used to encode genotype data into different formats, such as one-hot encoding, integer encoding, and 0-1-2 encoding, for downstream analysis and machine learning tasks.
+
+Below is a step-by-step guide to using SNPio to read, filter, and encode genotype data for analysis.
 
 Installation
--------------------
+------------
 
-Before using SNPio, make sure it is installed in your Python environment. You can install it using pip. In the project root directory (the directory containing setup.py), type the following command into your terminal:
+Before using SNPio, ensure it is installed in your Python environment. You can install it using pip. In the project root directory (the directory containing setup.py), type the following command into your terminal:
 
 .. code-block:: shell
 
-   pip install snpio
+  pip install snpio
+
+We recommend using a virtual environment to manage your Python packages. If you do not have a virtual environment set up, you can create one using the following commands:
+
+.. code-block:: shell
+
+  python3 -m venv snpio_env
+  source snpio_env/bin/activate
+
+This will create a virtual environment named ``snpio_env`` and activate it. You can then install SNPio in this virtual environment using the pip command mentioned above.
+
+.. note::
+
+  SNPio does not support Windows operating systems at the moment. We recommend using a Unix-based operating system such as Linux or macOS.
+
+.. note::
+
+  We aim to support anaconda environments in the future. For now, we recommend using a virtual environment with ``pip`` to install SNPio.
 
 Importing SNPio
---------------------
+---------------
 
 To start using SNPio, import the necessary modules:
 
 .. code-block:: python
 
-   from snpio import GenotypeData
-   from snpio import Plotting
-   from snpio import NRemover2
+  # Import the necessary modules
+  from snpio import NRemover2, VCFReader, PhylipReader, StructureReader, Plotting, GenotypeEncoder
+
+Example usage:
+
+.. code-block:: python
+
+  # Define input filenames
+  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
+  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  
+  # Load the genotype data from a VCF file
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
+
+
+You can also include or exclude any populations from the analysis by using the ``include_pops`` and ``exclude_pops`` parameters in the reader classes. For example:
+
+.. code-block:: python
+
+  # Only include the populations "ON", "DS", "EA", "GU", and "TT"
+  # Exclude the populations "MX", "YU", and "CH"
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", include_pops=["ON", "DS", "EA", "GU"], exclude_pops=["MX", "YU", "CH"])
+
+The ``include_pops`` and ``exclude_pops`` parameters are optional and can be used to filter the populations included in the analysis. If both parameters are provided, the populations in ``include_pops`` will be included, and the populations in ``exclude_pops`` will be excluded. However, populations cannot overlap between lists.
+  
+Important Notes:
+----------------
 
 .. note::
 
-    *Important Notes:* GenotypeData and NRemover2 treat gap ('-', '?', '.') and 'N' characters as missing data. Also, if your input file is PHYLIP or STRUCTURE, they will be forced to be biallelic. If you need more than two alleles per site, then you must use the VCF file format, and even then some of the transformations force all sites to be biallelic.
+  The ``VCFReader``, ``PhylipReader``, ``StructureReader``, ``NRemover2``, and ``GenotypeEncoder`` classes treat the following characters as missing data:
+    - "N"
+    - "."
+    - "?"
+    - "-"
+
+.. note::
+
+  The ``VCFReader`` class can read both uncompressed and compressed VCF files (gzipped). If your input file is in PHYLIP or STRUCTURE format, it will be forced to be biallelic. To handle more than two alleles per site, use the VCF format.
 
 The Population Map File
-------------------------------
+-----------------------
 
-To use `GenotypeData` you'll need a population map (popmap) file. It is basically just a two-column tab-delimited file with SampleIDs in the first column and the corresponding PopulationIDs in the second column. 
+To use ``VCFReader``, ``PhylipReader``, or ``StructureReader``, you can optionally use a population map (popmap) file. This is a simple two-column, whitespace-delimited or comma-delimited file with SampleIDs in the first column and the corresponding PopulationIDs in the second column. It can optionally contain a header line, with the first column labeled "SampleID" and the second column labeled "PopulationID" (case-insensitive). The population IDs can be any string, such as "Population1", "Population2", etc, or an integer. SampleIDs must match the sample names in the alignment file.
 
-For example::
+For example:
 
-    Sample1\tPopulation1
-    Sample2\tPopulation1
-    Sample3\tPopulation2
-    Sample4\tPopulation2
-    ...
+.. code-block:: none
 
-Optional Input files
--------------------------
+  Sample1,Population1
+  Sample2,Population1
+  Sample3,Population2
+  Sample4,Population2
 
-There are some other optional input files you can provide as well. These include a phylogenetic tree in NEWICK format and the site rates and Q-matrix obtained from running IQ-TREE. THe latter two can be found in the output from IQ-TREE.
+Or, with a header:
 
-Currently, we don't have functionality to do any analyses on the tree, site_rates, and q-matrix objects, but we plan to implement more features that incorporate them in the future.
+.. code-block:: none
 
+  SampleID,PopulationID
+  Sample1,Population1
+  Sample2,Population1
+  Sample3,Population2
+  Sample4,Population2
 
-Reading Alignment with Genotype Data
-----------------------------------------
+The population map file is used to assign samples to populations and is useful for filtering and visualizing genotype data by population. If you do not provide a population map file, the samples will be treated as a single population.
 
-The first step is to read genotype data from an alignment. The `GenotypeData` class can read and write PHYLIP, STRUCTURE, and VCF files. VCF files can be either compressed with bgzip or uncompressed. GenotypeData can also convert between these three file formats and makes some informative plots. An example script, `run_snpio.py` is provided to showcase some of SNPio's functionality.
-
-The files referenced in the code blocks below can be found in the provided `example_data/` directory.
-
-The `GenotypeData` class provides methods to read and write data in various formats, such as VCF, PHYLIP, STRUCTURE, and custom formats. Here's an example of reading genotype data from a PHYLIP file:
+The population map file can be provided as an argument to the reader classes. For example:
 
 .. code-block:: python
 
-    # Read the alignment, popmap, and tree files
-    gd = GenotypeData(
-        filename="example_data/phylip_files/phylogen_subset14K.vcf",
-        popmapfile="example_data/popmaps/phylogen_nomx.popmap",
-        force_popmap=True,
-        filetype="auto",
-        qmatrix_iqtree="example_data/trees/test.qmat",
-        siterates_iqtree="example_data/trees/test.rate",
-        guidetree="example_data/trees/test.tre",
-        include_pops=["EA", "TT", "GU"], # Only include these populations. There's also an exclude_pops option that will exclude the provided list of populations.
-    )
+  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
+  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
 
-GenotypeData Properties
-^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. list-table:: 
-   :widths: 25 75
-   :header-rows: 1
-
-   * - Property
-     - Description
-   * - ``inputs``
-     - Get or set the GenotypeData keyword arguments as a dictionary.
-   * - ``num_snps``
-     - Get the number of SNPs in the dataset. It returns the number of SNPs per individual as an integer.
-   * - ``num_inds``
-     - Get the number of individuals in the dataset. It returns the number of individuals in the input data as an integer.
-   * - ``populations``
-     - Get the Population IDs. It returns a list of Population IDs, which can be either strings or integers.
-   * - ``popmap``
-     - Get or set a dictionary object with Sample IDs as keys and Population IDs as values.
-   * - ``popmap_inverse``
-     - Get or set an inverse popmap dictionary with Population IDs as keys and lists of Sample IDs as values.
-   * - ``samples``
-     - Get or set the Sample IDs in input order. It returns a list of Sample IDs.
-   * - ``snpsdict``
-     - Get or set a dictionary with Sample IDs as keys and lists of genotypes as values.
-   * - ``snp_data``
-     - Get or set the genotypes as a 2D list of shape (n_samples, n_loci).
-   * - ``genotypes_012``
-     - Get or set the encoded 012 genotypes as a 2D list, numpy array, or pandas DataFrame.
-   * - ``genotypes_onehot``
-     - Get or set the one-hot encoded SNPs format of shape (n_samples, n_loci, 4).
-   * - ``genotypes_int``
-     - Get or set the integer-encoded (0-9 including IUPAC characters) SNPs format.
-   * - ``alignment``
-     - Get or set the alignment as a BioPython MultipleSeqAlignment object.
-   * - ``vcf_attributes``
-     - Get or set the path to the HDF5 file containing Attributes read in from the VCF file.
-   * - ``loci_indices``
-     - Get or set the column indices for retained loci in the filtered alignment.
-   * - ``sample_indices``
-     - Get or set the row indices for retained samples in the alignment.
-   * - ``ref``
-     - Get or set the list of reference alleles of length equal to the number of SNPs.
-   * - ``alt``
-     - Get or set the list of alternate alleles of length equal to the number of SNPs.
-   * - ``q``
-     - Get or set the q-matrix object for the phylogenetic tree.
-   * - ``site_rates``
-     - Get or set the site rate data for the phylogenetic tree.
-   * - ``tree``
-     - Get or set the Newick tree provided at class instantiation.
+.. note::
+  
+    The ``force_popmap`` parameter in the reader classes is used to force the population map file to align with the samples in the alignment without an error. If set to ``False``, the population map file must match the samples in the alignment exactly, and if they do not match, an error will be raised. If set to ``True``, the population map file will be forced to align with the samples in the alignment by removing extra samples. This parameter is set to ``False`` by default.
+    
+    The ``verbose`` parameter in the reader classes is used to print additional information about the genotype data and filtering steps.
+    
+    The ``plot_format``, ``plot_fontsize``, ``plot_dpi``, and ``despine`` parameters in the reader classes are used to customize the output plots generated by the reader classes. See API documentation for more details.
 
 
+Reading Genotype Data
+---------------------
 
-Here's an example of the alignment object::
+SNPio provides readers for different file formats. Here are examples of how to read genotype data from various file formats:
 
-    Alignment with 161 rows and 6724 columns
-    GNNNNCNNNNRNCNTNCNANNCNCGGGGCNNNCNTNNNTNNNNN...NCN EAAL_BX1380
-    NNGNNCNCNRGNNGTNCCNNNCCSNNNNNNGNNNYCCATTNGKN...NNT EAAL_BX211
-    GAGTACNCGGRGCNTTCCACGCNCGGGGCGGTCNTCCAYTCGTN...ANT EAAL_BXEA27
-    GAGTACCCGRRGCGTTYCACGNCCGGGGCGGTCGTCCATTCGTR...ACT EAGA_BX301
-    GAGTACNCGGGGCGTTYCACGCNCNGGGCGGTNGNCCATTCGTG...ACT EAGA_BX346
-    GAGTACCCGGRGCNTTCCACGCCCGGGGCGGNCNTCCATTCGTG...ACT EAGA_BX472
-    GAGTACNNGGGGCGTTCCACNCCCGGGGCGGTCGTCCATTCNTG...ACT EAGA_BX660
-    GAGTACNCGGRGCGTTCCACNCNSGGRGCGGTCGNCCATTCGTG...ACT EAGA_BXEA15_654
-    GWGTACCCGGRGCNTTCCACGCNSGGGGCGGTCGTCCATTYGTG...ACT EAGA_BXEA17
-    GAGTACCCGGGGCGTTCCACGCCCGGGGCGGNCGNCCATTYGTG...ACT EAGA_BXEA21
-    NAGTACCCGGGGCGTTCCANNCNNGGGGCGGTCNYCCATTCGTG...ACT EAGA_BXEA25
-    GNNNASNNGNRNCNTTNNNCNNNCNNNGNGGNNNNNNNTNNNTG...ANN EAGA_BXEA29_655
-    GAGTACCCGGRGCGTTCCACGCCNGGGGCGGTCGNCCATTCGGN...ACT EAGA_BXEA31_659
-    GAGTACCCGGAGCGTTCCACGNCSGNGGCGNNCGTCNATTCGTG...ACT EAGA_BXEA32_662
-    GWGTACNCGNGGCGTTCCACGNNNNGGGNGGTCGTCNNTNCGTG...ACT EAGA_BXEA33_663
-    GAGTACCCGGRGCGTTCCACGNCSGGGGCGGTCGNCNATTCGTG...ACT EAGA_BXEA34_665
-    GAGTACNCGGRGCGTTCCACNNNSGGGGCGGTNGNCCANNCNTG...ACT EAGA_BXEA35_666
-    GWGTNCCYGGRGCNTNCCACRNCCGGGGCGNTCGNCCNTTCGNG...ACT EAGA_BXEA49_564
-    ...
-    NANNNCNNGGGGCNTTNCNNNCCCGGGNCNGNCNTCCATTNNNN...ANT TTTX_BX23
-
-
-Data Transformation and Analysis
--------------------------------------
-
-Once you have the genotype data, you can perform various data transformations and analyses. Here's an example of running principal component analysis (PCA) on the genotype data:
+VCFReader:
+~~~~~~~~~~
 
 .. code-block:: python
 
-    # Generate plots to assess the amount of missing data in alignment.
-    gd.missingness_reports(file_prefix="unfiltered")
+  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
+  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", exclude_pops=["MX", "YU", "CH"], include_pops=["ON", "DS", "EA", "GU", "TT"])
 
-    # Does a Principal Component Analysis and makes a scatterplot.
-    components, pca = Plotting.run_pca(
-            gd # GenotypeData instance from above.
-            plot_dir_prefix="snpio",
-            file_prefix=None,
-            n_components=None,
-            center=True,
-            scale=False,
-            n_axes=2,
-            point_size=15,
-            font_size=15,
-            bottom_margin=0,
-            top_margin=0,
-            left_margin=0,
-            right_margin=0,
-            width=1088,
-            height=700,
-            plot_format="png",
-            dpi=300,
-    )
-    explvar = pca.explained_variance_ratio_ # Can use this to make your own plot.
+This will read the genotype data from a VCF file and apply the population map if provided.
 
-    # Access other transformed genotype data and attributes
+PhylipReader:
+~~~~~~~~~~~~~
 
-    # 012-encoded genotypes, with ref=0, heterozygous=1, alt=2
-    genotypes_012 = genotype_data.genotypes_012(fmt="list") # Get 012-eencoded genotypes.
-
-    # Onehot-encoded genotypes.
-    genotypes_onehot = genotype_data.genotypes_onehot
-
-    # Filename of the HDF5 file containing the VCF file data..
-    # Will be None if a VCF file wasn't used.
-    vcf_attributes = genotype_data.vcf_attributes 
-
-    # Access optional properties
-    q_matrix = genotype_data.q
-    site_rates = genotype_data.site_rates
-    tree = genotype_data.tree
-
-
-GenotypeData Plots
-----------------------------
-
-There are a number of informative plots that GenotypeData makes.
-
-Here is a plot describing the counts of each found population:
-
-.. image:: ../../plots/population_counts.png
-   :alt: Barplot with counts per population.
-   :height: 200 px
-   :width: 325 px
-   :scale: 200 %
-   :align: center
-
-Here is a plot showing the distribution of genotypes in the alignment:
-
-.. image:: ../../plots/genotype_distributions.png
-   :alt: Sankey filtering report for loci removed at each filtering step.
-   :height: 200 px
-   :width: 200 px
-   :scale: 200 %
-   :align: center
-
-Alignment Filtering
---------------------
-
-The `NRemover2` class provides methods for filtering DNA sequence alignments based on the proportion of missing data, the minor allele frequency (MAF), and monomorphic, non-biallelic, and singleton sites. It allows you to filter out sequences (samples) and loci (columns) that exceed the provided thresholds. Missing data filtering options include removing loci whose columns exceed global missing and per-population thresholds and removing samples that exceed a per-sample threshold. It also can filter out linked SNPs using the CHROM and POS VCF file fields (requires VCF input). The class also provides informative plots pertaining to the filtering process.
-
-Attributes:
---------------
-
-- `alignment` (list of Bio.SeqRecord.SeqRecord): The input alignment to filter.
-- `populations` (list of str): The population for each sequence in the alignment.
-- `loci_indices` (list of int): Indices that were retained post-filtering.
-- `sample_indices` (list of int): Indices that were retained post-filtering.
-- `msa`: (MultipleSeqAlignment): BioPython MultipleSeqAlignment object.
-
-Methods:
--------------
-
-- `nremover()`: Runs the whole NRemover2 pipeline. Includes arguments for all the thresholds and settings that you'll need. You can also toggle a threshold search that plots the proportion of missing data across all the filtering options across multiple thresholds.
-
-Usage Example:
--------------------
-
-Here's an example to illustrate how to use the `NRemover2` class:
+If you would like to read a Phylip file, you can use the ``PhylipReader`` class:
 
 .. code-block:: python
 
-   # Create an instance of NRemover2
-   # Provide it the GenotypeData instance from above.
-    nrm = NRemover2(gd)
+  phylip = "example_data/phylip_files/phylogen_subset14K.phy" 
+  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  
+  gd = PhylipReader(filename=phylip, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", exclude_pops=["MX", "YU", "CH"], include_pops=["ON", "DS", "EA", "GU", "TT"])
 
-    # Run nremover to filter out missing data.
-    # Set the thresholds as desired.
-    # Returns a GenotypeData object.
-    gd_filtered = nrm.nremover(
-        max_missing_global=0.5, # Maximum global missing data threshold.
-        max_missing_pop=0.5, # Maximum per-population threshold.
-        max_missing_sample=0.8, # Maximum per-sample threshold.
-        singletons=True, # Filter out singletons.
-        biallelic=True, # Filter out non-biallelic sites.
-        monomorphic=True, # Filter out monomorphic loci.
-        min_maf=0.01, # Only retain loci with a MAF above this threshold.
-        unlinked=True, # Filter out linked SNPs based on VCF file CHROM fiield.
-        search_thresholds=True, # Plots with parameter sweeps across multiple thresholds.
-        plot_dir_prefix="snpio", # Where to save the plots to.
-        file_prefix="test", # Set prefix for output file. If None (default), then no prefix.
-    )
+StructureReader:
+~~~~~~~~~~~~~~~~
 
-    # Makes an informative plot showing missing data proportions.
-    gd_filtered.missingness_reports(file_prefix="filtered")
+If you would like to read in a Structure file, you can use the ``StructureReader`` class. For example:
 
-    # Run a PCA on the filtered data and make a scatterplot.
-    Plotting.run_pca(gd_filtered, file_prefix="filtered")
+.. code-block:: python
 
-Running the above code makes a number of informative plots. See below.
+  structure = "example_data/structure_files/phylogen_subset14K.str" 
+  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  
+  gd = StructureReader(filename=structure, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", exclude_pops=["MX", "YU", "CH"], include_pops=["ON", "DS", "EA", "GU", "TT"])
 
-Here is a Sankey diagram showing the number of loci removed at each filtering step.
+.. note::
+  
+  The ``StructureReader`` class will automatically detect the format of the STRUCTURE file. It can be in one-line or two-line format (see STRUCTURE documentation), and can optionally contain population information in the file as the second tab-delimited column. If the population information is not provided in the STRUCTURE file, you can provide a population map file to assign samples to populations.
 
-.. image:: ../../plots/sankey_filtering_report.png
-   :alt: Sankey filtering report for loci removed at each filtering step.
-   :height: 200 px
-   :width: 400 px
-   :scale: 200 %
-   :align: center
+Key Methods in VCFReader, PhylipReader, and StructureReader
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Here is the proportions of missing data for the filtered missingness report:
++---------------------+---------------------------------------------+
+| **Function/Method** | **Description**                             |
++---------------------+---------------------------------------------+
+| ``VCFReader``       | Reads and writes genotype data from/ to a   |
+|                     | VCF file and applies a population map if    |
+|                     | provided.                                   |
++---------------------+---------------------------------------------+
+| ``write_vcf``       | Writes the filtered or modified genotype    |
+|                     | data back to a VCF file                     |
+|                     | (for all three readers).                    |
++---------------------+---------------------------------------------+
+| ``PhylipReader``    | Reads and writes genotype data from/ to a   |
+|                     | PHYLIP file and applies a population map.   |
++---------------------+---------------------------------------------+
+| ``write_phylip``    | Writes the filtered or modified genotype    |
+|                     | data back to a PHYLIP file (for             |
+|                     | PhylipReader).                              |
++---------------------+---------------------------------------------+
+| ``StructureReader`` | Reads and writes genotype data from/ to a   |
+|                     | STRUCTURE file and applies a population     |
+|                     | map (if provided).                          |
++---------------------+---------------------------------------------+
+| ``write_structure`` | Writes the filtered or modified genotype    | 
+|                     | data. back to a STRUCTURE file              |
+|                     | (for StructureReader).                      |
++---------------------+---------------------------------------------+
 
-.. image:: ../../plots/filtered_missingness.png
-   :alt: Missingness filtering report plot.
-   :height: 200 px
-   :width: 200 px
-   :scale: 200 %
-   :align: center
+The ``write_vcf``, ``write_phylip``, and ``write_structure`` methods are used to write the filtered or modified genotype data back to a VCF, PHYLIP, or STRUCTURE file, respectively. **These methods can also be used to convert between file VCF, PHYLIP, and STRUCTURE formats.**
 
-Here is the PCA we ran on the filtered data, with colors being a gradient corresponding to the proportion of missing data in each sample:
+Other GenotypeData Methods
+--------------------------
 
-.. image:: ../../plots/filtered_pca.png
-   :alt: Principal Component Analysis scatterplot for filtered data.
-   :height: 200 px
-   :width: 200 px
-   :scale: 200 %
-   :align: center
+The ``GenotypeData`` along with the ``Plotting`` classes have several useful methods for working with genotype data:
 
-The below two plots show the missingness proportion variance among multiple thresholds if you used set `search_thresholds=True` when you ran the `nremover()` function. The first makes plots for the missing data filters, and the second for the MAF, biallelic, monomorphic, and singleton filters. they are shown for both globally and per-population.
+1. ``Plotting.run_pca()``: Runs principal component analysis (PCA) on the genotype data and plots the results. The PCA plot can help visualize the genetic structure of the populations in the dataset, with each point representing an individual. Individuals are colored by missing data proportion, and populations are represented by different shapes. A 2-dimensional PCA plot is generated by default, but you can specify three PCA axes as well. For example:
 
-First, the missing data filter report:
+.. figure:: ../../img/pca_missingness.png
+  :alt: PCA Plot with samples colored by missing data proportion and populations represented by different shapes.
+  :figclass: img-responsive
 
-.. image:: ../../plots/missingness_report.png
-   :alt: Plots showing missingness proportion variance for each filtering step.
-   :height: 200 px
-   :width: 200 px
-   :scale: 200 %
-   :align: center
+  Figure 1: PCA Plot with samples colored by missing data proportion and populations represented by different shapes.
 
+2. ``GenotypeData.missingness_reports()``: Generates missing data reports and plots for the dataset. The reports include the proportion of missing data per individual, per locus, and per population. These reports can help you identify samples, loci, or populations with high levels of missing data. For example:
 
-And now the MAF, biallelic, singleton, and monomorphic filter report:
+.. figure:: ../../img/missingness_report.png
+  :alt: Missing Data Report with Plots Depicting Missing Data Proportion per Sample, Locus, and Population.
+  :figclass: img-responsive
 
-.. image:: ../../plots/maf_missingness_report.png
-   :alt: Plots showing missingness proportion variance among the MAF thresholds and singleton, biallelic, and monomorphic filters (toggled off and on).
-   :height: 200 px
-   :width: 200 px
-   :scale: 200 %
-   :align: center
-
-If you do not want to use some of the filtering options, just leave them at default for the ones you don't want to run.
+  Figure 2: Missing Data Report with Plots Depicting Missing Data Proportion per Sample, Locus, and Population.
 
 
-Writing to File and File Conversions
+3. The ``GenotypeData`` class will automatically create a plot showing the number of inidviduals present in each population, if a ``popmapfile`` is provided. For example:
+
+.. figure:: ../../img/population_counts.png
+  :alt: Population Counts Bar Plot
+  :figclass: img-responsive
+
+  Figure 3: Population Counts (left) and proportion (right) Bar Plots, with the median number of individuals per population indicated by the dashed horizontal lines.
+
+Filtering Genotype Data with NRemover2
 --------------------------------------
 
-If you want to write your output to a file, just do use one of the write functions. Any of the input alignment formats can be converted to any of supported file formats.
+NRemover2 provides a variety of filtering methods to clean your genotype data. Here is an example of how to apply filters to remove samples and loci with too much missing data, monomorphic sites, singletons, minor allele count (MAC), minor allele frequency (MAF), and more:
 
 .. code-block:: python
 
-    gd_filtered.write_phylip("example_data/phylip_files/nremover_test.phy")
+  # Apply filters to remove samples and loci with too much missing data
+  gd_filt = nrm.filter_missing_sample(0.75).filter_missing(0.75) .filter_missing_pop(0.75).filter_mac(2).filter_monomorphic(exclude_heterozygous=False).filter_singletons(exclude_heterozygous=False).filter_biallelic(exclude_heterozygous=False).resolve()
 
-    gd_filtered.write_structure("example_data/structure_files/nremover_test.str")
+  # Write the filtered VCF to a new file
+  gd_filt.write_vcf("filtered_output.vcf")
 
-    gd_filtered.write_vcf("example_data/vcf_files/nremover_test.vcf")
+Key Methods in NRemover2:
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For more detailed information about the available methods and attributes, refer to the API Reference.
++--------------------------+--------------------------------------------------+
+| **Function/Method**      | **Description**                                  |
++--------------------------+--------------------------------------------------+
+| ``filter_missing_sample``| Filters samples with missing data above the      |
+|                          | threshold.                                       |
++--------------------------+--------------------------------------------------+
+| ``filter_missing``       | Filters loci with missing data above the         |
+|                          | threshold.                                       |
++--------------------------+--------------------------------------------------+
+| ``filter_missing_pop``   | Filters loci where missing data for any          |
+|                          | population is above the threshold.               |
++--------------------------+--------------------------------------------------+
+| ``filter_mac``           | Filters loci with a minor allele count below     |
+|                          | the threshold.                                   |
++--------------------------+--------------------------------------------------+
+| ``filter_maf``           | Filters loci with a minor allele frequency       |
+|                          | below the threshold.                             |
++--------------------------+--------------------------------------------------+
+| ``filter_monomorphic``   | Filters monomorphic loci (sites with only one    |
+|                          | allele).                                         |
++--------------------------+--------------------------------------------------+
+| ``filter_singletons``    | Filters singletons (sites with only one          |
+|                          | occurrence of an allele).                        |
++--------------------------+--------------------------------------------------+
+| ``filter_biallelic``     | Filters biallelic loci (sites with only two      |
+|                          | alleles).                                        |
++--------------------------+--------------------------------------------------+
+| ``thin_loci``            | Thins loci by removing loci within ``size``      |
+|                          | bases of each other on the same locus or         |
+|                          | chromosome.                                      |
++--------------------------+--------------------------------------------------+
+| ``filter_linked``        | Filters loci that are linked within a specified  |
+|                          | distance.                                        |
++--------------------------+--------------------------------------------------+
+| ``random_subset_loci``   | Randomly selects ``size`` number of loci from    |
+|                          | the input dataset.                               |
++--------------------------+--------------------------------------------------+
+| ``resolve``              | Applies the filters and returns the filtered     |
+|                          | GenotypeData object.                             |
++--------------------------+--------------------------------------------------+
 
-That's it! You have successfully completed the basic steps to get started with SNPio. Explore the library further to discover more functionality and advanced features.
+.. note::
 
-Indices and Tables
-----------------------
+  You must call ``resolve()`` at the end of the filtering chain to apply the filters and return the filtered GenotypeData object.
+  
+.. note::
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+  The ``exclude_heterozygous`` parameter in ``filter_monomorphic``, ``filter_singletons``, and ``filter_biallelic`` methods allows you to exclude heterozygous genotypes from the filtering process. By default, heterozygous genotypes are included in the filtering process.
 
+.. note::
+
+  ``thin_loci`` and ``filter_linked`` are only available for VCFReader and not for PhylipReader and StructureReader.  
+
+.. warning::
+  
+    The ``filter_linked(size)`` method might yield a limited number of loci with SNP data. It is recommended to use this method with caution and check the output carefully.
+
+
+Additional Methods in NRemover2:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``search_thresholds()`` searches a range of filtering thresholds for all missing data, minor allele frequency (MAF), and minor allele count (MAC) filters. This method helps you find the optimal thresholds for your dataset. It will plot the threshold search results so you can visualize the impact of different thresholds on the dataset.
+
+With ``search_thresholds()``, you can specify the thresholds to search for and the order in which to apply the filters:
+
+.. code-block:: python
+
+  # Initialize NRemover2 with GenotypeData object
+  nrm = NRemover2(gd)
+
+  # Specify filtering thresholds and order of filters
+  nrm.search_thresholds(thresholds=[0.25, 0.5, 0.75, 1.0], maf_thresholds=[0.01, 0.05], mac_thresholds=[2, 5], filter_order=["filter_missing_sample", "filter_missing", "filter_missing_pop", "filter_mac", "filter_monomorphic", "filter_singletons", "filter_biallelic"])
+
+The ``search_thresholds()`` method will search for the optimal thresholds for missing data, MAF, and MAC filters based on the specified thresholds and filter order. It will plot the results so you can visualize the impact of different thresholds on the dataset.
+
+Below are example plots that are created when running the ``search_thresholds()`` method:
+
+.. figure:: ../../img/filtering_results_bool.png
+  :alt: Boolean Filtering Results
+  :figclass: img-responsive
+  
+  Figure 4: Filtering Results for Boolean Filtering Methods (Singletons, Monomorphic Sites, and Biallelic Sites), where loci that are monomorphic, singletons, or non-biallelic are removed.
+
+.. figure:: ../../img/filtering_results_mac.png
+  :alt: Minor Allele Count Filtering Results
+  :figclass: img-responsive
+  
+  Figure 5: Filtering Results for Minor Allele Count (MAC), where loci with MAC below the threshold are removed.
+
+.. figure:: ../../img/filtering_results_maf.png
+  :alt: Minor Allele Frequency Filtering Results
+  :figclass: img-responsive
+  
+  Figure 6: Filtering Results for Minor Allele Frequency (MAF), where loci with MAF below the threshold are removed.
+
+.. figure:: ../../img/filtering_results_missing_loci_samples.png
+  :alt: Missing Data Filtering Results for Loci and Samples
+  :figclass: img-responsive
+  
+  Figure 7: Missing Data Filtering Results for Loci (columns) and Samples (rows), where any loci or samples with missing data exceeding the user-provided threshold are removed.
+
+.. figure:: ../../img/filtering_results_missing_population.png
+  :alt: Missing Data Filtering Results for Populations
+  :figclass: img-responsive
+
+  Figure 8: Missing Data Filtering Results for Populations, where any loci with missing data above the threshold for any given population are removed.
+
+.. note::
+
+  The ``search_thresholds()`` method is incompatible with ``thin_loci(size)`` and ``filter_linked()`` being in the filter_order list.
+
+.. warning::
+
+  The ``search_thresholds()`` method can also be called either before or after any other filtering, but note that it will reset the filtering chain to the original state.
+
+``plot_sankey_filtering_report()`` generates a Sankey plot to visualize how SNPs are filtered at each step of the pipeline. For example:
+
+.. code-block:: python
+
+  from snpio import NRemover2, VCFReader
+
+  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
+  popmap = "example_data/popmaps/phylogen_nomx.popmap"
+
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
+
+  # Initialize NRemover2.
+  nrm = NRemover2(gd)
+
+  # Apply filters to remove samples and loci.
+  gd_filt = nrm.filter_missing_sample(0.75).filter_missing(0.75).filter_missing_pop(0.75).filter_mac(2).filter_monomorphic(exclude_heterozygous=False).filter_singletons(exclude_heterozygous=False).filter_biallelic(exclude_heterozygous=False).resolve()
+
+  nrm.plot_sankey_filtering_report()
+
+This will automatically track the number of loci at each filtering step and generate a Sankey plot to visualize the filtering process. The Sankey plot shows how many loci are removed at each step of the filtering process. For example:
+
+
+.. figure:: ../../img/nremover_sankey_plot.png
+  :alt: Sankey Plot Depicting Loci Removed at Each Filtering Step
+  :figclass: img-responsive
+  
+  Figure 9: Sankey Plot Depicting Loci Retained and Removed at Each Filtering Step. The green bands represent the number of loci remaining after each filtering step, and the red bands represent the number of loci removed at each filtering step. The bands are proportional to the number of loci retained or removed at each step. The order of the filtering steps is dynamic based on the order of the filters applied in the filtering chain.
+
+.. note::
+
+  The ``plot_sankey_filtering_report()`` must be called after filtering and calling the ``resolve()`` method to generate the Sankey plot. It is also incompatible with ``thin_loci()``, ``filter_linked()``, and ``random_subset_loci()`` being in the filter_order list.
+
+  ``plot_sankey_filtering_report()`` only plots loci removed at each filtering step and does not plot samples removed.
+
+GenotypeData Properties
+------------------------
+
+Once genotype data is loaded using any of the readers, you can access several useful properties from the ``GenotypeData`` object:
+
++----------------------+------------------------------------------------------+
+| **Attribute**        | **Description**                                      |
++----------------------+------------------------------------------------------+
+| ``num_snps``         | Number of SNPs or loci in the dataset.               |
++----------------------+------------------------------------------------------+
+| ``num_inds``         | Number of individuals in the dataset.                |
++----------------------+------------------------------------------------------+
+| ``populations``      | List of populations in the dataset.                  |
++----------------------+------------------------------------------------------+
+| ``popmap``           | Mapping of SampleIDs to PopulationIDs.               |
++----------------------+------------------------------------------------------+
+| ``popmap_inverse``   | Dictionary with population IDs as keys and lists of  |
+|                      | samples as values.                                   |
++----------------------+------------------------------------------------------+
+| ``samples``          | List of samples in the dataset.                      |
++----------------------+------------------------------------------------------+
+| ``snpsdict``         | Dictionary with sampleIDs as keys and genotypes as   |
+|                      | values.                                              |
++----------------------+------------------------------------------------------+
+| ``loci_indices``     | Numpy array with boolean values indicating the loci  |
+|                      | that passed the filtering criteria set to ``True``.  |
++----------------------+------------------------------------------------------+
+| ``sample_indices``   | Numpy array with boolean values indicating the       |
+|                      | samples that passed the filtering criteria set to    |
+|                      | ``True``.                                            |
++----------------------+------------------------------------------------------+
+| ``snp_data``         | 2D numpy array of SNP data of shape (num_inds,       |
+|                      | num_snps).                                           |
++----------------------+------------------------------------------------------+
+| ``ref``              | List of reference alleles for each locus.            |
++----------------------+------------------------------------------------------+
+| ``alt``              | List of alternate alleles for each locus.            |
++----------------------+------------------------------------------------------+
+| ``inputs``           | Dictionary of input parameters used to load the      |
+|                      | genotype data.                                       |
++----------------------+------------------------------------------------------+
+
+Genotype Encoding with GenotypeEncoder
+--------------------------------------
+
+SNPio also includes the GenotypeEncoder class for encoding genotype data into formats useful for downstream analysis and commonly used for machine and deep learning tasks.
+
+The GenotypeEncoder class provides three encoding properties:
+
+``genotypes_onehot``: Encodes genotype data into one-hot encoding, where each possible biallelic IUPAC genotype is represented by a one-hot vector. Heterozygotes are represented as multi-label vectors as follows: 
+
+.. code-block:: python
+
+    onehot_dict = {
+      "A": [1.0, 0.0, 0.0, 0.0],
+      "T": [0.0, 1.0, 0.0, 0.0],
+      "G": [0.0, 0.0, 1.0, 0.0],
+      "C": [0.0, 0.0, 0.0, 1.0],
+      "N": [0.0, 0.0, 0.0, 0.0],
+      "W": [0.5, 0.5, 0.0, 0.0],
+      "R": [0.5, 0.0, 0.5, 0.0],
+      "M": [0.5, 0.0, 0.0, 0.5],
+      "K": [0.0, 0.5, 0.5, 0.0],
+      "Y": [0.0, 0.5, 0.0, 0.5],
+      "S": [0.0, 0.0, 0.5, 0.5],
+      "N": [0.0, 0.0, 0.0, 0.0],
+  }
+
+``genotypes_int``: Encodes genotype data into integer encoding, where each possible biallelic IUPAC genotype is represented by an integer as follows: as follows: ``A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9``.
+
+``genotypes_012``: Encodes genotype data into 0-1-2 encoding, where 0 represents the homozygous reference genotype, 1 represents the heterozygous genotype, and 2 represents the homozygous alternate genotype.
+
+Example Usage:
+
+.. code-block:: python
+
+  from snpio import VCFReader, GenotypeEncoder
+
+  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
+  popmap = "example_data/popmaps/phylogen_nomx.popmap"
+
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
+
+  encoder = GenotypeEncoder(gd)
+
+  # Convert genotype data to one-hot encoding
+  gt_ohe = encoder.genotypes_onehot
+
+  # Convert genotype data to integer encoding
+  gt_int = encoder.genotypes_int
+
+  # Convert genotype data to 0-1-2 encoding.
+  gt_012 = encoder.genotypes_012
+
+The GenotypeEncoder allows you to seamlessly convert genotype data into different formats depending on your needs for analysis or machine learning workflows.
+
+You can also inversely convert the encoded data back to the original genotypes by just setting the GenotypeEncoder properties to a new value. For example:
+
+.. code-block:: python
+
+  # Convert one-hot encoded data back to genotypes
+  encoder.genotypes_onehot = gt_ohe
+
+  # Convert integer encoded data back to genotypes
+  encoder.genotypes_int = gt_int
+
+  # Convert 0-1-2 encoded data back to genotypes
+  encoder.genotypes_012 = gt_012
+
+This will automatically update the original genotype data in the GenotypeData object and convert it to the original format stored in the ``snp_data`` property of the GenotypeData object.
+
+Loading and Parsing Phylogenetic TreeParser
+-------------------------------------------
+
+SNPio also provides a ``TreeParser`` class to load and parse phylogenetic trees in Newick and NEXUS formats. The ``TreeParser`` class can read and parse tree files, modify tree structures, draw trees, and save trees in different formats.
+
+Here is an example of how to load and parse a phylogenetic tree using the ``TreeParser`` class:
+
+.. code-block:: python
+
+  from snpio import TreeParser
+
+  # Load a phylogenetic tree from a Newick file
+  tp = TreeParser("example_data/trees/test.tre", siterates="example_data/trees/test14K.rates", qmatrix="example_data/trees/test.iqtree", verbose=True)
+
+  tree = tp.read_tree()
+
+  # Save the tree in Newick format
+  tp.write_tree(tree, save_path="example_data/trees/test_newick.tre")
+
+  # Save the tree in NEXUS format
+  tp.write_tree(tree, save_path="example_data/trees/test_nexus.nex", nexus=True)
+
+  # Returns the tree in Newick format as a string
+  tp.write_tree(tree, save_path=None)
+
+  # Get the tree stats. Returns a dictionary of tree stats.
+  print(tp.tree_stats())
+
+  # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
+  # Use the '~' character to specify a regular expression pattern to match.
+  tp.reroot_tree("~EA")
+
+  # Get a distance matrix between all nodes in the tree.
+  print(tp.get_distance_matrix())
+
+  # Get the Rate Matrix Q from the Qmatrix file.
+  print(tp.qmat)
+
+  # Get the Site Rates from the Site Rates file.
+  print(tp.site_rates)
+
+  # Get a subtree with only the samples containing 'EA' in the sampleID.
+  # Use the '~' character to specify a regular expression pattern to select all
+  # tips containing the pattern.
+  subtree = tp.get_subtree("~EA")
+
+  # Prune the tree to remove samples containing 'ON' in the sampleID.
+  pruned_tree = tp.prune_tree("~ON")
+
+  # Write the subtree and pruned tree. Returns a Newick string if 'save_path'
+  # is None. Otherwise saves it to 'save_path'.
+  print(tp.write_tree(subtree, save_path=None))
+  print(tp.write_tree(pruned_tree, save_path=None))
+
+
+The ``TreeParser`` class provides several methods for working with phylogenetic trees, including reading, writing, and modifying trees. You can use these methods to analyze and manipulate phylogenetic trees for your research and analysis tasks.
+
+The ``TreeParser`` class also provides methods for calculating tree statistics, rerooting trees, getting distance matrices, and extracting subtrees based on sample IDs. These methods can help you analyze and visualize phylogenetic trees and extract relevant information for downstream analysis.
+
+The ``Rate matrix Q`` and ``Site Rates`` can be accessed from the Qmatrix and Site Rates files, respectively. These matrices can be used to calculate evolutionary distances and rates between samples in the phylogenetic tree. The ``siterates`` file can be output by IQ-TREE or specified as a one-column file with the rates for each site in the alignment (header optional). The ``qmatrix`` file can be obtained from the IQ-TREE standard output ('.iqtree' file) or from a stand-alone Qmatrix file with the rate matrix Q. In the latter case, the file should be a tab-delimited or comma-delimited file with the rate matrix Q with substitution rates in the order: "A, "C", "G", "T". A header line is optional.
+
+The rate matrix and site rates objects can be accessed by their corresponding properties:
+
+- ``tp.qmat``: Rate matrix Q.
+- ``tp.site_rates``: Site rates.
+
+For more information on the ``TreeParser`` class and its methods, please refer to the API documentation.
+
+
+Benchmarking the Performance
+----------------------------
+
+You can benchmark the filtering performance using the Benchmark class to visualize how thresholds affect the dataset, if you have installed the snpio dev requirements:
+
+.. code-block:: shell
+
+  pip install snpio[dev]
+
+Then, you can use the Benchmark class to plot performance metrics for your filtered genotype data after the ``resolve()`` method is called. For example:
+
+.. code-block:: python
+
+  from snpio.utils.benchmarking import Benchmark 
+  
+  Benchmark.plot_performance(nrm.genotype_data, nrm.genotype_data.resource_data)
+
+This function will plot performance metrics for your filtered genotype data and for the ``VCFReader`` class, giving insights into data quality changes.
+
+For more information on the Benchmark class and how to use it, see the API documentation.
+
+Conclusion
+-----------
+
+This guide provides an overview of how to get started with the SNPio library. It covers the basic steps to read, manipulate, and analyze genotype data using the VCFReader, PhylipReader, StructureReader, and NRemover2 classes. SNPio is designed to simplify the process of handling genotype data and preparing it for downstream analysis, such as population genetics, phylogenetics, and machine learning. The library supports various file formats, including VCF, PHYLIP, and STRUCTURE, and provides tools for filtering, encoding, and visualizing genotype data. This guide will help you get up and running with SNPio quickly and efficiently.
+
+For more information on the SNPio library, please refer to the API documentation and examples provided in the repository. If you have any questions or feedback, please feel free to reach out to the developers. We hope you find SNPio useful for your genotype data analysis tasks!
+
+.. note::
+
+  The SNPio library is under active development, and we welcome contributions from the community. If you would like to contribute to the project, please check the GitHub repository for open issues and submit a pull request. We appreciate your support and feedback!
+
+If you encounter any issues or have any questions about the SNPio library, please feel free to reach out to the developers or open an issue on the GitHub repository. We are here to help and improve the library based on your feedback.
+
+The SNPio library is licensed under the GPL3 License, and we encourage you to use it for your research and analysis tasks. If you find the library useful, please cite it in your publications. We appreciate your support and feedback!
