@@ -9,7 +9,7 @@ titlepage-color: "FFFFFF"
 titlepage-text-color: "000000"
 titlepage-rule-color: "CCCCCC"
 titlepage-rule-height: 4
-logo: "img/snpio_logo.png"
+logo: "snpio/img/snpio_logo.png"
 logo-width: 60% 
 page-background: "FFFFFF"
 page-background-opacity:
