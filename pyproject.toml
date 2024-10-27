@@ -47,6 +47,7 @@ classifiers = [
     "Natural Language :: English"
 ]
 dependencies = [
+    "biopython", # required for filtering files
     "bokeh", # required for interactive plots
     "h5py", # required for saving VCF metadata
     "holoviews", # required for interactive plots (Sankey plot)
