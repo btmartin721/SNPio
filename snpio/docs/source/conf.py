@@ -9,7 +9,7 @@ release = "1.1.4"
 
 # -- Path setup --------------------------------------------------------------
 # Add the project's root directory to sys.path
-sys.path.insert(0, os.path.abspath("../../"))
+sys.path.insert(0, os.path.abspath("../../../"))
 
 # -- Sphinx Extensions -------------------------------------------------------
 # Add extensions for autodoc, type hints, and more
@@ -44,7 +44,7 @@ templates_path = ["_templates"]
 html_static_path = ["_static"]
 
 # Custom logo and favicon
-html_logo = "../../img/snpio_logo.png"
+html_logo = "../../../snpio/img/snpio_logo.png"
 
 
 # Add custom CSS for further styling if needed
