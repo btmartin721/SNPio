@@ -6,16 +6,16 @@ from snpio import GenotypeData, NRemover2, Plotting
 class TestGenotypeData(unittest.TestCase):
     def setUp(self):
         self.file_data = {
-            "example_data/structure_files/phylogen_nomx.ustr": 14760,
-            "example_data/phylip_files/phylogen_nomx.u.snps.phy": 14760,
-            "example_data/vcf_files/phylogen_subset14K.vcf.gz": 14000
+            "snpio/example_data/structure_files/phylogen_nomx.ustr": 14760,
+            "snpio/example_data/phylip_files/phylogen_nomx.u.snps.phy": 14760,
+            "snpio/example_data/vcf_files/phylogen_subset14K.vcf.gz": 14000,
         }
 
     def test_file_loading(self):
         for filename, expected_loci in self.file_data.items():
             gd = GenotypeData(
                 filename=filename,
-                popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+                popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
                 force_popmap=True,
                 filetype="auto",
                 chunk_size=1000,
@@ -30,15 +30,15 @@ class TestGenotypeData(unittest.TestCase):
         for filename in self.file_data.keys():
             gd = GenotypeData(
                 filename=filename,
-                popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+                popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
                 force_popmap=True,
                 filetype="auto",
                 chunk_size=1000,
             )
-            gd.write_vcf("example_data/vcf_files/gtdata_test.vcf")
+            gd.write_vcf("snpio/example_data/vcf_files/gtdata_test.vcf")
             gd_reloaded = GenotypeData(
-                "example_data/vcf_files/gtdata_test.vcf",
-                popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+                "snpio/example_data/vcf_files/gtdata_test.vcf",
+                popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
                 force_popmap=True,
                 filetype="auto",
                 chunk_size=1000,
@@ -48,8 +48,8 @@ class TestGenotypeData(unittest.TestCase):
 
     def test_plot_functions(self):
         gd = GenotypeData(
-            filename="example_data/vcf_files/phylogen_subset14K.vcf.gz",
-            popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+            filename="snpio/example_data/vcf_files/phylogen_subset14K.vcf.gz",
+            popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
             force_popmap=True,
             filetype="auto",
             chunk_size=1000,
@@ -78,9 +78,9 @@ class TestGenotypeData(unittest.TestCase):
             "search_thresholds": False,
         }
         expected_dimensions = {
-            "example_data/structure_files/phylogen_nomx.ustr": (5093, 193),
-            "example_data/phylip_files/phylogen_nomx.u.snps.phy": (8154, 194),
-            "example_data/vcf_files/phylogen_subset14K.vcf.gz": (7870, 193),
+            "snpio/example_data/structure_files/phylogen_nomx.ustr": (5093, 193),
+            "snpio/example_data/phylip_files/phylogen_nomx.u.snps.phy": (8154, 194),
+            "snpio/example_data/vcf_files/phylogen_subset14K.vcf.gz": (7870, 193),
         }
         for filename, (
             expected_loci,
@@ -88,7 +88,7 @@ class TestGenotypeData(unittest.TestCase):
         ) in expected_dimensions.items():
             gd = GenotypeData(
                 filename=filename,
-                popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+                popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
                 force_popmap=True,
                 filetype="auto",
                 chunk_size=1000,

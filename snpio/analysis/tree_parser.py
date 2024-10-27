@@ -17,9 +17,9 @@ class TreeParser(GenotypeData):
     Example:
         >>> tp = TreeParser(
         ...     genotype_data=gd_filt,
-        ...     treefile="example_data/trees/test.tre",
-        ...     qmatrix="example_data/trees/test.iqtree",
-        ...     siterates="example_data/trees/test14K.rate",
+        ...     treefile="snpio/example_data/trees/test.tre",
+        ...     qmatrix="snpio/example_data/trees/test.iqtree",
+        ...     siterates="snpio/example_data/trees/test14K.rate",
         ...     show_plots=True,
         ...     verbose=True,
         ...     debug=False,

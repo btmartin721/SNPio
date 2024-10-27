@@ -68,10 +68,10 @@ class NRemover2:
         >>> from snpio import VCFReader
         >>>
         >>> # Specify the genetic data from a VCF file
-        >>> vcf_file = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
+        >>> vcf_file = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
         >>>
         >>> # Specify the population map file
-        >>> popmap_file = "example_data/popmaps/phylogen_nomx.popmap"
+        >>> popmap_file = "snpio/example_data/popmaps/phylogen_nomx.popmap"
         >>>
         >>> # Read the genetic data from the VCF file
         >>>
@@ -478,7 +478,7 @@ class NRemover2:
         Example:
             To plot the Sankey diagram showing the number of loci removed at each filtering step, use the following code:
 
-            >>> gd = GenotypeData("example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", "example_data/popmaps/phylogen_nomx.popmap")
+            >>> gd = GenotypeData("snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", "snpio/example_data/popmaps/phylogen_nomx.popmap")
             >>> nrm = NRemover2(gd)
             >>> nrm.filter_missing_sample(0.75).filter_missing(0.75).filter_missing_pop(0.75).filter_mac(2).filter_monomorphic(exclude_heterozygous=False).filter_singletons(exclude_heterozygous=False).filter_biallelic(exclude_heterozygous=False).resolve()
             >>> nrm.plot_sankey_filtering_report()

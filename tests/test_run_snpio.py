@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch, call
 
-from run_snpio import main
+from snpio.run_snpio import main
 from snpio import NRemover2, Plotting, VCFReader
 
 
@@ -41,8 +41,8 @@ class TestRunSnpio(unittest.TestCase):
 
         # Assertions to ensure the methods were called
         MockVCFReader.assert_called_once_with(
-            filename="example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
-            popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+            filename="snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
+            popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
             force_popmap=True,
             chunk_size=5000,
         )
@@ -72,7 +72,7 @@ class TestRunSnpio(unittest.TestCase):
 
         mock_gd_filt.missingness_reports.assert_called_once_with(prefix="filtered")
         mock_gd_filt.write_vcf.assert_called_once_with(
-            "example_data/vcf_files/nremover_test.vcf"
+            "snpio/example_data/vcf_files/nremover_test.vcf"
         )
 
 

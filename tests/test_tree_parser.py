@@ -49,7 +49,7 @@ class TestTreeParser(unittest.TestCase):
         self.siterates.write(rates)
         self.siterates.seek(0)
 
-        self.siterates_iqtree = "example_data/trees/test_n50.rate"
+        self.siterates_iqtree = "snpio/example_data/trees/test_n50.rate"
 
         self.qmat = [
             [0.0, 0.1, 0.2, 0.3],
@@ -63,7 +63,7 @@ class TestTreeParser(unittest.TestCase):
         self.qmatrix.write(qmat)
         self.qmatrix.seek(0)
 
-        self.qmatrix_iqtree = "example_data/trees/test.iqtree"
+        self.qmatrix_iqtree = "snpio/example_data/trees/test.iqtree"
 
         # Create TreeParser instance
         self.parser = TreeParser(

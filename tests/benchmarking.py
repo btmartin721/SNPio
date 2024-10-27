@@ -6,13 +6,13 @@ from snpio.read_input.genotype_data import GenotypeData
 
 # Instantiate GenotypeData object
 genotype_data = GenotypeData(
-    filename="example_data/vcf_files/phylogen_subset14K.vcf.gz",
+    filename="snpio/example_data/vcf_files/phylogen_subset14K.vcf.gz",
     force_popmap=True,
     filetype="auto",
-    popmapfile="example_data/popmaps/phylogen_nomx.popmap",
-    guidetree="example_data/trees/test.tre",
-    siterates_iqtree="example_data/trees/test14K.rate",
-    qmatrix_iqtree="example_data/trees/test.iqtree",
+    popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
+    guidetree="snpio/example_data/trees/test.tre",
+    siterates_iqtree="snpio/example_data/trees/test14K.rate",
+    qmatrix_iqtree="snpio/example_data/trees/test.iqtree",
 )
 
 # Access basic properties

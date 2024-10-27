@@ -25,8 +25,8 @@ Below is the code for the script:
    def main():
       # Read the alignment, popmap, and tree files.
       gd = VCFReader(
-         filename="example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
-         popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+         filename="snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
+         popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
          force_popmap=True,  # Remove samples not in the popmap, or vice versa.
          chunk_size=5000,  # Number of lines to read into memory at a time.
       )
@@ -67,7 +67,7 @@ Below is the code for the script:
       gd_filt.missingness_reports(prefix="filtered")
 
       # Write the filtered VCF file.
-      gd_filt.write_vcf("example_data/vcf_files/nremover_test.vcf")
+      gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
 
       # Encode the genotypes into 012, one-hot, and integer formats.
       ge = GenotypeEncoder(gd_filt)
@@ -84,9 +84,9 @@ Below is the code for the script:
 
       tp = TreeParser(
          genotype_data=gd_filt,
-         treefile="example_data/trees/test.tre",
-         qmatrix="example_data/trees/test.iqtree",
-         siterates="example_data/trees/test14K.rate",
+         treefile="snpio/example_data/trees/test.tre",
+         qmatrix="snpio/example_data/trees/test.iqtree",
+         siterates="snpio/example_data/trees/test14K.rate",
          verbose=True,
          debug=False,
       )

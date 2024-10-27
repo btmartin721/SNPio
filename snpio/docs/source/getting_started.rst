@@ -59,8 +59,8 @@ Example usage:
 .. code-block:: python
 
   # Define input filenames
-  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
-  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  vcf = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap" 
   
   # Load the genotype data from a VCF file
   gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
@@ -121,8 +121,8 @@ The population map file can be provided as an argument to the reader classes. Fo
 
 .. code-block:: python
 
-  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
-  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  vcf = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap" 
   
   gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
 
@@ -145,8 +145,8 @@ VCFReader:
 
 .. code-block:: python
 
-  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
-  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  vcf = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz" 
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap" 
   
   gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", exclude_pops=["MX", "YU", "CH"], include_pops=["ON", "DS", "EA", "GU", "TT"])
 
@@ -159,8 +159,8 @@ If you would like to read a Phylip file, you can use the ``PhylipReader`` class:
 
 .. code-block:: python
 
-  phylip = "example_data/phylip_files/phylogen_subset14K.phy" 
-  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  phylip = "snpio/example_data/phylip_files/phylogen_subset14K.phy" 
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap" 
   
   gd = PhylipReader(filename=phylip, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", exclude_pops=["MX", "YU", "CH"], include_pops=["ON", "DS", "EA", "GU", "TT"])
 
@@ -171,8 +171,8 @@ If you would like to read in a Structure file, you can use the ``StructureReader
 
 .. code-block:: python
 
-  structure = "example_data/structure_files/phylogen_subset14K.str" 
-  popmap = "example_data/popmaps/phylogen_nomx.popmap" 
+  structure = "snpio/example_data/structure_files/phylogen_subset14K.str" 
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap" 
   
   gd = StructureReader(filename=structure, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", exclude_pops=["MX", "YU", "CH"], include_pops=["ON", "DS", "EA", "GU", "TT"])
 
@@ -379,8 +379,8 @@ Below are example plots that are created when running the ``search_thresholds()`
 
   from snpio import NRemover2, VCFReader
 
-  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
-  popmap = "example_data/popmaps/phylogen_nomx.popmap"
+  vcf = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap"
 
   gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
 
@@ -485,8 +485,8 @@ Example Usage:
 
   from snpio import VCFReader, GenotypeEncoder
 
-  vcf = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
-  popmap = "example_data/popmaps/phylogen_nomx.popmap"
+  vcf = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap"
 
   gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
 
@@ -523,22 +523,29 @@ Loading and Parsing Phylogenetic TreeParser
 
 SNPio also provides a ``TreeParser`` class to load and parse phylogenetic trees in Newick and NEXUS formats. The ``TreeParser`` class can read and parse tree files, modify tree structures, draw trees, and save trees in different formats.
 
-Here is an example of how to load and parse a phylogenetic tree using the ``TreeParser`` class:
+Here are some examples of how to load and parse a phylogenetic tree using the ``TreeParser`` class:
 
 .. code-block:: python
 
-  from snpio import TreeParser
+  from snpio import TreeParser, VCFReader
+
+  vcf = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
+  popmap = "snpio/example_data/popmaps/phylogen_nomx.popmap"
+
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="pdf", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example")
 
   # Load a phylogenetic tree from a Newick file
-  tp = TreeParser("example_data/trees/test.tre", siterates="example_data/trees/test14K.rates", qmatrix="example_data/trees/test.iqtree", verbose=True)
+  tp = TreeParser(genotype_data=gd, treefile="snpio/example_data/trees/test.tre", siterates="snpio/example_data/trees/test14K.rates", qmatrix="snpio/example_data/trees/test.iqtree", verbose=True)
 
   tree = tp.read_tree()
 
+  tree.draw(); # Draw the tree
+
   # Save the tree in Newick format
-  tp.write_tree(tree, save_path="example_data/trees/test_newick.tre")
+  tp.write_tree(tree, save_path="snpio/example_data/trees/test_newick.tre")
 
   # Save the tree in NEXUS format
-  tp.write_tree(tree, save_path="example_data/trees/test_nexus.nex", nexus=True)
+  tp.write_tree(tree, save_path="snpio/example_data/trees/test_nexus.nex", nexus=True)
 
   # Returns the tree in Newick format as a string
   tp.write_tree(tree, save_path=None)
@@ -613,7 +620,7 @@ Conclusion
 
 This guide provides an overview of how to get started with the SNPio library. It covers the basic steps to read, manipulate, and analyze genotype data using the VCFReader, PhylipReader, StructureReader, and NRemover2 classes. SNPio is designed to simplify the process of handling genotype data and preparing it for downstream analysis, such as population genetics, phylogenetics, and machine learning. The library supports various file formats, including VCF, PHYLIP, and STRUCTURE, and provides tools for filtering, encoding, and visualizing genotype data. This guide will help you get up and running with SNPio quickly and efficiently.
 
-For more information on the SNPio library, please refer to the API documentation and examples provided in the repository. If you have any questions or feedback, please feel free to reach out to the developers. We hope you find SNPio useful for your genotype data analysis tasks!
+For more information on the SNPio library, please refer to this API documentation and examples provided in the repository. If you have any questions or feedback, please feel free to reach out to the developers. We hope you find SNPio useful for your bioinformatic analyses!
 
 .. note::
 

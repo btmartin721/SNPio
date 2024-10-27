@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "snpio"
+version = "1.1.2"
+description = "Reads and writes VCF, PHYLIP, and STRUCTURE files and performs data filtering on the alignment."
+readme = "README.md"
+license = {text = "GPL-3.0-or-later"}
+requires-python = ">=3.11"
+authors = [
+    { name = "Drs. Bradley T. Martin and Tyler K. Chafin", email = "evobio721@gmail.com" }
+]
+keywords = [
+    "genomics",
+    "bioinformatics",
+    "population genetics",
+    "SNP",
+    "VCF",
+    "PHYLIP",
+    "STRUCTURE",
+    "missing data",
+    "filtering",
+    "filter",
+    "MAF",
+    "minor allele frequency",
+    "MAC",
+    "minor allele count",
+    "biallelic",
+    "monomorphic",
+    "singleton"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Natural Language :: English"
+]
+dependencies = [
+    "bokeh", # required for interactive plots
+    "h5py", # required for saving VCF metadata
+    "holoviews", # required for interactive plots (Sankey plot)
+    "kaleido", # required for plotly to save static images
+    "kneed", # required for determining optimal PCA components
+    "matplotlib", # required for plotting
+    "numpy", # required for data manipulation
+    "pandas", # required for data manipulation
+    "panel", # required for interactive plots
+    "plotly", # required for interactive plots
+    "pysam", # required for reading VCF files
+    "requests", # required for downloading files
+    "scikit-learn", # required for filtering and encoding
+    "scipy", # required for filtering
+    "seaborn", # required for plotting
+    "toytree", # required for tree loading
+    "tqdm" # progress bar
+]
+
+[project.urls]
+"Source Code" = "https://github.com/btmartin721/SNPio"
+"Bug Tracker" = "https://github.com/btmartin721/SNPio/issues"
+
+
+[project.optional-dependencies]
+docs = ["sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
+dev = ["memory-profiler", "psutil", "mypy", "sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
+
+[project.scripts]
+snpio = "snpio.run_snpio:main"

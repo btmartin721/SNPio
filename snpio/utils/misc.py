@@ -3,11 +3,6 @@ from typing import Dict, List, Union
 import numpy as np
 import pandas as pd
 
-from snpio.utils.logging import LoggerManager
-
-logman = LoggerManager(__name__, verbose=False, debug=False)
-logger = logman.get_logger()
-
 
 def get_gt2iupac() -> Dict[str, str]:
     """Get a dictionary of genotype to IUPAC ambiguity codes."""

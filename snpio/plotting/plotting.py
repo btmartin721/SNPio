@@ -1840,7 +1840,7 @@ class Plotting:
         Example:
             >>> from snpio import Plotting, VCFReader
             >>>
-            >>> gd = VCFReader("example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", popmap="example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, verbose=True)
+            >>> gd = VCFReader("snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", popmap="snpio/example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, verbose=True)
             >>>
             >>> # Define the plotting object
             >>> plotting = Plotting(gd)

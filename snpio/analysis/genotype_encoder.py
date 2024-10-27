@@ -657,7 +657,7 @@ class GenotypeEncoder:
             List[List[int]], np.ndarray, or pd.DataFrame: encoded 012 genotypes.
 
         Example:
-            >>> gd = VCFReader(filename="example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", popmapfile="example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, chunk_size=5000, verbose=False)
+            >>> gd = VCFReader(filename="snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, chunk_size=5000, verbose=False)
             >>> ge = GenotypeEncoder(gd)
             >>> gt012 = ge.genotypes_012
             >>> print(gt012)

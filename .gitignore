@@ -124,7 +124,7 @@ unfiltered_reports/
 *.csv
 *.lock
 *.h5
-example_data/vcf_files/phylogen.vcf
+snpio/example_data/vcf_files/phylogen.vcf
 vcf_attributes.h5
 phylogen.vcf
 phylogen.vcf.gz
