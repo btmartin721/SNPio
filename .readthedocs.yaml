@@ -14,7 +14,7 @@ build:
 
 # Sphinx documentation options
 sphinx:
-  configuration: docs/source/conf.py
+  configuration: snpio/docs/source/conf.py
   builder: html
   fail_on_warning: true
 
@@ -24,3 +24,4 @@ python:
       path: .
       extra_requirements:
         - docs
+        - dev
