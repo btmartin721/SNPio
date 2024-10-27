@@ -5,11 +5,11 @@ import sys
 project = "SNPio"
 copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
 author = "Bradley T. Martin and Tyler K. Chafin"
-release = "1.1.0"
+release = "1.1.4"
 
 # -- Path setup --------------------------------------------------------------
 # Add the project's root directory to sys.path
-sys.path.insert(0, os.path.abspath("../.."))
+sys.path.insert(0, os.path.abspath("../../"))
 
 # -- Sphinx Extensions -------------------------------------------------------
 # Add extensions for autodoc, type hints, and more
