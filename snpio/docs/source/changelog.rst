@@ -4,7 +4,7 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
-Version 1.1.1 (2024-10-25)
+Version 1.1.3 (2024-10-25)
 ----------------------------
 
 Features
