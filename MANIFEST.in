@@ -1,0 +1,10 @@
+# Start by removing all files
+prune *
+
+# Then include only the snpio package and necessary files
+graft snpio
+
+# Optionally, include README and LICENSE if needed
+include README.md
+include LICENSE
+
