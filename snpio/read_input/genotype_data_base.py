@@ -1,5 +1,6 @@
+import logging
 import random
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -12,15 +13,20 @@ class BaseGenotypeData:
         self, filename: Optional[str] = None, filetype: Optional[str] = "auto"
     ):
         self.filename = filename
-        self.filetype = filetype.lower()
-        self._snp_data = None  # Initialize as None, load on demand
-        self._samples = []
-        self._populations = []
-        self._ref = []
-        self._alt = []
+
+        self.filetype = filetype if filetype is not None else None
+        if filetype is not None:
+            self.filetype = filetype.lower()
+
+        # Initialize as None, load on demand
+        self._snp_data: Optional[List[List[str]]] = None
+        self._samples: List[str] = []
+        self._populations: List[str | int] = []
+        self._ref: List[str] = []
+        self._alt: List[List[str] | str] = []
 
         logman = LoggerManager(__name__, verbose=False, debug=False)
-        self.logger = logman.get_logger()
+        self.logger: Optional[logging.Logger] = logman.get_logger()
 
     def _load_data(self) -> None:
         """Method to load data from file based on filetype"""
@@ -52,7 +58,7 @@ class BaseGenotypeData:
 
             # Flatten alleles and remove missing and gap values.
             valid_alleles = []
-            heterozygous_counts = {}
+            heterozygous_counts: Dict[str, int] = {}
             for genotype in column:
                 if genotype not in ["N", "?", ".", "-"]:
                     # Split heterozygous genotypes (e.g., 'A/G') and add each
@@ -67,15 +73,15 @@ class BaseGenotypeData:
                             )
 
             # Convert valid_alleles to a numpy array
-            valid_alleles = np.array(valid_alleles)
+            valid_alleles_arr: np.ndarray = np.array(valid_alleles)
 
-            if valid_alleles.size == 0:
+            if valid_alleles_arr.size == 0:
                 # If no valid alleles, log an error and raise an exception
                 self.logger.error(f"No valid alleles found in column {i}")
                 raise NoValidAllelesError(i)
 
             # Use numpy's unique function with return_counts for counting
-            alleles, counts = np.unique(valid_alleles, return_counts=True)
+            alleles, counts = np.unique(valid_alleles_arr, return_counts=True)
 
             # Sort by counts (descending order)
             sorted_indices = np.argsort(counts)[::-1]
@@ -103,7 +109,7 @@ class BaseGenotypeData:
                     second_most_common_alleles[i] = top_alleles[1 - chosen_ref_index]
                 else:
                     # Choose by fewest heterozygous occurrences
-                    chosen_ref_index = np.argmin(heterozygous_top_counts)
+                    chosen_ref_index = int(np.argmin(heterozygous_top_counts))
                     most_common_alleles[i] = top_alleles[chosen_ref_index]
                     second_most_common_alleles[i] = top_alleles[1 - chosen_ref_index]
             else:

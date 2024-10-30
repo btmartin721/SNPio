@@ -170,8 +170,6 @@ snpio_filtered_output/
 
 vcf_output/
 
-.vscode/
-
 logs/
 _minted-input
 

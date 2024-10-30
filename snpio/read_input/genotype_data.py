@@ -1,4 +1,5 @@
 import copy
+import logging
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 
@@ -154,7 +155,7 @@ class GenotypeData(BaseGenotypeData):
         loci_indices: Optional[np.ndarray] = None,
         sample_indices: Optional[np.ndarray] = None,
         chunk_size: int = 1000,
-        logger: Optional[Any] = None,
+        logger: Optional[logging.Logger] = None,
         debug: bool = False,
     ) -> None:
         """
@@ -195,7 +196,7 @@ class GenotypeData(BaseGenotypeData):
 
             chunk_size (int, optional): Chunk size for reading in large files. Defaults to 1000.
 
-            logger (logging, optional): Logger object. Defaults to None.
+            logger (logging.Logger, optional): Logger object. Defaults to None.
 
             debug (bool, optional): If True, display debug messages. Defaults to False.
 
@@ -221,7 +222,9 @@ class GenotypeData(BaseGenotypeData):
 
             If popmapfile is not provided, the popmap_inverse attribute will be None.
         """
-        filetype = filetype.lower()
+        if filetype is not None:
+            filetype = filetype.lower()
+
         super().__init__(filename, filetype)
 
         self.filename = filename
@@ -239,9 +242,11 @@ class GenotypeData(BaseGenotypeData):
         self.verbose = verbose
         self.chunk_size = chunk_size
 
-        self.supported_filetypes = ["vcf", "phylip", "structure", "tree"]
+        self.supported_filetypes: List[str] = ["vcf", "phylip", "structure", "tree"]
         self._snp_data = None
-        self.logger = logger
+
+        self.logger: Optional[logging.Logger] = None if logger is None else logger
+
         self.debug = debug
 
         if self.logger is None:
@@ -284,8 +289,8 @@ class GenotypeData(BaseGenotypeData):
         self._populations: List[Union[str, int]] = []
         self._ref: List[str] = []
         self._alt: List[str] = []
-        self._popmap: Dict[str, Union[str, int]] = None
-        self._popmap_inverse: Dict[str, List[str]] = None
+        self._popmap: Optional[Dict[str, str | int]] = None
+        self._popmap_inverse: Optional[Dict[str, List[str]]] = None
 
         self._loci_indices = loci_indices
         self._sample_indices = sample_indices
@@ -722,6 +727,11 @@ class GenotypeData(BaseGenotypeData):
 
         return new_obj
 
+    def load_aln(self):
+        msg = "load_aln method must be implemented in child class."
+        self.logger.errog(msg)
+        raise NotImplementedError(msg)
+
     @property
     def inputs(self) -> Dict[str, Any]:
         """Get GenotypeData keyword arguments as a dictionary.
@@ -762,7 +772,7 @@ class GenotypeData(BaseGenotypeData):
             try:
                 value = int(value)
             except ValueError:
-                f"num_snps must be numeric, but got {type(value)}"
+                msg = f"num_snps must be numeric, but got {type(value)}"
                 self.logger.error(msg)
                 raise TypeError(msg)
         if value < 0:
@@ -823,7 +833,7 @@ class GenotypeData(BaseGenotypeData):
         self._populations = value
 
     @property
-    def popmap(self) -> Dict[str, str]:
+    def popmap(self) -> Dict[str, str | int]:
         """Dictionary object with SampleIDs as keys and popIDs as values.
 
         Returns:
@@ -1078,13 +1088,13 @@ class GenotypeData(BaseGenotypeData):
             raise TypeError(msg)
 
     @snp_data.setter
-    def snp_data(self, value: Union[np.ndarray, List[str], pd.DataFrame]) -> None:
+    def snp_data(self, value: np.ndarray | List[List[str]] | pd.DataFrame) -> None:
         """Set snp_data attribute as a 2D list of IUPAC encoded genotype data.
 
         Input can be a 2D list, numpy array, or pandas DataFrame object.
 
         Args:
-            value (Union[np.ndarray, List[str], pd.DataFrame]): 2D array of IUPAC encoded genotype data.
+            value (Union[np.ndarray, List[List[str]], pd.DataFrame]): 2D array of IUPAC encoded genotype data.
 
         Raises:
             TypeError: If the snp_data attribute is not a numpy.ndarray, pandas.DataFrame, or list.

@@ -16,4 +16,5 @@
   "python.testing.unittestEnabled": false,
   "python.defaultInterpreterPath": "C:/Users/evobi/Documents/SNPio/.snpio-dev/bin/python",
   "python.REPL.enableREPLSmartSend": false,
+  "pasteAndIndent.selectAfter": true
 }
