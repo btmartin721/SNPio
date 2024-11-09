@@ -8,7 +8,7 @@ include = ["snpio*"]
 
 [project]
 name = "snpio"
-version = "1.1.4"
+version = "1.2.0"
 description = "Reads and writes VCF, PHYLIP, and STRUCTURE files and performs data filtering on the alignment."
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
@@ -62,6 +62,7 @@ dependencies = [
     "requests", # required for downloading files
     "scikit-learn", # required for filtering and encoding
     "scipy", # required for filtering
+    "statsmodels", # required for PopGenStatistics
     "seaborn", # required for plotting
     "toytree", # required for tree loading
     "tqdm" # progress bar
