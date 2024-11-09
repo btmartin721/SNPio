@@ -1,11 +1,15 @@
 import itertools
 import math
+import warnings
 from ctypes import Union
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import holoviews as hv
 import matplotlib as mpl
+
+mpl.use("Agg")
+
 import matplotlib.colors as mpl_colors
 import matplotlib.pyplot as plt
 import numpy as np
@@ -16,6 +20,8 @@ from holoviews import opts
 from mpl_toolkits.mplot3d import Axes3D  # Don't remove this import.
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import cross_val_score
+from statsmodels.stats.multitest import multipletests
+
 
 hv.extension("bokeh")
 
@@ -141,8 +147,16 @@ class Plotting:
         """
         self.genotype_data = genotype_data
         self.prefix = getattr(genotype_data, "prefix", "plot")
-        self.output_dir = Path(f"{self.prefix}_output", "nremover", "plots")
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        self.output_dir = Path(f"{self.prefix}_output")
+        self.output_dir_gd = self.output_dir / "gtdata" / "plots"
+        self.output_dir_analysis = self.output_dir / "analysis" / "plots"
+        self.output_dir_nrm = self.output_dir / "nremover" / "plots"
+
+        self.output_dir_gd.mkdir(parents=True, exist_ok=True)
+        self.output_dir_analysis.mkdir(parents=True, exist_ok=True)
+        self.output_dir_nrm.mkdir(parents=True, exist_ok=True)
+
         self.verbose = verbose
         self.debug = debug
 
@@ -272,219 +286,521 @@ class Plotting:
         return default
 
     def _plot_summary_statistics_per_sample(
-        self, summary_stats: pd.DataFrame, ax: Optional[mpl.axes.Axes] = None
-    ) -> None:
-        """Plot summary statistics per sample.
-
-        This method plots the summary statistics per sample on the same figure. The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst). The x-axis represents the locus, and the y-axis represents the value of the summary statistic. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/summary_statistics_per_sample.{plot_format}``. The plot is saved in the format specified by the `plot_format` attribute.
-
-        Args:
-            summary_stats (pandas.DataFrame): The DataFrame containing the summary statistics per sample to be plotted.
-
-            ax (matplotlib.axes.Axes, optional): The matplotlib axis on which to plot the summary statistics.
-
-        Returns:
-            None: The summary statistics per sample plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the `dimensions` argument is neither 2 nor 3.
-
-        Note:
-            - The summary statistics per sample are plotted as lines for each statistic (Ho, He, Pi, Fst).
-            - The x-axis represents the locus, and the y-axis represents the value of the summary statistic.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/summary_statistics_per_sample.{plot_format}``.
-            - The plot is colored by population and labeled by population with symbols for each sample.
-            - The summary statistics per sample are grouped by population.
-        """
-        if ax is None:
-            _, ax = plt.subplots()
-
-        ax.plot(summary_stats["Ho"], label="Ho")
-        ax.plot(summary_stats["He"], label="He")
-        ax.plot(summary_stats["Pi"], label="Pi")
-        ax.plot(summary_stats["Fst"], label="Fst")
-
-        ax.set_xlabel("Locus")
-        ax.set_ylabel("Value")
-        ax.set_title("Summary Statistics per Sample")
-        ax.legend()
-
-    def _plot_summary_statistics_per_population(
         self,
         summary_stats: pd.DataFrame,
-        popmap: pd.DataFrame,
-        ax: Optional[mpl.axes.Axes] = None,
+        ax: Optional[plt.Axes] = None,
+        window: int = 5,
+        subsample_rate: int = 50,
     ) -> None:
-        """Plot summary statistics per population.
-
-        This method plots the summary statistics per population on the same figure. The summary statistics are grouped by population and plotted as lines for each statistic (Ho, He, Pi, Fst). The x-axis represents the population, and the y-axis represents the value of the summary statistic. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/summary_statistics_per_population.{plot_format}``. The plot is saved in the format specified by the `plot_format` attribute.
+        """Plot summary statistics per sample without confidence intervals to reduce visual clutter.
 
         Args:
             summary_stats (pd.DataFrame): The DataFrame containing the summary statistics to be plotted.
-
-            popmap (pd.DataFrame): The DataFrame containing the population mapping used to group the summary statistics.
-
             ax (matplotlib.axes.Axes, optional): The matplotlib axis on which to plot the summary statistics.
-
-        Returns:
-            None: The summary statistics per population plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the `dimensions` argument is neither 2 nor 3.
-
-        Note:
-            - The summary statistics per population are grouped by population.
-            - The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst).
-            - The x-axis represents the population, and the y-axis represents the value of the summary statistic.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/summary_statistics_per_population.{plot_format}``.
-            - The summary statistics per population are grouped by population.
-            - The summary statistics are grouped by population.
+            window (int): Window size for rolling average smoothing (optional).
+            subsample_rate (int): Rate of subsampling to reduce density on plot.
         """
+        if ax is None:
+            _, ax = plt.subplots(figsize=(10, 6))
+
+        # Drop NaNs to ensure no unwanted line artifacts
+        summary_stats = summary_stats.dropna()
+
+        # Interpolate remaining NaNs (if any) for smoother lines
+        interpolated_stats = summary_stats[["Ho", "He", "Pi"]].interpolate(
+            method="linear"
+        )
+
+        # Apply rolling average for smoothing
+        smoothed_stats = interpolated_stats.rolling(window=window, center=True).mean()
+
+        # Subsample data to reduce plot density
+        sampled_indices = summary_stats.index[::subsample_rate]
+        sampled_smoothed_stats = smoothed_stats.loc[sampled_indices]
+
+        # Plot each statistic with distinct colors
+        colors = ["blue", "green", "red"]
+        for stat, color in zip(["Ho", "He", "Pi"], colors):
+            ax.plot(
+                sampled_indices,
+                sampled_smoothed_stats[stat],
+                label=stat,
+                color=color,
+                linewidth=2,
+            )
+
+        # Labeling and grid improvements
+        ax.set_xlabel("Locus", fontsize=12)
+        ax.set_ylabel("Value", fontsize=12)
+        ax.set_title("Summary Statistics per Locus (Overall)", fontsize=14)
+        ax.legend(title="Statistics", loc="upper right", fontsize=10)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        plt.tight_layout()
+
+    def _plot_summary_statistics_per_population(
+        self, per_population_stats: dict, ax: Optional[plt.Axes] = None
+    ) -> None:
+        """Plot mean summary statistics per population as grouped bar chart."""
         if ax is None:
             _, ax = plt.subplots()
 
-        # Group the summary statistics by population.
-        pop_summary_stats = summary_stats.groupby(popmap["PopulationID"]).mean()
+        pop_stats = pd.DataFrame(columns=["Ho", "He", "Pi"])
+        for pop_id, stats_df in per_population_stats.items():
+            stats_df = stats_df.copy()
 
-        ax.plot(pop_summary_stats["Ho"], label="Ho")
-        ax.plot(pop_summary_stats["He"], label="He")
-        ax.plot(pop_summary_stats["Pi"], label="Pi")
-        ax.plot(pop_summary_stats["Fst"], label="Fst")
+            if not stats_df.empty:
+                stats_df = stats_df.dropna(how="any", axis=0)
+                stats_df = stats_df.apply(lambda x: x.astype(float))
+                stats_df["PopulationID"] = pop_id
 
+                with warnings.catch_warnings():
+                    # TODO: pandas >= 2.1.0 has a FutureWarning for concatenating DataFrames with Null entries
+                    warnings.filterwarnings("ignore", category=FutureWarning)
+                    pop_stats = pd.concat([pop_stats, stats_df], ignore_index=True)
+
+            else:
+                self.logger.warning(
+                    f"Empty or NaN summary statistics for population {pop_id}"
+                )
+
+        pop_stats = pd.melt(
+            pop_stats, id_vars="PopulationID", var_name="Statistic", value_name="Value"
+        )
+
+        if len(per_population_stats) <= 9:
+            pal = "Set1"
+        elif len(per_population_stats) <= 10:
+            pal = "tab10"
+        elif len(per_population_stats) <= 12:
+            pal = "Set3"
+        elif len(per_population_stats) <= 20:
+            pal = "tab20"
+        else:
+            pal = "viridis"  # Fallback to viridis for many populations
+
+        ax = sns.barplot(
+            data=pop_stats,
+            x="PopulationID",
+            y="Value",
+            hue="Statistic",
+            ax=ax,
+            palette=pal,
+            edgecolor="black",
+        )
         ax.set_xlabel("Population")
-        ax.set_ylabel("Value")
-        ax.set_title("Summary Statistics per Population")
-        ax.legend()
-
-    def _plot_summary_statistics_per_population_grid(
-        self, summary_statistics_df: pd.DataFrame
-    ) -> None:
-        """Plot summary statistics per population using a Seaborn PairGrid plot.
-
-        Args:
-            summary_statistics_df (pd.DataFrame): The DataFrame containing the summary statistics to be plotted.
-
-        Returns:
-            None: The summary statistics per population grid plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the `dimensions` argument is neither 2 nor 3.
-
-        Note:
-            - The summary statistics per population are plotted using a Seaborn PairGrid plot.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/summary_statistics_per_population_grid.{plot_format}``.
-            - The summary statistics per population are grouped by population.
-            - The summary statistics are grouped by population.
-            - The summary statistics are plotted as a grid of scatter plots and kernel density plots.
-            - The grid plot is colored by population and labeled by population with symbols for each sample.
-            - The grid plot is saved to a file.
-            - The grid plot is displayed if the `show` attribute is True.
-        """
-        g = sns.PairGrid(summary_statistics_df)
-        g.map_upper(sns.scatterplot)
-        g.map_lower(sns.kdeplot)
-        g.map_diag(sns.kdeplot, lw=3, legend=False)
-
-        of = f"summary_statistics_per_population_grid.{self.plot_format}"
-        of = self.output_dir / of
-        g.savefig(of)
-
-        if self.show:
-            plt.show()
-        plt.close()
+        ax.set_ylabel("Mean Value")
+        ax.set_title("Mean Summary Statistics per Population")
+        ax.legend(title="Statistics", loc="best", bbox_to_anchor=(1.04, 1))
 
     def _plot_summary_statistics_per_sample_grid(
-        self, summary_statistics_df: pd.DataFrame
+        self, summary_stats: pd.DataFrame
     ) -> None:
-        """Plot summary statistics per sample using a Seaborn PairGrid plot.
+        """Plot summary statistics per locus using a Seaborn PairGrid plot."""
+        g = sns.PairGrid(summary_stats)
+        g.map_upper(sns.scatterplot, color="steelblue")
+        g.map_lower(sns.kdeplot, cmap="Blues", fill=True, alpha=0.5)
+        g.map_diag(sns.kdeplot, lw=2, color="darkblue", fill=True)
 
-        This method plots the summary statistics per sample using a Seaborn PairGrid plot. The summary statistics are plotted as a grid of scatter plots and kernel density plots. The grid plot is colored by population and labeled by population with symbols for each sample. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/summary_statistics_per_sample_grid.{plot_format}``. The plot is saved in the format specified by the `plot_format` attribute.
-
-        Args:
-            summary_statistics_df (pd.DataFrame): The DataFrame containing the summary statistics to be plotted.
-
-        Returns:
-            None: The summary statistics per sample grid plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the `dimensions` argument is neither 2 nor 3.
-
-        Note:
-            - The summary statistics per sample are plotted using a Seaborn PairGrid plot.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/summary_statistics_per_sample_grid.{plot_format}``.
-            - The summary statistics per sample are grouped by population.
-            - The summary statistics are grouped by population.
-            - The summary statistics are plotted as a grid of scatter plots and kernel density plots.
-            - The grid plot is colored by population and labeled by population with symbols for each sample.
-            - The grid plot is saved to a file.
-        """
-        g = sns.PairGrid(summary_statistics_df)
-        g.map_upper(sns.scatterplot)
-        g.map_lower(sns.kdeplot)
-        g.map_diag(sns.kdeplot, lw=3, legend=False)
-
-        of = f"summary_statistics_per_sample_grid.{self.plot_format}"
-        of = self.output_dir / of
-        g.savefig(of)
+        g.figure.suptitle("Summary Statistics per Locus", y=1.02, fontsize=16)
+        of = f"summary_statistics_per_locus.{self.plot_format}"
+        g.savefig(self.output_dir_analysis / of)
 
         if self.show:
             plt.show()
+
         plt.close()
 
-    def plot_summary_statistics(self, summary_statistics_df: pd.DataFrame) -> None:
-        """Plot summary statistics per sample and per population on the same figure.
+    def _plot_summary_statistics_per_population_grid(
+        self, per_population_stats: dict, ax: Optional[plt.Axes] = None
+    ) -> None:
+        """Plot summary statistics per population using violin plots."""
 
-        This method plots the summary statistics per sample and per population on the same figure. The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst). The x-axis represents the locus, and the y-axis represents the value of the summary statistic. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/summary_statistics.{plot_format}``. The plot is saved in the format specified by the `plot_format` attribute.
+        if ax is None:
+            _, ax = plt.subplots()
+
+        # Combine population data into a single DataFrame
+        combined_df = pd.DataFrame()
+        for pop_id, stats_df in per_population_stats.items():
+            stats_df = stats_df.copy()
+            stats_df["Population"] = pop_id
+            combined_df = pd.concat([combined_df, stats_df], ignore_index=True)
+
+        # Melt DataFrame for easier plotting with seaborn
+        melted_df = combined_df.melt(
+            id_vars="Population",
+            value_vars=["Ho", "He", "Pi"],
+            var_name="Statistic",
+            value_name="Value",
+        )
+
+        pal = "Paired" if len(per_population_stats) <= 12 else "tab20"
+
+        # Set up the figure
+        plt.figure(figsize=(16, 9))
+        sns.violinplot(
+            x="Statistic",
+            y="Value",
+            hue="Population",
+            data=melted_df,
+            split=True,
+            inner="quart",
+            palette=pal,
+        )
+
+        # Customize the plot for clarity
+        plt.title("Summary Statistics per Population")
+        plt.xlabel("Statistic")
+        plt.ylabel("Value")
+        plt.legend(title="Population", bbox_to_anchor=(1.05, 1), loc="upper left")
+        plt.tight_layout()
+
+        # Save the plot
+        of = f"summary_statistics_per_population.{self.plot_format}"
+        plt.savefig(self.output_dir_analysis / of)
+
+        if self.show:
+            plt.show()
+
+        plt.close()
+
+    def _plot_fst_heatmap(self, fst_between_pops: Dict[tuple, pd.Series]) -> None:
+        """Plot a heatmap of Fst values between populations, sorted by highest Fst and displaying only the lower triangle."""
+
+        # Calculate mean Fst for each population pair
+        fst_means = {
+            pop_pair: fst_series.mean()
+            for pop_pair, fst_series in fst_between_pops.items()
+        }
+
+        # Extract unique population names and initialize an empty Fst matrix
+        populations = sorted({pop for pair in fst_means.keys() for pop in pair})
+        fst_matrix = pd.DataFrame(index=populations, columns=populations, data=np.nan)
+
+        # Populate the matrix with Fst values
+        for (pop1, pop2), fst_value in fst_means.items():
+            fst_matrix.loc[pop1, pop2] = fst_value
+            fst_matrix.loc[pop2, pop1] = fst_value
+
+        # Calculate the mean Fst for sorting across rows and columns
+        mean_fst_per_population = fst_matrix.mean(axis=1).sort_values(ascending=False)
+        sorted_populations = mean_fst_per_population.index
+
+        # Reorder the matrix to apply consistent sorting on both rows and columns
+        fst_matrix = fst_matrix.loc[sorted_populations, sorted_populations]
+
+        # Apply a mask to show only the lower triangle, including the diagonal
+        mask = np.triu(np.ones_like(fst_matrix, dtype=bool))
+
+        # Plot the heatmap
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(
+            fst_matrix,
+            annot=True,
+            cmap="coolwarm",
+            mask=mask,  # Mask upper triangle
+            cbar_kws={"label": "Mean Fst Value"},
+            linewidths=0,
+        )
+
+        # Add title and adjust labels
+        plt.title("Mean Fst Between Populations")
+        plt.xticks(rotation=45, ha="right")
+        plt.yticks(rotation=0)
+
+        # Save the plot
+        of = f"fst_between_populations_heatmap.{self.plot_format}"
+        plt.savefig(self.output_dir_analysis / of)
+
+        if self.show:
+            plt.show()
+
+        plt.close()
+
+    def plot_d_statistics(self, df: pd.DataFrame) -> None:
+        """Create plots for D-statistics with multiple test corrections.
+
+        This method creates three plots:
+        1. Bar plot of significant D-statistic counts (raw, Bonferroni, FDR-BH).
+        2. Distribution plot of D-statistic values using raw p-values for comparison.
+        3. Box plot of D-statistics by population combination.
+
+        The method saves the plots to the output directory and displays them if ``show`` is True.
 
         Args:
-            summary_statistics_df (pd.DataFrame): The DataFrame containing the summary statistics to be plotted.
-
-        Returns:
-            None: The summary statistics plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the `dimensions` argument is neither 2 nor 3.
-
-        Note:
-            - The summary statistics per sample and per population are plotted on the same figure.
-            - The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst).
-            - The x-axis represents the locus, and the y-axis represents the value of the summary statistic.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/summary_statistics.{plot_format}``.
-            - The summary statistics per sample and per population are grouped by population.
-            - The summary statistics are grouped by population.
-            - The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst).
-            - The plot is colored by population and labeled by population with symbols for each sample.
+            df (pd.DataFrame): DataFrame containing D-statistics and p-values.
         """
-        fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
+        df = df.copy()
 
-        self._plot_summary_statistics_per_sample(summary_statistics_df, ax=axes[0])
-        self._plot_summary_statistics_per_population(summary_statistics_df, ax=axes[1])
+        # 1. Bar Plot of Significant D-Statistic Counts (Raw, Bonferroni,
+        # FDR-BH)
+        fig, ax = plt.subplots(1, 1, figsize=(14, 6))
+        significance_df = pd.DataFrame(
+            {
+                "Correction": ["Raw", "Bonferroni", "FDR-BH"],
+                "Significant": [
+                    df["Significant (Raw)"].sum(),
+                    df["Significant (Bonferroni)"].sum(),
+                    df["Significant (FDR-BH)"].sum(),
+                ],
+                "Not Significant": [
+                    (~df["Significant (Raw)"]).sum(),
+                    (~df["Significant (Bonferroni)"]).sum(),
+                    (~df["Significant (FDR-BH)"]).sum(),
+                ],
+            }
+        ).melt(id_vars="Correction", var_name="Significance", value_name="Count")
 
+        ax = sns.barplot(
+            data=significance_df, x="Correction", y="Count", hue="Significance", ax=ax
+        )
+        ax.set_title(
+            "Counts of Significant D-Statistics (p < 0.05) by Correction Method"
+        )
+        ax.set_xlabel("Correction Method")
+        ax.set_ylabel("Count")
+        ax.legend(title="Significance")
+
+        of = f"d_statistics_significance_counts.{self.plot_format}"
+        fn = self.output_dir_analysis / of
+        fig.savefig(fn)
+
+        if self.show:
+            plt.show()
+
+        plt.close()
+
+        # 2. Distribution Plot of D-Statistic Values (Using Raw p-values for
+        # comparison)
+        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+        ax = sns.histplot(df["Z-Score"], kde=True, ax=ax)
+        ax.axvline(
+            df["Z-Score"].mean(),
+            color="red",
+            linestyle="--",
+            label="Mean Z-Score",
+        )
+        ax.set_title("Distribution of Observed D-Statistic Values")
+        ax.set_xlabel("Z-Score")
+        ax.set_ylabel("Frequency")
+        ax.legend()
+
+        of = f"d_statistics_distribution.{self.plot_format}"
+        fn = self.output_dir_analysis / of
+        fig.savefig(fn)
+
+        if self.show:
+            plt.show()
+
+        plt.close()
+
+        # 3. Box Plot of D-Statistics by Population Combination
+        # Create a unique identifier for each sample combination
+        combo_cols = [col for col in df.columns if col.startswith("Sample")]
+        df["Sample Combo"] = df[combo_cols].apply(
+            lambda x: "-".join(x.dropna()), axis=1
+        )
+
+        fig, ax = plt.subplots(1, 1, figsize=(14, 24))
+
+        # Create columns for True and False values of 'Significant (FDR-BH)'
+        df["Significant"] = df["Z-Score"].where(df["Significant (FDR-BH)"], 0)
+        df["Not Significant"] = df["Z-Score"].where(~df["Significant (FDR-BH)"], 0)
+
+        # Plot
+        fig, ax = plt.subplots()
+        df.plot(
+            kind="barh",
+            x="Sample Combo",
+            y=["Significant", "Not Significant"],
+            stacked=True,
+            ax=ax,
+            legend=True,
+            color=["#66c2a5", "#fc8d62"],  # Customize colors if needed
+        )
+
+        ax.set_yticks(ax.get_yticks())
+        ax.set_yticklabels(
+            ax.get_yticklabels(), fontsize=max(self.plot_fontsize - 15, 1)
+        )
+        ax.set_title("Z-Score by Sample Combination (FDR-BH Corrected)")
+        ax.set_xlabel("Sample Combination")
+        ax.set_ylabel("Z-Score")
+        ax.legend(title="Significant (FDR-BH)")
+
+        of = f"d_statistics_sample_combos_barplot.{self.plot_format}"
+        fn = self.output_dir_analysis / of
+        fig.savefig(fn)
+
+        if self.show:
+            plt.show()
+
+        plt.close()
+
+    def plot_fst_outliers(self, outlier_snps, save_plot=True):
+        """Create a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs.
+
+        Args:
+            outlier_snps (pd.DataFrame): DataFrame containing Fst values and Contributing_Pairs for outlier SNPs.
+            save_plot (bool, optional): Whether to save the plot. Defaults to True.
+        """
+        # Copy the DataFrame to avoid modifying the original data
+        data = outlier_snps.copy()
+
+        # Ensure SNP identifiers are in the index
+        if data.index.name != "SNP":
+            data.index.name = "SNP"
+
+        data = data.reset_index()
+
+        self.logger.debug(f"data_index: {data.index}")
+        self.logger.debug(f"data_columns: {data.columns}")
+
+        # Extract the Fst values (excluding the Contributing_Pairs column)
+        fst_values = data.sort_index(axis=1).drop(columns=["Contributing_Pairs"])
+
+        if isinstance(data.columns, pd.MultiIndex):
+            # Flatten the MultiIndex columns
+            data.columns = data.columns.to_flat_index()
+
+            data.columns = [
+                col[0] if "Contributing_Pairs" in col or "SNP" in col else col
+                for col in data.columns
+            ]
+
+        if isinstance(fst_values.columns, pd.MultiIndex):
+            # Flatten the MultiIndex columns
+            fst_values.columns = fst_values.columns.to_flat_index()
+
+            fst_values.columns = [
+                col[0] if "Contributing_Pairs" in col or "SNP" in col else col
+                for col in fst_values.columns
+            ]
+
+        # Convert the Contributing_Pairs from list to set for faster lookup
+        data["Contributing_Pairs_Set"] = data["Contributing_Pairs"].apply(set)
+        data = data.set_index("SNP")
+
+        # Melt the DataFrame to long format for easier plotting
+        fst_long = fst_values.melt(
+            id_vars="SNP", var_name="Population_Pair", value_name="Fst"
+        )
+
+        # Add a column to indicate whether each cell is a contributing pair
+        def is_contributing_pair(row):
+            snp = row["SNP"]
+            pair = row["Population_Pair"]
+            contributing_pairs = data.loc[snp, "Contributing_Pairs_Set"]
+            return pair in contributing_pairs
+
+        fst_long["Contributing"] = fst_long.apply(is_contributing_pair, axis=1)
+
+        # Pivot back to wide format with MultiIndex (SNP, Contributing)
+        fst_pivot = fst_long.pivot(index="SNP", columns="Population_Pair", values="Fst")
+
+        contributing_mask = fst_long.pivot(
+            index="SNP", columns="Population_Pair", values="Contributing"
+        )
+
+        # Create a mask for highlighting contributing pairs (masks out
+        # non-contributing pairs)
+        mask = ~contributing_mask.astype(bool)
+
+        # Ensure SNP indices are numeric
+        fst_pivot.index = fst_pivot.index.astype(int)
+        mask.index = mask.index.astype(int)
+
+        # Sort SNPs by their indices in numeric order
+        fst_pivot.sort_index(inplace=True)
+        mask = mask.loc[fst_pivot.index]
+
+        # Plot the heatmap
+        # Adjust height based on number of SNPs
+        fig, ax = plt.subplots(1, 1, figsize=(15, max(8, len(fst_pivot) // 2)))
+        sns.set_theme(font_scale=1.2)
+        cmap = sns.diverging_palette(220, 20, as_cmap=True)
+
+        # Plot all cells with masked non-contributing pairs
+        ax = sns.heatmap(
+            fst_pivot,
+            cmap=cmap,
+            linewidths=0.5,
+            linecolor="grey",
+            cbar_kws={"label": "Fst"},
+            mask=mask,
+            square=False,
+            xticklabels=True,
+            yticklabels=True,
+            ax=ax,
+        )
+
+        # Overlay the contributing pairs without masking
+        sns.heatmap(
+            fst_pivot,
+            cmap=cmap,
+            linewidths=0.5,
+            linecolor="grey",
+            cbar=False,
+            mask=~mask,
+            square=False,
+            xticklabels=True,
+            yticklabels=True,
+            ax=ax,
+        )
+
+        # Customize the plot
+        ax.set_title(
+            "Fst Values for Outlier SNPs\nContributing Populations Highlighted"
+        )
+        ax.set_xlabel("Population Pairs", fontsize=14)
+        ax.set_ylabel("SNPs", fontsize=14)
+
+        # Rotate x-axis labels for better readability
+        ax.set_xticks(ax.get_xticks())
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+
+        # Set y-axis labels to be the SNP indices
+        ax.set_yticklabels(fst_pivot.index)
+
+        # Save the plot
+        of = f"outlier_snps_heatmap.{self.plot_format}"
+        fn = self.output_dir_analysis / of
+
+        fig.savefig(fn)
+
+        if self.show:
+            plt.show()
+
+        plt.close()
+
+    def plot_summary_statistics(self, summary_statistics: dict) -> None:
+        """Plot summary statistics per sample and per population on the same figure."""
+        fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=False)
+
+        self._plot_summary_statistics_per_sample(
+            summary_statistics["overall"], ax=axes[0]
+        )
+        self._plot_summary_statistics_per_population(
+            summary_statistics["per_population"], ax=axes[1]
+        )
+
+        fig.suptitle("Summary Statistics Overview", fontsize=16, y=1.05)
+        fig.tight_layout()
         of = f"summary_statistics.{self.plot_format}"
-        of = self.output_dir / of
-        fig.savefig(of)
+        fig.savefig(self.output_dir_analysis / of)
 
         if self.show:
             plt.show()
+
         plt.close()
 
-        self._plot_summary_statistics_per_sample_grid(summary_statistics_df)
-        self._plot_summary_statistics_per_population_grid(summary_statistics_df)
+        # Plot PairGrid summaries
+        self._plot_summary_statistics_per_sample_grid(summary_statistics["overall"])
+        self._plot_summary_statistics_per_population_grid(
+            summary_statistics["per_population"]
+        )
+
+        # Plot Fst heatmap
+        self._plot_fst_heatmap(summary_statistics["Fst_between_populations"])
 
     def plot_pca(
         self, pca: PCA, alignment: np.ndarray, popmap: pd.DataFrame, dimensions: int = 2
@@ -550,7 +866,7 @@ class Plotting:
             raise ValueError("dimensions must be 2 or 3")
 
         of = f"pca_plot.{self.plot_format}"
-        of = self.output_dir / of
+        of = self.output_dir_analysis / of
 
         plt.savefig(of)
 
@@ -617,7 +933,7 @@ class Plotting:
             raise ValueError("dimensions must be 2 or 3")
 
         of = f"dapc_plot.{self.plot_format}"
-        of = self.output_dir / of
+        of = self.output_dir_analysis / of
         plt.savefig(of)
 
         if self.show:
@@ -669,7 +985,7 @@ class Plotting:
             scores.append(score)
 
         of = f"dapc_cv_results.{self.plot_format}"
-        of = self.output_dir / of
+        of = self.output_dir_analysis / of
 
         plt.figure(figsize=(16, 9))
         sns.lineplot(x=components, y=scores, marker="o")
@@ -904,7 +1220,7 @@ class Plotting:
         # Import Holoviews and Bokeh
         hv.extension("bokeh")
 
-        plot_dir = self.output_dir / "sankey_plots"
+        plot_dir = self.output_dir_nrm / "sankey_plots"
         plot_dir.mkdir(exist_ok=True, parents=True)
 
         # Copy the DataFrame to avoid modifying the original
@@ -1132,7 +1448,8 @@ class Plotting:
             )
 
         of = f"genotype_distribution.{self.plot_format}"
-        of = self.output_dir / of
+        of = self.output_dir_gd / of
+
         fig.savefig(of)
 
         if self.show:
@@ -1185,7 +1502,7 @@ class Plotting:
         self._plot_maf(df_combined)
         self._plot_boolean(df_combined)
 
-        msg = f"Plotting complete. Plots saved to directory {self.output_dir}."
+        msg = f"Plotting complete. Plots saved to directory {self.output_dir_nrm}."
         self.logger.info(msg)
 
     def _plot_combined(self, df: pd.DataFrame) -> None:
@@ -1252,7 +1569,7 @@ class Plotting:
                 )
 
             of = f"filtering_results_missing_loci_samples.{self.plot_format}"
-            of = self.output_dir / of
+            of = self.output_dir_nrm / of
             fig.savefig(of)
 
             if self.show:
@@ -1320,7 +1637,7 @@ class Plotting:
                 )
 
             of = f"filtering_results_missing_population.{self.plot_format}"
-            of = self.output_dir / of
+            of = self.output_dir_nrm / of
             fig.savefig(of)
 
             if self.show:
@@ -1386,7 +1703,7 @@ class Plotting:
                 ax.set_ylim(-0.05, 1.12)
                 ax.set_xticks(df["MAF_Threshold"].astype(float).unique(), minor=False)
 
-            of = self.output_dir / f"filtering_results_maf.{self.plot_format}"
+            of = self.output_dir_nrm / f"filtering_results_maf.{self.plot_format}"
             fig.savefig(of)
 
             if self.show:
@@ -1422,7 +1739,7 @@ class Plotting:
                 ax.set_ylim(-0.05, 1.12)
                 ax.set_xticks(df_mac["MAC_Threshold"].astype(int).unique(), minor=False)
 
-            of = self.output_dir / f"filtering_results_mac.{self.plot_format}"
+            of = self.output_dir_nrm / f"filtering_results_mac.{self.plot_format}"
             fig.savefig(of)
 
             if self.show:
@@ -1491,7 +1808,7 @@ class Plotting:
                     title="Filter Method", loc="center", bbox_to_anchor=(0.5, 1.2)
                 )
 
-            of = self.output_dir / f"filtering_results_bool.{self.plot_format}"
+            of = self.output_dir_nrm / f"filtering_results_bool.{self.plot_format}"
             fig.savefig(of)
 
             if self.show:
@@ -1591,7 +1908,7 @@ class Plotting:
             ax = sns_method(**kwargs, ax=ax)
 
         plot_format = plot_format.lower()
-        of = self.output_dir / f"filter_report.{self.plot_format}"
+        of = self.output_dir_nrm / f"filter_report.{self.plot_format}"
         of.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(of)
 
@@ -1655,7 +1972,7 @@ class Plotting:
             ax.set_ylabel(ylabel)
             ax.legend([median_line], ["Median"], loc="upper right")
 
-        of = self.output_dir / f"population_counts.{self.plot_format}"
+        of = self.output_dir_gd / f"population_counts.{self.plot_format}"
         fig.savefig(of)
 
         if self.show:
