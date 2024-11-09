@@ -732,6 +732,27 @@ class GenotypeData(BaseGenotypeData):
         self.logger.errog(msg)
         raise NotImplementedError(msg)
 
+    def get_population_indices(self) -> Dict[str, int]:
+        """Create a mapping from population IDs to sample indices.
+
+        This method creates a dictionary with population IDs as keys and lists of sample indices as values. The sample indices are used to subset the genotype data by population.
+
+        Returns:
+            Dict[str, int]: Dictionary with population IDs as keys and lists of sample indices as values.
+        """
+        sample_id_to_index = {
+            sample_id: idx for idx, sample_id in enumerate(self.samples)
+        }
+        pop_indices = {}
+        for pop_id, sample_ids in self.popmap_inverse.items():
+            indices = [
+                sample_id_to_index[sample_id]
+                for sample_id in sample_ids
+                if sample_id in sample_id_to_index
+            ]
+            pop_indices[pop_id] = indices
+        return pop_indices
+
     @property
     def inputs(self) -> Dict[str, Any]:
         """Get GenotypeData keyword arguments as a dictionary.
