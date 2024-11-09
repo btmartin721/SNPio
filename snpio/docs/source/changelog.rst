@@ -4,6 +4,32 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.2.0 (2024-11-07)
+----------------------------
+
+Features
+~~~~~~~~~
+
+- Added new functionality to calculate several population genetic statistics using the `PopGenStatistics` class, including:
+    - Wright's Fst 
+    - nucleotide diversity
+    - expected and observed heterozygosity
+    - Fst outliers
+    - Patterson's, Partitioned, and D-Foil D-statistic tests
+    - AMOVAs (Analysis of Molecular Variance)
+
+- The `PopGenStatistics` class now has the following methods:
+    - `calculate_d_statistics()`
+    - `detect_fst_outliers()`
+    - `observed_heterozygosity()`
+    - `expected_heterozygosity()`
+    - `nucleotide_diversity()`
+    - `wrights_fst()`
+    - `summary_statistics()`
+    - `amova()`
+
+Bootstrapping is performed for D-statistics and Fst outliers, and the results are saved as CSV files. The results are also returned as pandas DataFrames and dictionaries. The D-statistics are plotted, and the Fst outliers are plotted and saved as a CSV file. The summary statistics are plotted and returned as a dictionary.
+
 Version 1.1.3 (2024-10-25)
 ----------------------------
 
