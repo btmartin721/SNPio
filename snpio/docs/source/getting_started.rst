@@ -518,6 +518,19 @@ You can also inversely convert the encoded data back to the original genotypes b
 
 This will automatically update the original genotype data in the GenotypeData object and convert it to the original format stored in the ``snp_data`` property of the GenotypeData object.
 
+Population Genetics Analysis with PopGenStatistics
+--------------------------------------------------
+
+The `PopGenStatistics` class is designed to perform a suite of population genetic analyses on SNP datasets. It supports calculations such as D-statistics, Fst outliers, heterozygosity, nucleotide diversity, and Analysis of Molecular Variance (AMOVA). These analyses are essential for understanding genetic structure, diversity, and differentiation within and between populations. 
+
+For details on how to use the `PopGenStatistics` class, including method descriptions and code examples, please see the full documentation here:
+
+.. toctree::
+  :maxdepth: 1
+
+  pop_gen_statistics.rst
+
+
 Loading and Parsing Phylogenetic TreeParser
 -------------------------------------------
 
