@@ -5,3 +5,4 @@ from snpio.io.structure_reader import StructureReader
 from snpio.io.vcf_reader import VCFReader
 from snpio.plotting.plotting import Plotting
 from snpio.analysis.tree_parser import TreeParser
+from snpio.popgenstats.pop_gen_statistics import PopGenStatistics
