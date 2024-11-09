@@ -1,7 +1,18 @@
+import pprint
+
 import pandas as pd
 
-from snpio import GenotypeEncoder, NRemover2, Plotting, TreeParser, VCFReader
+from snpio import (
+    GenotypeEncoder,
+    NRemover2,
+    PopGenStatistics,
+    Plotting,
+    TreeParser,
+    VCFReader,
+)
 
+# Uncomment the following line to import the Benchmark class.
+# NOTE: For development purposes. Comment out for normal use.
 # from snpio.utils.benchmarking import Benchmark
 
 
@@ -11,8 +22,38 @@ def main():
         filename="snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
         popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,  # Remove samples not in the popmap, or vice versa.
-        chunk_size=5000,  # Number of lines to read into memory at a time.
+        chunk_size=5000,
+        exclude_pops=["OG"],
+        plot_format="pdf",
     )
+
+    pgs = PopGenStatistics(gd, verbose=True)
+
+    summary_stats = pgs.summary_statistics(save_plots=True)
+
+    df_fst_outliers = pgs.detect_fst_outliers(
+        correction_method="bonf", use_bootstrap=False
+    )
+
+    amova_results = pgs.amova()
+
+    print(summary_stats)
+    print(amova_results)
+    print(df_fst_outliers.head())
+    
+    dstats_df, overall_results = pgs.calculate_d_statistics(
+        method="patterson",
+        population1="EA",
+        population2="GU",
+        population3="TT",
+        outgroup="ON",
+        num_bootstraps=10,
+        n_jobs=6,
+        max_individuals_per_pop=3,
+    )
+
+    print(dstats_df.head())
+    pprint.pprint(overall_results, indent=4)
 
     # Run PCA and make missingness report plots.
     plotting = Plotting(genotype_data=gd)
