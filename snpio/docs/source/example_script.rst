@@ -36,13 +36,17 @@ Below is the code for the script:
       gd_components, gd_pca = plotting.run_pca()
       gd.missingness_reports()
 
+      ##############################################################
+      # Filtering example
+      ##############################################################
+
       nrm = NRemover2(gd)
 
-      # nrm.search_thresholds(
-      #     thresholds=[0.25, 0.5, 0.75, 1.0],
-      #     maf_thresholds=[0.0, 0.01, 0.025, 0.05],
-      #     mac_thresholds=[2, 5],
-      # )
+      nrm.search_thresholds(
+         thresholds=[0.25, 0.5, 0.75, 1.0],
+         maf_thresholds=[0.0, 0.01, 0.025, 0.05],
+         mac_thresholds=[2, 5],
+      )
 
       # # Plot benchmarking results.
       # NOTE: For development purposes. Comment out for normal use.
@@ -69,6 +73,10 @@ Below is the code for the script:
       # Write the filtered VCF file.
       gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
 
+      ##############################################################
+      # GenotypeEncoder example
+      ##############################################################
+
       # Encode the genotypes into 012, one-hot, and integer formats.
       ge = GenotypeEncoder(gd_filt)
       gt_012 = ge.genotypes_012
@@ -82,6 +90,46 @@ Below is the code for the script:
       print(gt_onehot[:5])
       print(dfint.head())
 
+      ##############################################################17
+      # PopGenStatistics example
+      ##############################################################
+
+      # Calculate population genetic statistics.
+      pgs = PopGenStatistics(gd_filt)
+      d_stats_df, overall_dstat_results = pgs.calculate_d_statistics(
+         method="patterson",
+         population1="EA",
+         population2="GU",
+         population3="TT",
+         outgroup="OG",
+         num_bootstraps=1000,
+         n_jobs=-1,
+      )
+
+      fst_outliers, fst_outlier_p_values = pgs.detect_fst_outliers(
+         correction_method="bonf",  # Perform Bonferroni P-value adjustments.
+         alpha=0.05,  # Significance level after P-value adjustment.
+         use_bootstrap=True,
+         n_bootstraps=1000,
+         n_jobs=-1
+      )
+
+      summary = pgs.summary_statistics()
+
+      amova_results = pgs.amova()
+
+      print(d_stats_df.head())
+      print(overall_dstat_results)
+      print(fst_outliers.head())
+      print(fst_outlier_p_values.head())
+      print(summary)
+      print(amova_results)
+
+      ############################################################
+      # TreeParser example
+      ############################################################
+
+      # Initialize the TreeParser object.
       tp = TreeParser(
          genotype_data=gd_filt,
          treefile="snpio/example_data/trees/test.tre",
