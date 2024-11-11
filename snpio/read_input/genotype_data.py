@@ -12,7 +12,7 @@ from snpio.read_input.genotype_data_base import BaseGenotypeData
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils.custom_exceptions import SequenceLengthError, UnsupportedFileTypeError
 from snpio.utils.logging import LoggerManager
-from snpio.utils.misc import get_gt2iupac, get_iupac2gt
+from snpio.utils.misc import IUPAC
 
 
 class GenotypeData(BaseGenotypeData):
@@ -311,6 +311,8 @@ class GenotypeData(BaseGenotypeData):
         self.reverse_iupac_mapping: Dict[str, Tuple[str, str]] = {
             v: k for k, v in self.iupac_mapping.items()
         }
+
+        self.iupac = IUPAC()
 
     def _iupac_from_gt_tuples(self) -> Dict[Tuple[str, str], str]:
         """Returns the IUPAC code mapping.
@@ -615,7 +617,7 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             str: Corresponding IUPAC code for the input genotype. Returns 'N' if the genotype is not in the lookup dictionary.
         """
-        iupac_dict = get_gt2iupac()
+        iupac_dict = self.iupac.get_gt2iupac()
 
         gt = iupac_dict.get(genotype)
 
@@ -634,7 +636,7 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             str: Corresponding genotype string for the input IUPAC code. Returns '-9/-9' if the IUPAC code is not in the lookup dictionary.
         """
-        genotype_dict = get_iupac2gt()
+        genotype_dict = self.iupac.get_iupac2gt()
 
         gt = genotype_dict.get(iupac_code)
         if gt is None:
