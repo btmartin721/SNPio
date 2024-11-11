@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 
 from snpio.utils import misc, sequence_tools
-from snpio.utils.misc import IUPAC
 from snpio.utils.logging import LoggerManager
+from snpio.utils.misc import IUPAC
 
 
 class GenotypeEncoder:
