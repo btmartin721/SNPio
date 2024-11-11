@@ -1,17 +1,21 @@
 import inspect
+import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import h5py
 import numpy as np
+from numpy._typing._array_like import NDArray
+import numpy.typing as npt
 import pandas as pd
-from Bio.SeqUtils import IUPACData
 
 # Custom imports
 from snpio.utils.benchmarking import Benchmark
 from snpio.utils.custom_exceptions import AlignmentFormatError
+from snpio.utils.misc import IUPAC
 
-measure_execution_time = Benchmark.measure_execution_time
+measure_execution_time: Callable = Benchmark.measure_execution_time
 
 
 class FilteringMethods:
@@ -51,15 +55,17 @@ class FilteringMethods:
             resource_data (dict): A dictionary containing resource data.
             missing_vals (list): A list of missing data values.
         """
-        self.nremover = nremover_instance
-        self.logger = self.nremover.logger
-        self.resource_data = self.nremover.genotype_data.resource_data
-        self.missing_vals = ["N", "-", ".", "?"]
-        self.ambiguous_bases = ["R", "Y", "S", "W", "K", "M"]
-        self.exclude_hets = self.missing_vals + self.ambiguous_bases
+        self.nremover: Any = nremover_instance
+        self.logger: logging.Logger = self.nremover.logger
+        self.resource_data: dict = self.nremover.genotype_data.resource_data
+        self.missing_vals: List[str] = ["N", "-", ".", "?"]
+        self.ambiguous_bases: List[str] = ["R", "Y", "S", "W", "K", "M"]
+        self.exclude_hets: List[str] = self.missing_vals + self.ambiguous_bases
 
         if not self.resource_data:
             self.resource_data = {}
+
+        self.iupac = IUPAC()
 
     @measure_execution_time
     def filter_missing(self, threshold: float) -> Any:
@@ -83,9 +89,9 @@ class FilteringMethods:
         self.nremover.propagate_chain()
 
         if not isinstance(threshold, float):
-            raise TypeError(
-                f"Threshold must be a float value, but got: {type(threshold)}"
-            )
+            msg: str = f"Threshold must be a float value, but got: {type(threshold)}"
+            self.logger.error(msg)
+            raise TypeError(msg)
         if threshold < 0.0 or threshold > 1.0:
             raise ValueError(
                 f"Threshold must be between 0.0 and 1.0 inclusive, but got: {threshold:.2f}"
@@ -93,11 +99,11 @@ class FilteringMethods:
 
         if not np.any(self.nremover.loci_indices):
             self.logger.warning(
-                "No loci remain in the alignment. Adjust filtering parameters."
+                "No loci remain in the alignment. Try adjusting filtering parameters."
             )
             self.nremover.resolve()
 
-        alignment_array = (
+        alignment_array: np.ndarray = (
             self.nremover.alignment[self.nremover.sample_indices, :][
                 :, self.nremover.loci_indices
             ]
@@ -105,40 +111,40 @@ class FilteringMethods:
             .astype(str)
         )
 
-        missing_counts = np.count_nonzero(
+        missing_counts: int = np.count_nonzero(
             np.isin(alignment_array, self.missing_vals), axis=0
         )
 
-        num_samples = np.count_nonzero(self.nremover.sample_indices)
+        num_samples: int = np.count_nonzero(self.nremover.sample_indices)
 
         self.logger.debug(f"Total Loci Before {inspect.stack()[0][3]}: {num_samples}")
 
-        missing_props = missing_counts / num_samples
+        missing_props: float = missing_counts / num_samples
 
         self.logger.debug(f"Total Loci Before {inspect.stack()[0][3]}: {num_samples}")
         self.logger.debug(f"missing_props: {missing_props}")
         self.logger.debug(f"missing_props shape: {missing_props.shape}")
 
-        mask = missing_props <= threshold
+        mask: np.ndarray = missing_props <= threshold
 
         self.logger.debug(f"mask {inspect.stack()[0][3]}: {mask}")
         self.logger.debug(f"mask shape {inspect.stack()[0][3]}: {mask.shape}")
 
-        full_mask = np.zeros_like(self.nremover.loci_indices, dtype=bool)
+        full_mask: np.ndarray = np.zeros_like(self.nremover.loci_indices, dtype=bool)
         full_mask[self.nremover.loci_indices] = mask
 
         # Update loci indices
-        n_to_keep = np.count_nonzero(full_mask)
+        n_to_keep: int = np.count_nonzero(full_mask)
 
         if n_to_keep == 0:
             self.logger.warning(
                 f"No loci remain in the alignment after {inspect.stack()[0][3]}. Adjust filtering parameters."
             )
-            n_removed = np.count_nonzero(~full_mask)
+            n_removed: int = np.count_nonzero(~full_mask)
             self._append_global_list(inspect.stack()[0][3], n_removed, 1.0)
             return self.nremover
 
-        t = None if self.nremover.search_mode else threshold
+        t: None | float = None if self.nremover.search_mode else threshold
 
         self.nremover._update_loci_indices(full_mask, inspect.stack()[0][3], t)
 
@@ -175,7 +181,7 @@ class FilteringMethods:
             return self.nremover
 
         # Extract the active samples and loci from the alignment
-        alignment_array = (
+        alignment_array: np.ndarray = (
             self.nremover.alignment[self.nremover.sample_indices, :][
                 :, self.nremover.loci_indices
             ]
@@ -189,22 +195,26 @@ class FilteringMethods:
             )
             return self.nremover
 
-        populations = self.nremover.popmap_inverse
-        samples = np.array(self.nremover.samples)[self.nremover.sample_indices]
+        populations: Dict[str | int, List[str]] = self.nremover.popmap_inverse
+        samples: np.ndarray = np.array(self.nremover.samples)[
+            self.nremover.sample_indices
+        ]
 
         # Initialize a list to collect population-specific masks for loci
-        pop_masks = []
+        pop_masks: list = []
 
         for sample_ids in populations.values():
             # Filter only the sample IDs in the current sample set
-            sample_ids_filt = [sid for sid in sample_ids if sid in samples]
-            indices = [i for i, sid in enumerate(samples) if sid in sample_ids_filt]
+            sample_ids_filt: List[str] = [sid for sid in sample_ids if sid in samples]
+            indices: List[int] = [
+                i for i, sid in enumerate(samples) if sid in sample_ids_filt
+            ]
 
             if not indices:
                 continue
 
             # Calculate the missing data proportion for the current population
-            missing_props = np.array(
+            missing_props: npt.NDArray[np.float64] = np.array(
                 [
                     np.count_nonzero(np.isin(col[indices], self.missing_vals))
                     / len(indices)
@@ -213,7 +223,7 @@ class FilteringMethods:
             )
 
             # Mask loci where the missing proportion exceeds the threshold
-            pop_mask = missing_props <= threshold
+            pop_mask: npt.NDArray[npt.Bool] = missing_props <= threshold
 
             self.logger.debug(f"pop_mask: {pop_mask}")
             self.logger.debug(f"pop_mask shape: {pop_mask.shape}")
@@ -224,15 +234,21 @@ class FilteringMethods:
         # Combine all population masks: Loci must be retained if they meet the
         # threshold in all populations
         if pop_masks:
-            cumulative_mask = np.all(np.vstack(pop_masks), axis=0)
+            cumulative_mask: npt.NDArray[npt.Bool] = np.all(
+                np.vstack(pop_masks), axis=0
+            )
         else:
-            cumulative_mask = np.zeros(alignment_array.shape[1], dtype=bool)
+            cumulative_mask: npt.NDArray[npt.Bool] = np.zeros(
+                alignment_array.shape[1], dtype=bool
+            )
 
         self.logger.debug(f"cumulative_mask: {cumulative_mask}")
         self.logger.debug(f"cumulative_mask shape: {cumulative_mask.shape}")
 
         # Initialize full_mask with the same length as the alignment's loci
-        full_mask = np.zeros(self.nremover.alignment.shape[1], dtype=bool)
+        full_mask: npt.NDArray[npt.Bool] = np.zeros(
+            self.nremover.alignment.shape[1], dtype=bool
+        )
 
         # Update loci_indices using the cumulative mask, applied only to active loci
         full_mask[self.nremover.loci_indices] = cumulative_mask
@@ -242,12 +258,12 @@ class FilteringMethods:
             self.logger.warning(
                 f"No loci remain in the alignment after {inspect.stack()[0][3]}. Adjust filtering parameters."
             )
-            n_removed = np.count_nonzero(~full_mask)
+            n_removed: int = np.count_nonzero(~full_mask)
             # Append this information to the filtering results dataframe
             self._append_global_list(inspect.stack()[0][3], n_removed, 1.0)
             return self.nremover
 
-        t = None if self.nremover.search_mode else threshold
+        t: None | float = None if self.nremover.search_mode else threshold
 
         # Update the loci indices with the final mask
         self.nremover._update_loci_indices(full_mask, inspect.stack()[0][3], t)
@@ -268,8 +284,10 @@ class FilteringMethods:
         Returns:
             np.ndarray: A boolean mask where True means the locus passes the filter.
         """
-        mac_counts = self._calculate_minor_allele_counts(
-            exclude_heterozygous=exclude_heterozygous
+        mac_counts: npt.NDArray[np.float64 | np.int64] = (
+            self._calculate_minor_allele_counts(
+                exclude_heterozygous=exclude_heterozygous
+            )
         )
         return mac_counts >= min_count
 
@@ -934,42 +952,6 @@ class FilteringMethods:
 
         return self.nremover
 
-    @staticmethod
-    def count_bases(column: np.ndarray) -> Dict[str, int]:
-        """Counts the occurrence of A, C, G, and T in the given column of SNP data, including handling heterozygous IUPAC characters by splitting counts among alleles.
-
-        Args:
-            column (np.ndarray): A numpy array of bases.
-
-        Returns:
-            Dict[str, int]: A dictionary with counts of 'A', 'C', 'G', 'T'.
-        """
-        # Define the target bases and initialize counts to zero
-        base_count = {"A": 0, "C": 0, "G": 0, "T": 0}
-
-        # Create a numpy array of valid bases to count
-        bases_to_count = np.array(["A", "C", "G", "T"])
-
-        # Count occurrences of exact matches for 'A', 'C', 'G', 'T'
-        for base in bases_to_count:
-            base_count[base] = np.count_nonzero(column == base)
-
-        # Handle ambiguous bases (IUPAC codes for heterozygous positions)
-        ambiguous_bases = {
-            base: IUPACData.ambiguous_dna_values[base]
-            for base in IUPACData.ambiguous_dna_values
-        }
-
-        # Iterate over ambiguous bases, distributing counts to the corresponding alleles
-        for ambig_base, mapping in ambiguous_bases.items():
-            mask = column == ambig_base
-            # Each ambiguous base splits its count equally among the corresponding alleles
-            split_count = np.count_nonzero(mask) / len(mapping)
-            for mapped_base in mapping:
-                base_count[mapped_base] += split_count
-
-        return base_count
-
     def _compute_maf_proportions(
         self, maf_threshold: float
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -979,9 +961,9 @@ class FilteringMethods:
             maf_threshold (float): The minimum minor allele frequency required to keep a locus.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray]: A tuple containing the MAF proportions and the mask for loci that pass the MAF threshold.
+            Tuple[numpy.ndarray, numpy.ndarray]: A tuple containing the MAF proportions and the mask for loci that pass the MAF threshold.
         """
-        alignment_array = (
+        alignment_array: npt.NDArray[Any] = (
             self.nremover.alignment[self.nremover.sample_indices, :][
                 :, self.nremover.loci_indices
             ]
@@ -999,15 +981,15 @@ class FilteringMethods:
             """
             Count occurrences of A, C, G, and T in a SNP data column, distributing heterozygous counts across alleles.
             """
-            base_count = {"A": 0, "C": 0, "G": 0, "T": 0}
-            valid_bases = np.array(["A", "C", "G", "T"])
+            base_count: Dict[str, int] = {"A": 0, "C": 0, "G": 0, "T": 0}
+            valid_bases: NDArray[Any] = np.array(["A", "C", "G", "T"])
 
             for base in valid_bases:
                 base_count[base] = np.sum(column == base)
 
-            ambiguous_bases = {
-                base: IUPACData.ambiguous_dna_values[base]
-                for base in IUPACData.ambiguous_dna_values
+            ambiguous_bases: Dict[str, str] = {
+                base: self.iupac.ambiguous_dna_values[base]
+                for base in self.iupac.ambiguous_dna_values
             }
 
             for ambig_base, mapping in ambiguous_bases.items():
@@ -1022,13 +1004,13 @@ class FilteringMethods:
             """Calculates the minor allele frequency for a given column of SNP data.
 
             Args:
-                column (np.ndarray): A numpy array of bases.
+                column (numpy.ndarray): A numpy array of bases.
 
             Returns:
                 float: The minor allele frequency for the given column.
             """
-            counts = count_bases(column)
-            valid_bases = {"A", "C", "G", "T"}
+            counts: Dict[str, int] = count_bases(column)
+            valid_bases: set[str] = {"A", "C", "G", "T"}
             counts = {
                 base: count for base, count in counts.items() if base in valid_bases
             }
@@ -1036,15 +1018,19 @@ class FilteringMethods:
             if not counts or all(count == 0 for count in counts.values()):
                 return 0
 
-            sorted_counts = np.array(sorted(counts.values(), reverse=True))
-            total = np.sum(sorted_counts)
+            sorted_counts: NDArray[Any] = np.array(
+                sorted(counts.values(), reverse=True)
+            )
+            total: np.int64 = np.sum(sorted_counts)
             if total == 0:
                 return 0
             freqs = sorted_counts / total
             return freqs[1] if len(freqs) > 1 else 0
 
         # Calculate MAF for each column in alignment_array
-        maf = np.apply_along_axis(minor_allele_frequency, 0, alignment_array)
+        maf: NDArray[Any] = np.apply_along_axis(
+            minor_allele_frequency, 0, alignment_array
+        )
         return maf >= maf_threshold
 
     def _calculate_minor_allele_counts(
@@ -1056,9 +1042,9 @@ class FilteringMethods:
             exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the MAC calculation. Defaults to False.
 
         Returns:
-            np.ndarray: An array containing the minor allele count for each locus.
+            numpy.ndarray: An array containing the minor allele count for each locus.
         """
-        alignment_array = (
+        alignment_array: npt.NDArray[Any] = (
             self.nremover.alignment[self.nremover.sample_indices, :][
                 :, self.nremover.loci_indices
             ]
@@ -1076,26 +1062,26 @@ class FilteringMethods:
             """Count occurrences of A, C, G, and T in a SNP data column, distributing heterozygous counts across alleles.
 
             Args:
-                column (np.ndarray): A numpy array of bases.
+                column (numpy.ndarray): A numpy array of bases.
 
             Returns:
                 Dict[str, int]: A dictionary with counts of 'A', 'C', 'G', 'T'.
             """
-            base_count = {"A": 0, "C": 0, "G": 0, "T": 0}
+            base_count: Dict[str, int] = {"A": 0, "C": 0, "G": 0, "T": 0}
 
             if exclude_heterozygous:
-                valid_bases = np.array(["A", "C", "G", "T"])
+                valid_bases: npt.NDArray[Any] = np.array(["A", "C", "G", "T"])
             else:
-                valid_bases = np.array(
+                valid_bases: npt.NDArray[Any] = np.array(
                     ["A", "C", "G", "T", "R", "Y", "S", "W", "K", "M"]
                 )
 
             for base in valid_bases:
                 base_count[base] = np.sum(column == base)
 
-            ambiguous_bases = {
-                base: IUPACData.ambiguous_dna_values[base]
-                for base in IUPACData.ambiguous_dna_values
+            ambiguous_bases: Dict[str, str] = {
+                base: self.iupac.ambiguous_dna_values[base]
+                for base in self.iupac.ambiguous_dna_values
             }
 
             for ambig_base, mapping in ambiguous_bases.items():
@@ -1115,8 +1101,8 @@ class FilteringMethods:
             Returns:
                 int: The minor allele count for the given column.
             """
-            counts = count_bases(column)
-            valid_bases = {"A", "C", "G", "T"}
+            counts: Dict[str, int] = count_bases(column)
+            valid_bases: set[str] = {"A", "C", "G", "T"}
             counts = {
                 base: count for base, count in counts.items() if base in valid_bases
             }
@@ -1125,7 +1111,9 @@ class FilteringMethods:
                 return 0
 
             # Sort the allele counts and return the second highest (minor allele count)
-            sorted_counts = np.array(sorted(counts.values(), reverse=True))
+            sorted_counts: NDArray[Any] = np.array(
+                sorted(counts.values(), reverse=True)
+            )
             return sorted_counts[1] if len(sorted_counts) > 1 else 0
 
         # Calculate MAC for each column (locus) in the alignment_array
