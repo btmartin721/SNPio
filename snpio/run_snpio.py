@@ -31,7 +31,7 @@ def main():
 
     summary_stats = pgs.summary_statistics(save_plots=True)
 
-    df_fst_outliers = pgs.detect_fst_outliers(
+    df_fst_outliers, df_fst_outlier_pvalues = pgs.detect_fst_outliers(
         correction_method="bonf", use_bootstrap=False
     )
 
@@ -40,7 +40,7 @@ def main():
     print(summary_stats)
     print(amova_results)
     print(df_fst_outliers.head())
-    
+
     dstats_df, overall_results = pgs.calculate_d_statistics(
         method="patterson",
         population1="EA",
