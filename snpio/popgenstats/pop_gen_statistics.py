@@ -1,8 +1,9 @@
 import itertools
+from logging import Logger
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -37,14 +38,14 @@ class PopGenStatistics:
             verbose (bool): Whether to display verbose output. Defaults to False.
             debug (bool): Whether to display debug output. Defaults to False.
         """
-        self.genotype_data = genotype_data
-        self.verbose = verbose
-        self.debug = debug
+        self.genotype_data: Any = genotype_data
+        self.verbose: bool = verbose
+        self.debug: bool = debug
         self.alignment: np.ndarray = genotype_data.snp_data
         self.popmap: Dict[str, str | int] = genotype_data.popmap
         self.populations: List[str | int] = genotype_data.populations
 
-        plot_kwargs = genotype_data.plot_kwargs
+        plot_kwargs: Dict[str, Any] = genotype_data.plot_kwargs
         plot_kwargs["debug"] = debug
         plot_kwargs["verbose"] = verbose
 
@@ -52,22 +53,22 @@ class PopGenStatistics:
         self.plotter: Any = Plotting(genotype_data, **plot_kwargs)
 
         # Initialize logger
-        logger = LoggerManager(
+        logman = LoggerManager(
             __name__, prefix=genotype_data.prefix, debug=debug, verbose=verbose
         )
 
         # Get logger object and set logging level
-        level = "DEBUG" if debug else "INFO"
-        self.logger = logger.get_logger()
+        level: str = "DEBUG" if debug else "INFO"
+        logman.set_level(level)
+        self.logger: Logger = logman.get_logger()
         self.logger.verbose = verbose
-        self.logger.set_level(level)
 
         self.d_stats = DStatistics(
             self.alignment, self.genotype_data.samples, self.logger
         )
 
         self.encoder = GenotypeEncoder(self.genotype_data)
-        self.alignment_012 = self.encoder.genotypes_012
+        self.alignment_012: np.ndarray = self.encoder.genotypes_012
 
     def calculate_d_statistics(
         self,
@@ -104,7 +105,7 @@ class PopGenStatistics:
             output_file (Optional[str]): Path to save the results CSV file. If not specified, results will be saved to a default location. Defaults to None.
             save_plot (bool): Whether to save the plots D-statistic plots. Defaults to True.
 
-        Returns:str
+        Returns:
             Tuple: A tuple containing the results of all sample combinations as a pandas DataFrame and the overall mean D-statistic, Z-score, and P-value as a dictionary.
         """
         self.logger.info(f"Calculating {method.capitalize()} D-statistics...")
@@ -122,13 +123,17 @@ class PopGenStatistics:
                 ValueError: If a population ID is not found.
                 ValueError: If an invalid ``individual_selection`` method is specified.
             """
-            populations = [population] if isinstance(population, str) else population
-            selected_samples = []
-            popmap_inverse = self.genotype_data.popmap_inverse
+            populations: List[str] = (
+                [population] if isinstance(population, str) else population
+            )
+            selected_samples: List[str] = []
+            popmap_inverse: Dict[str, List[str | int]] = (
+                self.genotype_data.popmap_inverse
+            )
 
             for pop in populations:
                 try:
-                    samples = popmap_inverse[pop]
+                    samples: List[str | int] = popmap_inverse[pop]
                     # Limit individuals per population if specified
                     if (
                         max_individuals_per_pop
@@ -147,7 +152,9 @@ class PopGenStatistics:
                                 )
                             )
                         else:
-                            msg = f"Invalid individual_selection: '{individual_selection}'."
+                            msg: str = (
+                                f"Invalid individual_selection: '{individual_selection}'."
+                            )
                             self.logger.error(msg)
                             raise ValueError(msg)
                     else:
@@ -158,7 +165,9 @@ class PopGenStatistics:
 
             # Convert sample IDs to indices
             samples = self.genotype_data.samples
-            sample_id_to_index = {sample: idx for idx, sample in enumerate(samples)}
+            sample_id_to_index: Dict[str | int, int] = {
+                sample: idx for idx, sample in enumerate(samples)
+            }
             return [
                 sample_id_to_index[sample]
                 for sample in selected_samples
@@ -166,11 +175,13 @@ class PopGenStatistics:
             ]
 
         # Retrieve sample indices for each population
-        d1_inds = get_population_indices(population1)
-        d2_inds = get_population_indices(population2)
-        d3_inds = get_population_indices(population3)
-        d4_inds = get_population_indices(population4) if population4 else None
-        outgroup_inds = get_population_indices(outgroup)
+        d1_inds: List[int] = get_population_indices(population1)
+        d2_inds: List[int] = get_population_indices(population2)
+        d3_inds: List[int] = get_population_indices(population3)
+        d4_inds: List[int] | None = (
+            get_population_indices(population4) if population4 else None
+        )
+        outgroup_inds: List[int] = get_population_indices(outgroup)
 
         # Calculate Z-scores and P-values
         combo_z_p_values, overall_z_score, overall_p_value = (
@@ -197,13 +208,13 @@ class PopGenStatistics:
             output_file.parent.mkdir(exist_ok=True, parents=True)
 
         # Prepare columns for sample combinations
-        max_combo_len = max(len(combo) for combo, _, _, _ in combo_z_p_values)
-        combo_columns = [f"Sample_{i+1}" for i in range(max_combo_len)]
+        max_combo_len: int = max(len(combo) for combo, _, _, _ in combo_z_p_values)
+        combo_columns: List[str] = [f"Sample_{i+1}" for i in range(max_combo_len)]
 
         # Create data entries with columns for each sample in combination
-        data = []
+        data: List[Dict[str, float]] = []
         for combo, observed_d, z, p in combo_z_p_values:
-            combo_data = {
+            combo_data: Dict[str, str] = {
                 combo_columns[i]: str(combo[i]) if i < len(combo) else ""
                 for i in range(max_combo_len)
             }
@@ -217,18 +228,20 @@ class PopGenStatistics:
             data.append(combo_data)
 
         # Get overall mean results.
-        overall_d_stat = np.mean([obs for _, obs, _, _ in combo_z_p_values])
-        overall_data = {
+        overall_d_stat: np.floating[Any] = np.mean(
+            [obs for _, obs, _, _ in combo_z_p_values]
+        )
+        overall_data: Dict[str, float] = {
             "Observed D-Statistic": float(overall_d_stat),
             "Z-Score": float(overall_z_score),
             "P-Value": float(overall_p_value),
         }
 
         # Create DataFrame from data
-        df = pd.DataFrame(data)
+        df: pd.DataFrame = pd.DataFrame(data)
 
         # Bonferroni and FDR corrections
-        df = self._adjust_p_values(df)
+        df: pd.DataFrame = self._adjust_p_values(df)
 
         # Save results to CSV
         df.to_csv(output_file, index=False)
@@ -297,14 +310,16 @@ class PopGenStatistics:
         if correction_method:
             correction_method = correction_method.lower()
             if correction_method not in {"bonf", "fdr"}:
-                msg = f"Invalid correction_method. Supported options: 'bonferroni', 'fdr', but got: {correction_method}"
+                msg: str = (
+                    f"Invalid correction_method. Supported options: 'bonferroni', 'fdr', but got: {correction_method}"
+                )
                 self.logger.error(msg)
                 raise ValueError(msg)
 
             correction_method = "fdr_bh" if correction_method == "fdr" else "bonferroni"
 
         func = self._bootstrap_fst if use_bootstrap else self._dbscan_fst
-        args = [correction_method, alpha]
+        args: List[Any] = [correction_method, alpha]
 
         if use_bootstrap:
             # Step 1: Calculate bootstrapped Fst values between population pairs
@@ -323,7 +338,7 @@ class PopGenStatistics:
             self.logger.info(f"{len(outlier_snps)} Fst outliers detected.")
 
             # Plot the outlier SNPs
-            self.plotter.plot_fst_outliers(outlier_snps, save_plot=save_plot)
+            self.plotter.plot_fst_outliers(outlier_snps)
 
         self.logger.info("Fst outlier detection complete!")
 
@@ -350,7 +365,7 @@ class PopGenStatistics:
         fst_per_population_pair = self.weir_cockerham_fst_between_populations()
 
         # Step 2: Combine Fst values into a DataFrame
-        fst_df = pd.DataFrame.from_dict(
+        fst_df: pd.DataFrame = pd.DataFrame.from_dict(
             {str(k): v.values for k, v in fst_per_population_pair.items()},
             orient="columns",
         )
@@ -365,14 +380,14 @@ class PopGenStatistics:
         fst_values = fst_df.to_numpy()
         n_population_pairs = fst_values.shape[1]
         n_data_points = fst_values.shape[0]
-        min_samples = min(max(2, 2 * n_population_pairs), n_data_points - 1)
+        min_samples: int = min(max(2, 2 * n_population_pairs), n_data_points - 1)
 
         # Scale the data
         scaler = StandardScaler()
         fst_values_scaled = scaler.fit_transform(fst_values)
 
         # Step 4: Estimate optimal eps
-        eps = self._estimate_eps(fst_values_scaled, min_samples)
+        eps: float = self._estimate_eps(fst_values_scaled, min_samples)
 
         # Step 5: Apply DBSCAN
         db = DBSCAN(eps=eps, min_samples=min_samples)
@@ -380,7 +395,7 @@ class PopGenStatistics:
 
         # Step 6: Identify outliers
         outlier_indices = np.where(labels == -1)[0]
-        outlier_snps = fst_df.iloc[outlier_indices]
+        outlier_snps: pd.DataFrame = fst_df.iloc[outlier_indices]
 
         # Step 7: Identify contributing population pairs with multiple testing correction
         # Compute mean and std of Fst values per population pair across all SNPs
@@ -399,7 +414,7 @@ class PopGenStatistics:
         )
 
         # Flatten all p-values into one array, excluding NaNs
-        all_p_values = p_values.to_numpy().flatten()
+        all_p_values: np.ndarray = p_values.to_numpy().flatten()
         valid_indices = ~np.isnan(all_p_values)
         all_p_values_valid = all_p_values[valid_indices]
 
@@ -494,8 +509,8 @@ class PopGenStatistics:
         valid_snps = missing_proportion <= missing_threshold
 
         # Filter DataFrames to retain only valid SNPs
-        fst_mean_df = fst_mean_df[valid_snps]
-        fst_std_df = fst_std_df.loc[valid_snps]
+        fst_mean_df: pd.DataFrame = fst_mean_df[valid_snps]
+        fst_std_df: pd.DataFrame = fst_std_df.loc[valid_snps]
 
         # Impute remaining NaNs with the mean of each column
         fst_mean_df = fst_mean_df.fillna(fst_mean_df.mean())
@@ -524,7 +539,7 @@ class PopGenStatistics:
         self.logger.debug(f"fst_df shape: {fst_df}")
 
         fst_df.index = np.arange(len(fst_df))
-        fst_df = fst_df.loc[fst_mean_df.index]  # Align indices
+        fst_df: pd.DataFrame = fst_df.loc[fst_mean_df.index]  # Align indices
 
         self.logger.debug(f"fst_mean_df shape: {fst_mean_df}")
         self.logger.debug(f"fst_std_df shape: {fst_std_df}")
@@ -587,11 +602,11 @@ class PopGenStatistics:
         )
 
         # Identify significant SNPs and contributing pairs
-        significant = adjusted_pvals_df < alpha
+        significant: pd.DataFrame = adjusted_pvals_df < alpha
 
         # Get outlier SNPs
         outlier_indices = significant.any(axis=1)
-        outlier_snps = fst_df.loc[outlier_indices]
+        outlier_snps: pd.DataFrame = fst_df.loc[outlier_indices]
 
         # Identify contributing population pairs
         contributing_pairs = []
@@ -619,7 +634,7 @@ class PopGenStatistics:
         """
         # Step 4: Compute the k-distance graph to find optimal eps
         neighbor = NearestNeighbors(n_neighbors=min_samples)
-        nbrs = neighbor.fit(fst_values)
+        nbrs: NearestNeighbors = neighbor.fit(fst_values)
         distances, _ = nbrs.kneighbors(fst_values)
 
         # Sort the distances to the min_samples-th nearest neighbor
@@ -645,7 +660,7 @@ class PopGenStatistics:
                 eps = distances_k[kneedle.knee]
             else:
                 # Fallback: Use a percentile of distances
-                eps = np.percentile(distances_k, 10)
+                eps: np.floating[Any] = np.percentile(distances_k, 10)
                 self.logger.warning(
                     f"KneeLocator did not find a knee. Using eps from 10th percentile: {eps}"
                 )
