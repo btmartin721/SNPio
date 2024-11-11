@@ -1,6 +1,4 @@
-import itertools
 from logging import Logger
-import math
 import warnings
 from ctypes import Union
 from pathlib import Path
@@ -20,8 +18,6 @@ import seaborn as sns
 from holoviews import opts
 from mpl_toolkits.mplot3d import Axes3D  # Don't remove this import.
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
-from sklearn.model_selection import cross_val_score
-
 
 hv.extension("bokeh")
 
@@ -61,21 +57,21 @@ class Plotting:
         plot_pca: Plot a PCA scatter plot with 2 or 3 dimensions, colored by missing data proportions, and labeled by population with symbols for each sample.
         plot_summary_statistics: Plot summary statistics per sample and per population on the same figure. The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst).
         plot_dapc: Plot a DAPC scatter plot. with 2 or 3 dimensions, colored by population, and labeled by population with symbols for each sample.
-        plot_sfs: Plot a heatmap for the 2D SFS between two given populations and bar plots for the 1D SFS of each population. Not yet implemented.
-        plot_joint_sfs_grid: Plot the joint SFS between all possible pairs of populations in the popmap file in a grid layout. Not yet implemented.
+        plot_fst_heatmap: Plot a heatmap of Fst values between populations, sorted by highest Fst and displaying only the lower triangle.
+        plot_fst_outliers: Plot a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs.
+        plot_d_statistics: Create plots for D-statistics with multiple test corrections.
         _set_logger: Set the logger object based on the debug attribute. If debug is True, the logger will log debug messages.
         _get_attribute_value: Determine the value for an attribute based on the provided argument, genotype_data attribute, or default value. If a value is provided during initialization, it is used. Otherwise, the genotype_data attribute is used if available. If neither is available, the default value is used.
         _plot_summary_statistics_per_sample: Plot summary statistics per sample. If an axis is provided, the plot is drawn on that axis.
         _plot_summary_statistics_per_population: Plot summary statistics per population. If an axis is provided, the plot is drawn on that axis.
         _plot_summary_statistics_per_population_grid: Plot summary statistics per population using a Seaborn PairGrid plot. Not yet implemented.
         _plot_summary_statistics_per_sample_grid: Plot summary statistics per sample using a Seaborn PairGrid plot. Not yet implemented.
-        _plot_dapc_cv: Plot the DAPC cross-validation results. Not yet implemented.
     """
 
     def __init__(
         self,
         genotype_data: Any,
-        show: bool = None,
+        show: Optional[bool] = None,
         plot_format: Optional[str] = None,
         dpi: Optional[int] = None,
         plot_fontsize: Optional[int] = None,
@@ -90,44 +86,17 @@ class Plotting:
 
         Args:
             genotype_data (GenotypeData): Initialized GenotypeData object containing necessary data.
-
-            show (bool, optional):
-                Whether to display the plots.
-                Defaults to `genotype_data.show` if available, otherwise `False`.
-
-            plot_format (str, optional):
-                The format in which to save the plots (e.g., 'png', 'svg').
-                Defaults to `genotype_data.plot_format` if available, otherwise `'png'`.
-
-            dpi (int, optional):
-                The resolution of the saved plots. Unused for vector `plot_format` types.
-                Defaults to `genotype_data.dpi` if available, otherwise `300`.
-
-            plot_fontsize (int, optional):
-                The font size for the plot labels.
-                Defaults to `genotype_data.plot_fontsize` if available, otherwise `18`.
-
-            plot_title_fontsize (int, optional):
-                The font size for the plot titles.
-                Defaults to `genotype_data.plot_title_fontsize` if available, otherwise `22`.
-
-            despine (bool, optional):
-                Whether to remove the top and right plot axis spines.
-                Defaults to `genotype_data.despine` if available, otherwise `True`.
-
-            verbose (bool, optional):
-                Whether to enable verbose logging.
-                Defaults to `genotype_data.verbose` if available, otherwise `False`.
-
-            debug (bool, optional):
-                Whether to enable debug logging.
-                Defaults to `genotype_data.debug` if available, otherwise `False`.
+            show (bool, optional): Whether to display the plots. Defaults to `genotype_data.show` if available, otherwise `False`.
+            plot_format (str, optional): The format in which to save the plots (e.g., 'png', 'svg'). Defaults to `genotype_data.plot_format` if available, otherwise `'png'`.
+            dpi (int, optional): The resolution of the saved plots. Unused for vector `plot_format` types. Defaults to `genotype_data.dpi` if available, otherwise `300`.
+            plot_fontsize (int, optional): The font size for the plot labels. Defaults to `genotype_data.plot_fontsize` if available, otherwise `18`.
+            plot_title_fontsize (int, optional): The font size for the plot titles. Defaults to `genotype_data.plot_title_fontsize` if available, otherwise `22`.
+            despine (bool, optional): Whether to remove the top and right plot axis spines. Defaults to `genotype_data.despine` if available, otherwise `True`.
+            verbose (bool, optional): Whether to enable verbose logging. Defaults to `genotype_data.verbose` if available, otherwise `False`.
+            debug (bool, optional): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
 
         Raises:
             ValueError: Raised if the input genotype_data object is not provided.
-
-        Returns:
-            None: The Plotting object is initialized.
 
         Note:
             The `genotype_data` attribute must be provided during initialization.
@@ -265,8 +234,7 @@ class Plotting:
         mpl.rcParams.update(mpl_params)
 
     def _get_attribute_value(self, attr: str) -> Any:
-        """
-        Determine the value for an attribute based on the provided argument,
+        """Determine the value for an attribute based on the provided argument,
         genotype_data attribute, or default value.
 
         Args:
@@ -299,7 +267,9 @@ class Plotting:
         window: int = 5,
         subsample_rate: int = 50,
     ) -> None:
-        """Plot summary statistics per sample without confidence intervals to reduce visual clutter.
+        """Plot summary statistics per sample.
+
+        This method plots the summary statistics per sample as lines for each statistic (Ho, He, Pi, Fst) on the same figure. The summary statistics are smoothed using a rolling average with a window size of 5 and subsampled to reduce plot density.
 
         Args:
             summary_stats (pd.DataFrame): The DataFrame containing the summary statistics to be plotted.
@@ -347,7 +317,14 @@ class Plotting:
     def _plot_summary_statistics_per_population(
         self, per_population_stats: dict, ax: Optional[plt.Axes] = None
     ) -> None:
-        """Plot mean summary statistics per population as grouped bar chart."""
+        """Plot mean summary statistics per population as grouped bar chart.
+
+        This method plots the mean summary statistics per population as a grouped bar chart with different colors for each statistic (Ho, He, Pi).
+
+        Args:
+            per_population_stats (dict): Dictionary containing summary statistics per population.
+            ax (matplotlib.axes.Axes, optional): The matplotlib axis on which to plot the summary statistics.
+        """
         if ax is None:
             _, ax = plt.subplots()
 
@@ -402,7 +379,13 @@ class Plotting:
     def _plot_summary_statistics_per_sample_grid(
         self, summary_stats: pd.DataFrame
     ) -> None:
-        """Plot summary statistics per locus using a Seaborn PairGrid plot."""
+        """Plot summary statistics per locus using a Seaborn PairGrid plot.
+
+        This method plots the summary statistics per locus using a Seaborn PairGrid plot with scatter plots on the upper diagonal, kernel density plots on the lower diagonal, and kernel density plots on the diagonal.
+
+        Args:
+            summary_stats (pd.DataFrame): DataFrame containing summary statistics per locus.
+        """
         g = sns.PairGrid(summary_stats)
         g.map_upper(sns.scatterplot, color="steelblue")
         g.map_lower(sns.kdeplot, cmap="Blues", fill=True, alpha=0.5)
@@ -420,7 +403,14 @@ class Plotting:
     def _plot_summary_statistics_per_population_grid(
         self, per_population_stats: dict, ax: Optional[plt.Axes] = None
     ) -> None:
-        """Plot summary statistics per population using violin plots."""
+        """Plot summary statistics per population using violin plots.
+
+        This method plots the summary statistics per population using violin plots for each statistic (Ho, He, Pi).
+
+        Args:
+            per_population_stats (dict): Dictionary containing summary statistics per population.
+            ax (matplotlib.axes.Axes, optional): The matplotlib axis on which to plot the summary statistics.
+        """
 
         if ax is None:
             _, ax = plt.subplots()
@@ -474,7 +464,13 @@ class Plotting:
         plt.close()
 
     def _plot_fst_heatmap(self, fst_between_pops: Dict[tuple, pd.Series]) -> None:
-        """Plot a heatmap of Fst values between populations, sorted by highest Fst and displaying only the lower triangle."""
+        """Plot a heatmap of Fst values between populations.
+
+        This method calculates the mean Fst for each population pair and plots a heatmap of the mean Fst values between populations. The heatmap is sorted by the mean Fst values across rows and columns, and only the lower triangle is displayed.
+
+        Args:
+            fst_between_pops (Dict[tuple, pd.Series]): Dictionary containing Fst values between populations.
+        """
 
         # Calculate mean Fst for each population pair
         fst_means = {
@@ -649,7 +645,9 @@ class Plotting:
         plt.close()
 
     def plot_fst_outliers(self, outlier_snps: pd.DataFrame) -> None:
-        """Create a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs.
+        """Create a heatmap of Fst values for outlier SNPs.
+
+        This method creates a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs. The heatmap is sorted by SNP index and population pair, and only the lower triangle is displayed.
 
         Args:
             outlier_snps (pd.DataFrame): DataFrame containing Fst values and Contributing_Pairs for outlier SNPs.
@@ -789,7 +787,13 @@ class Plotting:
         plt.close()
 
     def plot_summary_statistics(self, summary_statistics: dict) -> None:
-        """Plot summary statistics per sample and per population on the same figure."""
+        """Plot summary statistics per sample and per population.
+
+        This method plots summary statistics per sample and per population on the same figure. The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst). The method also plots summary statistics per sample and per population using Seaborn PairGrid plots. The method saves the plots to the output directory and displays them if ``show`` is True.
+
+        Args:
+            summary_statistics (dict): Dictionary containing summary statistics for plotting.
+        """
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=False)
 
         self._plot_summary_statistics_per_sample(
@@ -1202,6 +1206,8 @@ class Plotting:
     def plot_gt_distribution(self, df: pd.DataFrame, annotation_size: int = 15) -> None:
         """Plot the distribution of genotype counts.
 
+        This method plots the distribution of genotype counts as a bar plot. The bar plot shows the genotype counts for each genotype. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/genotype_distribution.{plot_format}``. The plot is saved in the format specified by the `plot_format` attribute.
+
         Args:
             df (pd.DataFrame): The input dataframe containing the genotype counts.
 
@@ -1270,9 +1276,6 @@ class Plotting:
 
         Args:
             df_combined (pd.DataFrame): The input dataframe containing the filtering results.
-
-        Returns:
-            None: Plots are saved to files.
 
         Raises:
             ValueError: Raised if the input dataframe is empty.
@@ -1464,9 +1467,6 @@ class Plotting:
         Args:
             df (pd.DataFrame): The input dataframe containing the MAF data.
 
-        Returns:
-            None: A plot is saved to a file.
-
         Raises:
             ValueError: Raised if the input dataframe is empty.
 
@@ -1562,7 +1562,7 @@ class Plotting:
             self.logger.info("MAC data is empty.")
 
     def _plot_boolean(self, df: pd.DataFrame) -> None:
-        """Plot boolean datasets like Monomorphic, Biallelic, Thin Loci, Singleton, Linked.
+        """Plot boolean datasets, including: Monomorphic, Biallelic, Thin Loci, Singleton, and Linked.
 
         This method plots the boolean filtering data. The boolean filtering data includes the proportion of loci removed and kept for each boolean filtering threshold. The plot is saved to a file.
 
@@ -1634,8 +1634,7 @@ class Plotting:
             self.logger.info("Boolean data is empty.")
 
     def plot_filter_report(self, df: pd.DataFrame) -> None:
-        """
-        Plot the filter report.
+        """Plot the filter report.
 
         This method plots the filter report data. The filter report data contains the proportion of loci removed and kept for each filtering threshold. The plot is saved to a file.
 
