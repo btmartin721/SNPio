@@ -12,9 +12,9 @@ class BaseGenotypeData:
     def __init__(
         self, filename: Optional[str] = None, filetype: Optional[str] = "auto"
     ):
-        self.filename = filename
+        self.filename: str | None = filename
 
-        self.filetype = filetype if filetype is not None else None
+        self.filetype: str | None = filetype if filetype is not None else None
         if filetype is not None:
             self.filetype = filetype.lower()
 
