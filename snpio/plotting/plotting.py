@@ -1,4 +1,5 @@
 import itertools
+from logging import Logger
 import math
 import warnings
 from ctypes import Union
@@ -20,7 +21,6 @@ from holoviews import opts
 from mpl_toolkits.mplot3d import Axes3D  # Don't remove this import.
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.model_selection import cross_val_score
-from statsmodels.stats.multitest import multipletests
 
 
 hv.extension("bokeh")
@@ -31,6 +31,7 @@ from sklearn.preprocessing import StandardScaler
 
 from snpio.analysis.genotype_encoder import GenotypeEncoder
 from snpio.utils import misc
+from snpio.utils.misc import IUPAC
 from snpio.utils.logging import LoggerManager
 
 
@@ -146,27 +147,33 @@ class Plotting:
             The `plotting` object is used to set the attributes based on the provided values, the `genotype_data` object, or default values.
         """
         self.genotype_data = genotype_data
-        self.prefix = getattr(genotype_data, "prefix", "plot")
+        self.prefix: str = getattr(genotype_data, "prefix", "plot")
 
-        self.output_dir = Path(f"{self.prefix}_output")
-        self.output_dir_gd = self.output_dir / "gtdata" / "plots"
-        self.output_dir_analysis = self.output_dir / "analysis" / "plots"
-        self.output_dir_nrm = self.output_dir / "nremover" / "plots"
+        self.output_dir: Path = Path(f"{self.prefix}_output")
+        self.output_dir_gd: Path = self.output_dir / "gtdata" / "plots"
+        self.output_dir_analysis: Path = self.output_dir / "analysis" / "plots"
+        self.output_dir_nrm: Path = self.output_dir / "nremover" / "plots"
 
         self.output_dir_gd.mkdir(parents=True, exist_ok=True)
         self.output_dir_analysis.mkdir(parents=True, exist_ok=True)
         self.output_dir_nrm.mkdir(parents=True, exist_ok=True)
 
-        self.verbose = verbose
-        self.debug = debug
+        self.verbose: bool | None = verbose
+        self.debug: bool | None = debug
 
-        prefix = genotype_data.prefix
-        kwargs = {"prefix": prefix, "verbose": verbose, "debug": debug}
+        prefix: str = genotype_data.prefix
+        kwargs: Dict[str, str | bool] = {
+            "prefix": prefix,
+            "verbose": verbose,
+            "debug": debug,
+        }
         logman = LoggerManager(__name__, **kwargs)
-        self.logger = logman.get_logger()
+        self.logger: Logger = logman.get_logger()
+
+        self.iupac = IUPAC(logger=self.logger)
 
         # Define default values for attributes
-        self._defaults = {
+        self._defaults: Dict[str, bool | str | int | float] = {
             "show": False,
             "plot_format": "png",
             "dpi": 300,
@@ -190,7 +197,7 @@ class Plotting:
         }
 
         # List of attributes to set
-        self._attributes = [
+        self._attributes: List[str] = [
             "show",
             "plot_format",
             "dpi",
@@ -206,7 +213,7 @@ class Plotting:
             value = self._get_attribute_value(attr)
             setattr(self, attr, value)
 
-        self.boolean_filter_methods = [
+        self.boolean_filter_methods: List[str] = [
             "filter_singletons",
             "filter_biallelic",
             "filter_monomorphic",
@@ -214,13 +221,13 @@ class Plotting:
             "filter_linked",
         ]
 
-        self.missing_filter_methods = [
+        self.missing_filter_methods: List[str] = [
             "filter_missing",
             "filter_missing_sample",
             "filter_missing_pop",
         ]
 
-        self.maf_filter_methods = ["filter_maf", "filter_mac"]
+        self.maf_filter_methods: List[str] = ["filter_maf", "filter_mac"]
 
         mpl_params = {
             "xtick.labelsize": self.plot_fontsize,
@@ -275,13 +282,13 @@ class Plotting:
             return provided
 
         # Check if genotype_data has the attribute
-        genotype_val = getattr(self.genotype_data, attr, None)
+        genotype_val: Any | None = getattr(self.genotype_data, attr, None)
         if genotype_val is not None:
             self.logger.debug(f"Using genotype_data value for '{attr}': {genotype_val}")
             return genotype_val
 
         # Use the default value
-        default = self._defaults.get(attr)
+        default: bool | str | int | float | None = self._defaults.get(attr)
         self.logger.debug(f"Using default value for '{attr}': {default}")
         return default
 
@@ -307,9 +314,9 @@ class Plotting:
         summary_stats = summary_stats.dropna()
 
         # Interpolate remaining NaNs (if any) for smoother lines
-        interpolated_stats = summary_stats[["Ho", "He", "Pi"]].interpolate(
-            method="linear"
-        )
+        interpolated_stats: pd.DataFrame = summary_stats[
+            ["Ho", "He", "Pi"]
+        ].interpolate(method="linear")
 
         # Apply rolling average for smoothing
         smoothed_stats = interpolated_stats.rolling(window=window, center=True).mean()
@@ -319,7 +326,7 @@ class Plotting:
         sampled_smoothed_stats = smoothed_stats.loc[sampled_indices]
 
         # Plot each statistic with distinct colors
-        colors = ["blue", "green", "red"]
+        colors: List[str] = ["blue", "green", "red"]
         for stat, color in zip(["Ho", "He", "Pi"], colors):
             ax.plot(
                 sampled_indices,
@@ -363,7 +370,7 @@ class Plotting:
                     f"Empty or NaN summary statistics for population {pop_id}"
                 )
 
-        pop_stats = pd.melt(
+        pop_stats: pd.DataFrame = pd.melt(
             pop_stats, id_vars="PopulationID", var_name="Statistic", value_name="Value"
         )
 
@@ -402,7 +409,7 @@ class Plotting:
         g.map_diag(sns.kdeplot, lw=2, color="darkblue", fill=True)
 
         g.figure.suptitle("Summary Statistics per Locus", y=1.02, fontsize=16)
-        of = f"summary_statistics_per_locus.{self.plot_format}"
+        of: str = f"summary_statistics_per_locus.{self.plot_format}"
         g.savefig(self.output_dir_analysis / of)
 
         if self.show:
@@ -423,17 +430,19 @@ class Plotting:
         for pop_id, stats_df in per_population_stats.items():
             stats_df = stats_df.copy()
             stats_df["Population"] = pop_id
-            combined_df = pd.concat([combined_df, stats_df], ignore_index=True)
+            combined_df: pd.DataFrame = pd.concat(
+                [combined_df, stats_df], ignore_index=True
+            )
 
         # Melt DataFrame for easier plotting with seaborn
-        melted_df = combined_df.melt(
+        melted_df: pd.DataFrame = combined_df.melt(
             id_vars="Population",
             value_vars=["Ho", "He", "Pi"],
             var_name="Statistic",
             value_name="Value",
         )
 
-        pal = "Paired" if len(per_population_stats) <= 12 else "tab20"
+        pal: str = "Paired" if len(per_population_stats) <= 12 else "tab20"
 
         # Set up the figure
         plt.figure(figsize=(16, 9))
@@ -455,8 +464,9 @@ class Plotting:
         plt.tight_layout()
 
         # Save the plot
-        of = f"summary_statistics_per_population.{self.plot_format}"
-        plt.savefig(self.output_dir_analysis / of)
+        of: str = f"summary_statistics_per_population.{self.plot_format}"
+        outpath: Path = self.output_dir_analysis / of
+        plt.savefig(outpath)
 
         if self.show:
             plt.show()
@@ -508,7 +518,7 @@ class Plotting:
         plt.yticks(rotation=0)
 
         # Save the plot
-        of = f"fst_between_populations_heatmap.{self.plot_format}"
+        of: str = f"fst_between_populations_heatmap.{self.plot_format}"
         plt.savefig(self.output_dir_analysis / of)
 
         if self.show:
@@ -550,7 +560,7 @@ class Plotting:
             }
         ).melt(id_vars="Correction", var_name="Significance", value_name="Count")
 
-        ax = sns.barplot(
+        ax: plt.Axes = sns.barplot(
             data=significance_df, x="Correction", y="Count", hue="Significance", ax=ax
         )
         ax.set_title(
@@ -560,8 +570,8 @@ class Plotting:
         ax.set_ylabel("Count")
         ax.legend(title="Significance")
 
-        of = f"d_statistics_significance_counts.{self.plot_format}"
-        fn = self.output_dir_analysis / of
+        of: str = f"d_statistics_significance_counts.{self.plot_format}"
+        fn: Path = self.output_dir_analysis / of
         fig.savefig(fn)
 
         if self.show:
@@ -595,7 +605,9 @@ class Plotting:
 
         # 3. Box Plot of D-Statistics by Population Combination
         # Create a unique identifier for each sample combination
-        combo_cols = [col for col in df.columns if col.startswith("Sample")]
+        combo_cols: List[str | int] = [
+            col for col in df.columns if col.startswith("Sample")
+        ]
         df["Sample Combo"] = df[combo_cols].apply(
             lambda x: "-".join(x.dropna()), axis=1
         )
@@ -636,15 +648,14 @@ class Plotting:
 
         plt.close()
 
-    def plot_fst_outliers(self, outlier_snps, save_plot=True):
+    def plot_fst_outliers(self, outlier_snps: pd.DataFrame) -> None:
         """Create a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs.
 
         Args:
             outlier_snps (pd.DataFrame): DataFrame containing Fst values and Contributing_Pairs for outlier SNPs.
-            save_plot (bool, optional): Whether to save the plot. Defaults to True.
         """
         # Copy the DataFrame to avoid modifying the original data
-        data = outlier_snps.copy()
+        data: pd.DataFrame = outlier_snps.copy()
 
         # Ensure SNP identifiers are in the index
         if data.index.name != "SNP":
@@ -656,7 +667,9 @@ class Plotting:
         self.logger.debug(f"data_columns: {data.columns}")
 
         # Extract the Fst values (excluding the Contributing_Pairs column)
-        fst_values = data.sort_index(axis=1).drop(columns=["Contributing_Pairs"])
+        fst_values: pd.DataFrame = data.sort_index(axis=1).drop(
+            columns=["Contributing_Pairs"]
+        )
 
         if isinstance(data.columns, pd.MultiIndex):
             # Flatten the MultiIndex columns
@@ -681,7 +694,7 @@ class Plotting:
         data = data.set_index("SNP")
 
         # Melt the DataFrame to long format for easier plotting
-        fst_long = fst_values.melt(
+        fst_long: pd.DataFrame = fst_values.melt(
             id_vars="SNP", var_name="Population_Pair", value_name="Fst"
         )
 
@@ -695,7 +708,9 @@ class Plotting:
         fst_long["Contributing"] = fst_long.apply(is_contributing_pair, axis=1)
 
         # Pivot back to wide format with MultiIndex (SNP, Contributing)
-        fst_pivot = fst_long.pivot(index="SNP", columns="Population_Pair", values="Fst")
+        fst_pivot: pd.DataFrame = fst_long.pivot(
+            index="SNP", columns="Population_Pair", values="Fst"
+        )
 
         contributing_mask = fst_long.pivot(
             index="SNP", columns="Population_Pair", values="Contributing"
@@ -711,16 +726,18 @@ class Plotting:
 
         # Sort SNPs by their indices in numeric order
         fst_pivot.sort_index(inplace=True)
-        mask = mask.loc[fst_pivot.index]
+        mask: pd.DataFrame = mask.loc[fst_pivot.index]
 
         # Plot the heatmap
         # Adjust height based on number of SNPs
         fig, ax = plt.subplots(1, 1, figsize=(15, max(8, len(fst_pivot) // 2)))
         sns.set_theme(font_scale=1.2)
-        cmap = sns.diverging_palette(220, 20, as_cmap=True)
+        cmap: mpl_colors.LinearSegmentedColormap = sns.diverging_palette(
+            220, 20, as_cmap=True
+        )
 
         # Plot all cells with masked non-contributing pairs
-        ax = sns.heatmap(
+        ax: plt.Axes = sns.heatmap(
             fst_pivot,
             cmap=cmap,
             linewidths=0.5,
@@ -762,10 +779,9 @@ class Plotting:
         ax.set_yticklabels(fst_pivot.index)
 
         # Save the plot
-        of = f"outlier_snps_heatmap.{self.plot_format}"
-        fn = self.output_dir_analysis / of
-
-        fig.savefig(fn)
+        of: str = f"outlier_snps_heatmap.{self.plot_format}"
+        outpath: Path = self.output_dir_analysis / of
+        fig.savefig(outpath)
 
         if self.show:
             plt.show()
@@ -785,8 +801,9 @@ class Plotting:
 
         fig.suptitle("Summary Statistics Overview", fontsize=16, y=1.05)
         fig.tight_layout()
-        of = f"summary_statistics.{self.plot_format}"
-        fig.savefig(self.output_dir_analysis / of)
+        of: str = f"summary_statistics.{self.plot_format}"
+        outpath: Path = self.output_dir_analysis / of
+        fig.savefig(outpath)
 
         if self.show:
             plt.show()
@@ -852,8 +869,8 @@ class Plotting:
         if dimensions == 2:
             sns.scatterplot(data=pca_transformed, x="PC1", y="PC2", hue="PopulationID")
         elif dimensions == 3:
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection="3d")
+            fig: plt.Figure = plt.figure()
+            ax: plt.Axes = fig.add_subplot(111, projection="3d")
             sns.scatterplot(
                 data=pca_transformed,
                 x="PC1",
@@ -865,13 +882,14 @@ class Plotting:
         else:
             raise ValueError("dimensions must be 2 or 3")
 
-        of = f"pca_plot.{self.plot_format}"
-        of = self.output_dir_analysis / of
-
-        plt.savefig(of)
+        of: str = f"pca_plot.{self.plot_format}"
+        outpath: Path = self.output_dir_analysis / of
+        plt.savefig(outpath)
 
         if self.show:
             plt.show()
+
+        plt.close()
 
     def plot_dapc(
         self,
@@ -919,8 +937,8 @@ class Plotting:
         if dimensions == 2:
             sns.scatterplot(data=dapc_transformed, x="DA1", y="DA2", hue="PopulationID")
         elif dimensions == 3:
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection="3d")
+            fig: plt.Figure = plt.figure()
+            ax: plt.Axes = fig.add_subplot(111, projection="3d")
             sns.scatterplot(
                 data=dapc_transformed,
                 x="DA1",
@@ -932,226 +950,14 @@ class Plotting:
         else:
             raise ValueError("dimensions must be 2 or 3")
 
-        of = f"dapc_plot.{self.plot_format}"
-        of = self.output_dir_analysis / of
-        plt.savefig(of)
+        of: str = f"dapc_plot.{self.plot_format}"
+        outpath: Path = self.output_dir_analysis / of
+        plt.savefig(outpath)
 
         if self.show:
             plt.show()
+
         plt.close()
-
-    def _plot_dapc_cv(
-        self, df: pd.DataFrame, popmap: pd.DataFrame, n_components_range: range
-    ) -> None:
-        """Plot the DAPC cross-validation results.
-
-        Args:
-            df (Union[numpy.ndarray, pandas.DataFrame): The input DataFrame or array with the genotypes.
-
-            popmap (pd.DataFrame): The DataFrame containing the population mapping information, with columns "SampleID" and "PopulationID".
-
-            n_components_range (range): The range of principal components to use for cross-validation.
-
-        Returns:
-            None: A plot is saved to a .png file.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented.
-
-        Note:
-            - This method is not yet implemented.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/dapc_cv_results.{plot_format}``.
-            - The plot shows the mean cross-validation score for each number of components in the `n_components_range` range.
-            - The optimal number of components is determined based on the minimum cross-validation score.
-            - The optimal number of components and the best cross-validation score are printed to the console.
-
-        Raises:
-            NotImplementedError: This method is not yet implemented.
-        """
-        msg = "The _plot_dapc_cv method is not yet implemented."
-        self.logger.error(msg)
-        raise NotImplementedError(msg)
-
-        components = []
-        scores = []
-
-        for n in range(2, n_components_range):
-            lda = LinearDiscriminantAnalysis(n_components=n)
-            score = cross_val_score(lda, df, popmap["PopulationID"].values, cv=5).mean()
-            components.append(n)
-            scores.append(score)
-
-        of = f"dapc_cv_results.{self.plot_format}"
-        of = self.output_dir_analysis / of
-
-        plt.figure(figsize=(16, 9))
-        sns.lineplot(x=components, y=scores, marker="o")
-        plt.xlabel("Number of Components")
-        plt.ylabel("Mean Cross-validation Score")
-        plt.title("DAPC Cross-Validation Scores")
-        plt.savefig(of)
-
-        if self.show:
-            plt.show()
-        plt.close()
-
-        best_idx = pd.Series(scores).idxmin()
-        best_score = scores[best_idx]
-        best_component = components[best_idx]
-
-        print(f"\n\nOptimal DAPC Components: {best_component}")
-        print(f"Best DAPC CV Score: {best_score}")
-
-        return best_component
-
-    def plot_sfs(
-        self,
-        pop_gen_stats: Any,
-        population1: str,
-        population2: str,
-        savefig: bool = True,
-    ):
-        """Plot a heatmap for the 2D SFS between two given populations and
-        bar plots for the 1D SFS of each population.
-
-        Note:
-            - This method is not yet implemented.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/sfs_{population1}_{population2}.{plot_format}``.
-            - The 1D SFS for each population is calculated using the `calculate_1d_sfs` method.
-            - The 2D SFS between the two populations is calculated using the `calculate_2d_sfs` method.
-            - The 1D SFS for each population is plotted as a bar plot.
-            - The 2D SFS between the two populations is plotted as a heatmap.
-            - The 2D SFS heatmap is colored using a custom colormap.
-            - The custom colormap is created using the colors "white", "green", "yellow", "orange", and "red".
-            - The number of colors in the colormap is set to 50.
-            - The custom colormap is used to color the 2D SFS heatmap.
-            - The custom colormap is displayed in the colorbar.
-            - The custom colormap is saved to a file in the `output_dir` directory.
-            - The custom colormap is displayed if the `show` attribute is True.
-            - The custom colormap is saved in the format specified by the `plot_format` attribute.
-
-        Args:
-            pop_gen_stats (PopGenStatistics): An instance of the PopGenStatistics class.
-
-            population1 (str): The name of the first population.
-
-            population2 (str): The name of the second population.
-
-            savefig (bool, optional): Whether to save the figure to a file. Defaults to True. If True, the figure will be saved to a file.
-
-        Returns:
-            None: A plot is saved to a file.
-
-        Raises:
-            NotImplementedError: Raised if the method is not yet implemented.
-
-        Note:
-            - The 1D SFS for each population is calculated using the `calculate_1d_sfs` method.
-            - The 2D SFS between the two populations is calculated using the `calculate_2d_sfs` method.
-            - The 1D SFS for each population is plotted as a bar plot.
-            - The 2D SFS between the two populations is plotted as a heatmap.
-            - The 2D SFS heatmap is colored using a custom colormap.
-            - The custom colormap is created using the colors "white", "green", "yellow", "orange", and "red".
-            - The number of colors in the colormap is set to 50.
-            - The custom colormap is used to color the 2D SFS heatmap.
-            - The custom colormap is displayed in the colorbar.
-            - The custom colormap is saved to a file in the `output_dir` directory.
-            - The custom colormap is displayed if the `show` attribute is True.
-            - The custom colormap is saved in the format specified by the `plot_format` attribute.
-        """
-        msg = "The plot_sfs method is not yet implemented."
-        self.logger.error(msg)
-        raise NotImplementedError(msg)
-
-        sfs1 = pop_gen_stats.calculate_1d_sfs(population1)
-        sfs2 = pop_gen_stats.calculate_1d_sfs(population2)
-        sfs2d = pop_gen_stats.calculate_2d_sfs(population1, population2)
-
-        fig, axs = plt.subplots(1, 3, figsize=(18, 6))
-        sns.barplot(x=np.arange(1, len(sfs1) + 1), y=sfs1, ax=axs[0])
-        axs[0].plot(np.arange(1, len(sfs1) + 1), sfs1, "k-")
-        axs[0].set_title(f"1D SFS for {population1}")
-        axs[0].xaxis.set_ticks(np.arange(0, len(sfs1) + 1, 5))
-        axs[0].set_xticklabels(axs[0].get_xticks(), rotation=45)
-
-        sns.barplot(x=np.arange(1, len(sfs2) + 1), y=sfs2, ax=axs[1])
-        axs[1].plot(np.arange(1, len(sfs2) + 1), sfs2, "k-")
-        axs[1].set_title(f"1D SFS for {population2}")
-        axs[1].xaxis.set_ticks(np.arange(0, len(sfs2) + 1, 5))
-        axs[1].set_xticklabels(axs[1].get_xticks(), rotation=45)
-
-        colors = ["white", "green", "yellow", "orange", "red"]
-        n_colors = len(colors)
-        cmap = mpl_colors.LinearSegmentedColormap.from_list(
-            "my_colormap", colors, N=n_colors * 10
-        )
-
-        sns.heatmap(sfs2d, cmap=cmap, ax=axs[2])
-        axs[2].set_title(f"2D SFS for {population1} and {population2}")
-
-        if savefig:
-            plt.savefig(f"sfs_{population1}_{population2}.png")
-
-        if self.show:
-            plt.show()
-
-    def plot_joint_sfs_grid(
-        self,
-        pop_gen_stats: Any,
-        populations: List[Union[str, int]],
-        savefig: bool = True,
-    ) -> None:
-        """Plot the joint SFS between all possible pairs of populations in the popmap file in a grid layout.
-
-        This method plots the joint SFS between all possible pairs of populations in the popmap file in a grid layout. The joint SFS is calculated using the `calculate_2d_sfs` method. The joint SFS is plotted as a heatmap for each pair of populations. The heatmap is colored using a custom colormap. The custom colormap is created using the colors "white", "green", "yellow", "orange", and "red". The number of colors in the colormap is set to 50. The custom colormap is used to color the joint SFS heatmap. The custom colormap is displayed in the colorbar. The custom colormap is saved to a file in the `output_dir` directory. The custom colormap is displayed if the `show` attribute is True. The custom colormap is saved in the format specified by the `plot_format` attribute. The plot is saved to a file in the `output_dir` directory. If the `show` attribute is True, the plot is displayed. The plot is saved in the format specified by the `plot_format` attribute. The plot is saved with the filename: ``<prefix>_output/gtdata/plots/joint_sfs_grid.{plot_format}``.
-
-        Note:
-            - This method is not yet implemented.
-
-        Args:
-            pop_gen_stats (PopGenStatistics): An instance of the PopGenStatistics class.
-
-            populations (List[Union[str, int]]): A list of population names.
-
-            savefig (bool, optional): Whether to save the figure to a file. Defaults to True. If True, the figure will be saved to a file.
-
-        """
-        msg = "The plot_joint_sfs_grid method is not yet implemented."
-        self.logger.error(msg)
-        raise NotImplementedError(msg)
-
-        n_populations = len(populations)
-        n_cols = math.ceil(math.sqrt(n_populations))
-        n_rows = math.ceil(n_populations / n_cols)
-
-        fig, axs = plt.subplots(n_rows, n_cols, figsize=(4 * n_cols, 4 * n_rows))
-
-        for i, (pop1, pop2) in enumerate(
-            itertools.combinations_with_replacement(populations, 2)
-        ):
-            row, col = divmod(i, n_cols)
-            sfs2d = pop_gen_stats.calculate_2d_sfs(pop1, pop2)
-            sns.heatmap(sfs2d, cmap="coolwarm", ax=axs[row, col], cbar=False)
-            axs[row, col].set_title(f"Joint SFS for {pop1} and {pop2}")
-
-        # Remove unused axes
-        for j in range(i + 1, n_rows * n_cols):
-            row, col = divmod(j, n_cols)
-            fig.delaxes(axs[row, col])
-
-        fig.tight_layout()
-
-        if savefig:
-            plt.savefig("joint_sfs_grid.png")
-
-        if self.show:
-            plt.show()
 
     def plot_sankey_filtering_report(
         self, df: pd.DataFrame, search_mode: bool = False
@@ -1220,7 +1026,7 @@ class Plotting:
         # Import Holoviews and Bokeh
         hv.extension("bokeh")
 
-        plot_dir = self.output_dir_nrm / "sankey_plots"
+        plot_dir: Path = self.output_dir_nrm / "sankey_plots"
         plot_dir.mkdir(exist_ok=True, parents=True)
 
         # Copy the DataFrame to avoid modifying the original
@@ -1289,7 +1095,7 @@ class Plotting:
             df = df.sort_values(by=["Threshold", "Step"]).reset_index(drop=True)
 
         # Filter DataFrame for the current combination of thresholds
-        dftmp = df[df["Filter_Method"] != "filter_missing_sample"]
+        dftmp: pd.DataFrame = df[df["Filter_Method"] != "filter_missing_sample"]
 
         self.logger.debug(f"Filtering report for thresholds: {thresholds}")
 
@@ -1384,8 +1190,8 @@ class Plotting:
                 thresholds = "_".join([str(threshold) for threshold in thresholds])
 
             # Save the plot to an HTML file
-            of = f"filtering_results_sankey_thresholds{thresholds}.html"
-            fname = plot_dir / of
+            of: str = f"filtering_results_sankey_thresholds{thresholds}.html"
+            fname: Path = plot_dir / of
             hv.save(sankey_plot, fname, fmt="html")
 
         except ValueError as e:
@@ -1419,20 +1225,22 @@ class Plotting:
         # Validate the input dataframe
         df = misc.validate_input_type(df, return_type="df")
 
-        df_melt = pd.melt(df, value_name="Count")
+        df_melt: pd.DataFrame = pd.melt(df, value_name="Count")
         cnts = df_melt["Count"].value_counts()
         cnts.index.names = ["Genotype Int"]
         cnts = pd.DataFrame(cnts).reset_index()
         cnts = cnts.sort_values(by="Genotype Int")
         cnts["Genotype Int"] = cnts["Genotype Int"].astype(str)
 
-        int_iupac_dict = misc.get_int_iupac_dict()
+        int_iupac_dict = self.iupac.int_iupac_dict
         int_iupac_dict = {str(v): k for k, v in int_iupac_dict.items()}
         cnts["Genotype"] = cnts["Genotype Int"].map(int_iupac_dict)
         cnts.columns = [col[0].upper() + col[1:] for col in cnts.columns]
 
         fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax, color="orange")
+        g: plt.Axes = sns.barplot(
+            x="Genotype", y="Count", data=cnts, ax=ax, color="orange"
+        )
         g.set_xlabel("Genotype")
         g.set_ylabel("Count")
         g.set_title("Genotype Counts")
@@ -1447,10 +1255,9 @@ class Plotting:
                 fontsize=annotation_size,
             )
 
-        of = f"genotype_distribution.{self.plot_format}"
-        of = self.output_dir_gd / of
-
-        fig.savefig(of)
+        of: str = f"genotype_distribution.{self.plot_format}"
+        outpath: Path = self.output_dir_gd / of
+        fig.savefig(outpath)
 
         if self.show:
             plt.show()
@@ -1502,7 +1309,7 @@ class Plotting:
         self._plot_maf(df_combined)
         self._plot_boolean(df_combined)
 
-        msg = f"Plotting complete. Plots saved to directory {self.output_dir_nrm}."
+        msg: str = f"Plotting complete. Plots saved to directory {self.output_dir_nrm}."
         self.logger.info(msg)
 
     def _plot_combined(self, df: pd.DataFrame) -> None:
@@ -1541,7 +1348,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
             for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
+                ax: plt.Axes = sns.lineplot(
                     x="Missing_Threshold",
                     y=ycol,
                     hue="Filter_Method",
@@ -1551,7 +1358,7 @@ class Plotting:
                     ax=ax,
                 )
 
-                ylab = ycol.split("_")[0].capitalize()
+                ylab: str = ycol.split("_")[0].capitalize()
 
                 ax.set_xlabel("Filtering Threshold")
                 ax.set_ylabel(f"{ylab} Proportion")
@@ -1568,12 +1375,13 @@ class Plotting:
                     title="Filter Method", bbox_to_anchor=(0.5, 1.2), loc="center"
                 )
 
-            of = f"filtering_results_missing_loci_samples.{self.plot_format}"
-            of = self.output_dir_nrm / of
-            fig.savefig(of)
+            of: str = f"filtering_results_missing_loci_samples.{self.plot_format}"
+            outpath: Path = self.output_dir_nrm / of
+            fig.savefig(outpath)
 
             if self.show:
                 plt.show()
+
             plt.close()
 
         else:
@@ -1614,7 +1422,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
             for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
+                ax: plt.Axes = sns.lineplot(
                     x="Missing_Threshold",
                     y=ycol,
                     data=df,
@@ -1626,7 +1434,7 @@ class Plotting:
                     legend=False,
                 )
 
-                ylab = ycol.split("_")[0].capitalize()
+                ylab: str = ycol.split("_")[0].capitalize()
 
                 ax.set_xlabel("Filtering Threshold")
                 ax.set_ylabel(f"{ylab} Proportion")
@@ -1636,12 +1444,13 @@ class Plotting:
                     df["Missing_Threshold"].astype(float).unique(), minor=False
                 )
 
-            of = f"filtering_results_missing_population.{self.plot_format}"
-            of = self.output_dir_nrm / of
-            fig.savefig(of)
+            of: str = f"filtering_results_missing_population.{self.plot_format}"
+            outpath: Path = self.output_dir_nrm / of
+            fig.savefig(outpath)
 
             if self.show:
                 plt.show()
+
             plt.close()
 
         else:
@@ -1671,7 +1480,7 @@ class Plotting:
             - The input dataframe must contain the MAF filtering data for the removed and kept loci proportions.
             - The input dataframe must contain the MAF filtering data for the filtering thresholds
         """
-        df_mac = df[df["Filter_Method"] == "filter_mac"].copy()
+        df_mac: pd.DataFrame = df[df["Filter_Method"] == "filter_mac"].copy()
         df = df[df["Filter_Method"] == "filter_maf"].copy()
 
         self.logger.debug(f"MAF data: {df}")
@@ -1683,7 +1492,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
             for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
+                ax: plt.Axes = sns.lineplot(
                     x="MAF_Threshold",
                     y=ycol,
                     data=df,
@@ -1695,7 +1504,7 @@ class Plotting:
                     ax=ax,
                 )
 
-                ylab = ycol.split("_")[0].capitalize()
+                ylab: str = ycol.split("_")[0].capitalize()
 
                 ax.set_xlabel("Filtering Threshold")
                 ax.set_ylabel(f"{ylab} Proportion")
@@ -1703,11 +1512,13 @@ class Plotting:
                 ax.set_ylim(-0.05, 1.12)
                 ax.set_xticks(df["MAF_Threshold"].astype(float).unique(), minor=False)
 
-            of = self.output_dir_nrm / f"filtering_results_maf.{self.plot_format}"
-            fig.savefig(of)
+            of: str = f"filtering_results_maf.{self.plot_format}"
+            outpath: Path = self.output_dir_nrm / of
+            fig.savefig(outpath)
 
             if self.show:
                 plt.show()
+
             plt.close()
 
         else:
@@ -1739,11 +1550,13 @@ class Plotting:
                 ax.set_ylim(-0.05, 1.12)
                 ax.set_xticks(df_mac["MAC_Threshold"].astype(int).unique(), minor=False)
 
-            of = self.output_dir_nrm / f"filtering_results_mac.{self.plot_format}"
-            fig.savefig(of)
+            of: str = f"filtering_results_mac.{self.plot_format}"
+            outpath: Path = self.output_dir_nrm / of
+            fig.savefig(outpath)
 
             if self.show:
                 plt.show()
+
             plt.close()
         else:
             self.logger.info("MAC data is empty.")
@@ -1780,7 +1593,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
             for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
+                ax: plt.Axes = sns.lineplot(
                     x="Bool_Threshold",
                     y=ycol,
                     data=df,
@@ -1792,7 +1605,7 @@ class Plotting:
                     ax=ax,
                 )
 
-                ylab = ycol.split("_")[0].capitalize()
+                ylab: str = ycol.split("_")[0].capitalize()
 
                 ax.set_xlabel("Heterozygous Genotypes")
                 ax.set_ylabel(f"{ylab} Proportion")
@@ -1808,11 +1621,13 @@ class Plotting:
                     title="Filter Method", loc="center", bbox_to_anchor=(0.5, 1.2)
                 )
 
-            of = self.output_dir_nrm / f"filtering_results_bool.{self.plot_format}"
-            fig.savefig(of)
+            of: str = f"filtering_results_bool.{self.plot_format}"
+            outpath: Path = self.output_dir_nrm / of
+            fig.savefig(outpath)
 
             if self.show:
                 plt.show()
+
             plt.close()
 
         else:
@@ -1905,15 +1720,16 @@ class Plotting:
 
             kwargs["x"] = xval
 
-            ax = sns_method(**kwargs, ax=ax)
+            ax: plt.Axes = sns_method(**kwargs, ax=ax)
 
         plot_format = plot_format.lower()
-        of = self.output_dir_nrm / f"filter_report.{self.plot_format}"
+        of: Path = self.output_dir_nrm / f"filter_report.{self.plot_format}"
         of.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(of)
 
         if self.show:
             plt.show()
+
         plt.close()
 
     def plot_pop_counts(self, populations: pd.Series) -> None:
@@ -1962,8 +1778,10 @@ class Plotting:
             [colors[1], colors[0]],
             [colors[0], colors[1]],
         ):
-            ax = sns.barplot(x=data.index, y=data.values, color=color, ax=ax)
-            median_line = ax.axhline(median, color=median_color, linestyle="--")
+            ax: plt.Axes = sns.barplot(x=data.index, y=data.values, color=color, ax=ax)
+            median_line: plt.Line2D = ax.axhline(
+                median, color=median_color, linestyle="--"
+            )
 
             ax.set_xticks(ax.get_xticks())
             ax.set_xticklabels(labels=ax.get_xticklabels(), minor=False, rotation=90)
@@ -1972,11 +1790,12 @@ class Plotting:
             ax.set_ylabel(ylabel)
             ax.legend([median_line], ["Median"], loc="upper right")
 
-        of = self.output_dir_gd / f"population_counts.{self.plot_format}"
+        of: Path = self.output_dir_gd / f"population_counts.{self.plot_format}"
         fig.savefig(of)
 
         if self.show:
             plt.show()
+
         plt.close()
 
     def plot_performance(
