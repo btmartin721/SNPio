@@ -1,3 +1,4 @@
+from logging import Logger
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -5,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from snpio.utils import misc, sequence_tools
+from snpio.utils.misc import IUPAC
 from snpio.utils.logging import LoggerManager
 
 
@@ -62,12 +64,14 @@ class GenotypeEncoder:
         debug = genotype_data.debug
         self.filetype = "encoded"
 
-        self.missing_vals = ["N", "-", ".", "?"]
-        self.replace_vals = ["-9"] * len(self.missing_vals)
+        self.missing_vals: List[str] = ["N", "-", ".", "?"]
+        self.replace_vals: List[str] = ["-9"] * len(self.missing_vals)
 
-        kwargs = {"verbose": self.verbose, "debug": debug}
+        kwargs: Dict[str, bool] = {"verbose": self.verbose, "debug": debug}
         logman = LoggerManager(__name__, prefix=self.prefix, **kwargs)
-        self.logger = logman.get_logger()
+        self.logger: Logger = logman.get_logger()
+
+        self.iupac = IUPAC(logger=self.logger)
 
     def read_012(self) -> None:
         """Read 012-encoded comma-delimited file.
@@ -300,7 +304,7 @@ class GenotypeEncoder:
         """
 
         if encodings_dict is None:
-            onehot_dict = misc.get_onehot_dict()
+            onehot_dict = self.iupac.onehot_dict
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
@@ -343,7 +347,7 @@ class GenotypeEncoder:
         """
 
         onehot_dict = (
-            misc.get_onehot_dict() if encodings_dict is None else encodings_dict
+            self.iupac.onehot_dict if encodings_dict is None else encodings_dict
         )
 
         # Create inverse dictionary (from list to key)
@@ -389,7 +393,7 @@ class GenotypeEncoder:
         """
 
         if encodings_dict is None:
-            int_iupac_dict = misc.get_int_iupac_dict()
+            int_iupac_dict = self.iupac.int_iupac_dict
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
@@ -434,7 +438,7 @@ class GenotypeEncoder:
         """
 
         int_encodings_dict = (
-            misc.get_int_iupac_dict() if encodings_dict is None else encodings_dict
+            self.iupac.int_iupac_dict if encodings_dict is None else encodings_dict
         )
 
         # Create inverse dictionary (from integer to key)
