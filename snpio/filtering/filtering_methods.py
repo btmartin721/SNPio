@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Tuple, Union
 
 import h5py
 import numpy as np
-from numpy._typing._array_like import NDArray
 import numpy.typing as npt
 import pandas as pd
+from numpy._typing._array_like import NDArray
 
 # Custom imports
 from snpio.utils.benchmarking import Benchmark

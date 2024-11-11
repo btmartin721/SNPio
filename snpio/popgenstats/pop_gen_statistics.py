@@ -1,18 +1,17 @@
 import itertools
-from logging import Logger
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
+from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from kneed import KneeLocator
+from scipy.stats import norm
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
-
-from scipy.stats import norm
 from statsmodels.stats.multitest import multipletests
 
 from snpio import GenotypeEncoder, Plotting

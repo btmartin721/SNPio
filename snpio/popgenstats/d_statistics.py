@@ -3,11 +3,10 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from itertools import product
 from typing import List, Optional, Tuple
-from tqdm import tqdm
 
 import numpy as np
 from scipy.stats import norm
-
+from tqdm import tqdm
 
 # Mapping of IUPAC codes to sets of alleles
 iupac_to_set = {

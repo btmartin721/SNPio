@@ -1,6 +1,6 @@
-from logging import Logger
 import warnings
 from ctypes import Union
+from logging import Logger
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -27,8 +27,8 @@ from sklearn.preprocessing import StandardScaler
 
 from snpio.analysis.genotype_encoder import GenotypeEncoder
 from snpio.utils import misc
-from snpio.utils.misc import IUPAC
 from snpio.utils.logging import LoggerManager
+from snpio.utils.misc import IUPAC
 
 
 class Plotting:

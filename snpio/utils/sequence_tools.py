@@ -1,6 +1,6 @@
 import re
 from collections import Counter
-from typing import Any, List, Optional, Dict, Tuple
+from typing import Any, Dict, List, Optional
 
 
 def remove_items(all_list: List[Any], bad_list: List[Any]) -> List[Any]:
