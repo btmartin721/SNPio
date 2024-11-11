@@ -5,8 +5,8 @@ import pandas as pd
 from snpio import (
     GenotypeEncoder,
     NRemover2,
-    PopGenStatistics,
     Plotting,
+    PopGenStatistics,
     TreeParser,
     VCFReader,
 )
