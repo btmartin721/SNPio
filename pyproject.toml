@@ -8,7 +8,7 @@ include = ["snpio*"]
 
 [project]
 name = "snpio"
-version = "1.2.0"
+version = "1.2.1"
 description = "Reads and writes VCF, PHYLIP, and STRUCTURE files and performs data filtering on the alignment."
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
@@ -47,7 +47,6 @@ classifiers = [
     "Natural Language :: English"
 ]
 dependencies = [
-    "biopython", # required for filtering files
     "bokeh", # required for interactive plots
     "h5py", # required for saving VCF metadata
     "holoviews", # required for interactive plots (Sankey plot)
