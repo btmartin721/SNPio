@@ -521,10 +521,12 @@ The `search_thresholds()` method can also be called either before or
 after any other filtering, but note that it will reset the filtering
 chain to the original state.
 
+### Sankey Filtering Diagram
+
 `plot_sankey_filtering_report()` generates a Sankey plot to visualize
 how SNPs are filtered at each step of the pipeline. For example:
 
-``` python
+```python
 from snpio import NRemover2, VCFReader
 
 vcf = "snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"

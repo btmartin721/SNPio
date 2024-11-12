@@ -33,7 +33,7 @@ documenttype: article
 standalone: true
 output:
   pdf:
-    pdf-engine: pdflatex
+    pdf-engine: xelatex
     output: UserManual.pdf
     from: markdown
 colorlinks: true
