@@ -25,7 +25,9 @@ class BaseGenotypeData:
         self._ref: List[str] = []
         self._alt: List[List[str] | str] = []
 
-        logman = LoggerManager(__name__, verbose=False, debug=False)
+        logman = LoggerManager(
+            __name__, prefix=self.prefix, verbose=self.verbose, debug=self.debug
+        )
         self.logger: Optional[logging.Logger] = logman.get_logger()
 
     def _load_data(self) -> None:
