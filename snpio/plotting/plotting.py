@@ -469,23 +469,36 @@ class Plotting:
         This method calculates the mean Fst for each population pair and plots a heatmap of the mean Fst values between populations. The heatmap is sorted by the mean Fst values across rows and columns, and only the lower triangle is displayed.
 
         Args:
-            fst_between_pops (Dict[tuple, pd.Series]): Dictionary containing Fst values between populations.
+            fst_between_pops (Dict[tuple, pd.Series]): Dictionary containing Fst values between populations. The keys are population pairs, and the values are Series of Fst values.
         """
 
-        # Calculate mean Fst for each population pair
-        fst_means = {
-            pop_pair: fst_series.mean()
+        # Calculate mean Fst and 95% CI for each population pair
+        fst_stats = {
+            pop_pair: (
+                fst_series.mean(),
+                fst_series.mean() - 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
+                fst_series.mean() + 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
+            )
             for pop_pair, fst_series in fst_between_pops.items()
         }
 
         # Extract unique population names and initialize an empty Fst matrix
-        populations = sorted({pop for pair in fst_means.keys() for pop in pair})
+        populations = sorted({pop for pair in fst_stats.keys() for pop in pair})
         fst_matrix = pd.DataFrame(index=populations, columns=populations, data=np.nan)
+        annotation_matrix = pd.DataFrame(
+            index=populations, columns=populations, data=""
+        )
 
-        # Populate the matrix with Fst values
-        for (pop1, pop2), fst_value in fst_means.items():
-            fst_matrix.loc[pop1, pop2] = fst_value
-            fst_matrix.loc[pop2, pop1] = fst_value
+        # Populate the matrices with mean Fst and formatted CI annotations
+        for (pop1, pop2), (mean_fst, lower_ci, upper_ci) in fst_stats.items():
+            fst_matrix.loc[pop1, pop2] = mean_fst
+            fst_matrix.loc[pop2, pop1] = mean_fst
+            annotation_matrix.loc[pop1, pop2] = (
+                f"{mean_fst:.3f}\n[{lower_ci:.3f}, {upper_ci:.3f}]"
+            )
+            annotation_matrix.loc[pop2, pop1] = (
+                f"{mean_fst:.3f}\n[{lower_ci:.3f}, {upper_ci:.3f}]"
+            )
 
         # Calculate the mean Fst for sorting across rows and columns
         mean_fst_per_population = fst_matrix.mean(axis=1).sort_values(ascending=False)
@@ -493,15 +506,19 @@ class Plotting:
 
         # Reorder the matrix to apply consistent sorting on both rows and columns
         fst_matrix = fst_matrix.loc[sorted_populations, sorted_populations]
+        annotation_matrix = annotation_matrix.loc[
+            sorted_populations, sorted_populations
+        ]
 
         # Apply a mask to show only the lower triangle, including the diagonal
         mask = np.triu(np.ones_like(fst_matrix, dtype=bool))
 
         # Plot the heatmap
-        plt.figure(figsize=(10, 8))
+        plt.figure(figsize=(16, 16))
         sns.heatmap(
             fst_matrix,
-            annot=True,
+            annot=annotation_matrix,  # Use custom annotations for mean ± CI
+            fmt="",  # String format for annotations
             cmap="coolwarm",
             mask=mask,  # Mask upper triangle
             cbar_kws={"label": "Mean Fst Value"},
@@ -509,7 +526,7 @@ class Plotting:
         )
 
         # Add title and adjust labels
-        plt.title("Mean Fst Between Populations")
+        plt.title("Mean Fst Between Populations (95% CI)")
         plt.xticks(rotation=45, ha="right")
         plt.yticks(rotation=0)
 
@@ -537,10 +554,39 @@ class Plotting:
         """
         df = df.copy()
 
+        sns.set_theme(style="white")
+        mpl.rcParams["axes.spines.top"] = False
+        mpl.rcParams["axes.spines.right"] = False
+        mpl.rcParams["axes.spines.left"] = True
+        mpl.rcParams["axes.spines.bottom"] = True
+        mpl.rcParams["axes.grid"] = False
+        mpl.rcParams["axes.edgecolor"] = "black"
+        mpl.rcParams["axes.facecolor"] = "white"
+        mpl.rcParams["axes.titlesize"] = self.plot_title_fontsize
+        mpl.rcParams["axes.labelsize"] = self.plot_fontsize
+        mpl.rcParams["savefig.facecolor"] = "white"
+        mpl.rcParams["savefig.dpi"] = self.dpi
+        mpl.rcParams["savefig.bbox"] = "tight"
+        mpl.rcParams["xtick.labelsize"] = self.plot_fontsize
+        mpl.rcParams["ytick.labelsize"] = self.plot_fontsize
+        mpl.rcParams["legend.fontsize"] = self.plot_fontsize
+        mpl.rcParams["legend.fancybox"] = True
+        mpl.rcParams["legend.shadow"] = True
+        mpl.rcParams["figure.titlesize"] = self.plot_title_fontsize
+        mpl.rcParams["font.size"] = self.plot_fontsize
+        mpl.rcParams["font.family"] = "sans-serif"
+        mpl.rcParams["font.sans-serif"] = [
+            "Helvetica",
+            "Verdana",
+            "Arial",
+            "DejaVu Sans",
+            "sans-serif",
+        ]
+
         # 1. Bar Plot of Significant D-Statistic Counts (Raw, Bonferroni,
         # FDR-BH)
         fig, ax = plt.subplots(1, 1, figsize=(14, 6))
-        significance_df = pd.DataFrame(
+        significance_df: pd.DataFrame = pd.DataFrame(
             {
                 "Correction": ["Raw", "Bonferroni", "FDR-BH"],
                 "Significant": [
@@ -560,11 +606,11 @@ class Plotting:
             data=significance_df, x="Correction", y="Count", hue="Significance", ax=ax
         )
         ax.set_title(
-            "Counts of Significant D-Statistics (p < 0.05) by Correction Method"
+            "Significant D-Statistics (p < 0.05) per Multiple Test Correction Method"
         )
         ax.set_xlabel("Correction Method")
         ax.set_ylabel("Count")
-        ax.legend(title="Significance")
+        ax.legend(title="Significance", loc="best", bbox_to_anchor=(1.2, 1))
 
         of: str = f"d_statistics_significance_counts.{self.plot_format}"
         fn: Path = self.output_dir_analysis / of
@@ -581,11 +627,12 @@ class Plotting:
         ax = sns.histplot(df["Z-Score"], kde=True, ax=ax)
         ax.axvline(
             df["Z-Score"].mean(),
-            color="red",
+            color="orange",
             linestyle="--",
+            linewidth=2,
             label="Mean Z-Score",
         )
-        ax.set_title("Distribution of Observed D-Statistic Values")
+        ax.set_title("Distribution of Observed Z-Scores for D-Statistics")
         ax.set_xlabel("Z-Score")
         ax.set_ylabel("Frequency")
         ax.legend()
@@ -599,8 +646,7 @@ class Plotting:
 
         plt.close()
 
-        # 3. Box Plot of D-Statistics by Population Combination
-        # Create a unique identifier for each sample combination
+        # Step 1: Generate "Sample Combo" column
         combo_cols: List[str | int] = [
             col for col in df.columns if col.startswith("Sample")
         ]
@@ -608,37 +654,65 @@ class Plotting:
             lambda x: "-".join(x.dropna()), axis=1
         )
 
-        fig, ax = plt.subplots(1, 1, figsize=(14, 24))
+        # Step 2: Subset the relevant data
+        df2: pd.DataFrame = df[
+            [
+                "Sample Combo",
+                "Z-Score",
+                "Significant (Raw)",
+                "Significant (Bonferroni)",
+                "Significant (FDR-BH)",
+            ]
+        ]
 
-        # Create columns for True and False values of 'Significant (FDR-BH)'
-        df["Significant"] = df["Z-Score"].where(df["Significant (FDR-BH)"], 0)
-        df["Not Significant"] = df["Z-Score"].where(~df["Significant (FDR-BH)"], 0)
+        # Step 3: Determine dynamic figsize and fontsize based on number of unique combinations
+        num_combos = df2["Sample Combo"].nunique()
 
-        # Plot
-        fig, ax = plt.subplots()
-        df.plot(
-            kind="barh",
-            x="Sample Combo",
-            y=["Significant", "Not Significant"],
-            stacked=True,
+        # Adjust figsize: base width is fixed, height scales with the number of combinations
+        fig_width = 14
+        fig_height = max(8, num_combos * 0.5)  # 0.5 height per combo, minimum height 8
+
+        # Adjust font size based on the number of combinations
+        base_fontsize = 12  # starting font size
+
+        # Adjust down slightly as combos increase
+        dynamic_fontsize = max(8, min(base_fontsize, 12 - 0.1 * num_combos))
+
+        # Step 4: Plot with dynamic parameters
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+        sns.barplot(
+            data=df2,
+            x="Z-Score",
+            y="Sample Combo",
+            hue="Significant (FDR-BH)",
             ax=ax,
-            legend=True,
-            color=["#66c2a5", "#fc8d62"],  # Customize colors if needed
+            palette={True: "#66c2a5", False: "#fc8d62"},
         )
 
+        # Update plot labels with dynamic fontsize
         ax.set_yticks(ax.get_yticks())
-        ax.set_yticklabels(
-            ax.get_yticklabels(), fontsize=max(self.plot_fontsize - 15, 1)
+        ax.set_yticklabels(ax.get_yticklabels(), fontsize=dynamic_fontsize + 15)
+        ax.set_title(
+            "Z-Score per Sample Combination (with FDR-BH Correction)",
+            fontsize=dynamic_fontsize + 30,
         )
-        ax.set_title("Z-Score by Sample Combination (FDR-BH Corrected)")
-        ax.set_xlabel("Sample Combination")
-        ax.set_ylabel("Z-Score")
-        ax.legend(title="Significant (FDR-BH)")
+        ax.set_xlabel("Z-Score", fontsize=dynamic_fontsize + 20)
+        ax.set_ylabel("Sample Combination", fontsize=dynamic_fontsize + 20)
+        ax.legend(
+            title="Significant (FDR-BH)",
+            fontsize=dynamic_fontsize + 20,
+            title_fontsize=dynamic_fontsize + 20,
+            loc="best",
+            bbox_to_anchor=(1.2, 1),
+        )
 
-        of = f"d_statistics_sample_combos_barplot.{self.plot_format}"
-        fn = self.output_dir_analysis / of
-        fig.savefig(fn)
+        # Save the plot
+        of: str = f"d_statistics_sample_combos_barplot.{self.plot_format}"
+        outpath: Path = self.output_dir_analysis / of
+        fig.savefig(outpath)
 
+        # Show plot if specified
         if self.show:
             plt.show()
 
@@ -813,12 +887,6 @@ class Plotting:
             plt.show()
 
         plt.close()
-
-        # Plot PairGrid summaries
-        self._plot_summary_statistics_per_sample_grid(summary_statistics["overall"])
-        self._plot_summary_statistics_per_population_grid(
-            summary_statistics["per_population"]
-        )
 
         # Plot Fst heatmap
         self._plot_fst_heatmap(summary_statistics["Fst_between_populations"])
