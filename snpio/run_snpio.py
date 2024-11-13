@@ -40,6 +40,7 @@ def main():
     print(summary_stats)
     print(amova_results)
     print(df_fst_outliers.head())
+    print(df_fst_outlier_pvalues.head())
 
     dstats_df, overall_results = pgs.calculate_d_statistics(
         method="patterson",
@@ -48,8 +49,8 @@ def main():
         population3="TT",
         outgroup="ON",
         num_bootstraps=10,
-        n_jobs=6,
-        max_individuals_per_pop=3,
+        n_jobs=10,
+        max_individuals_per_pop=6,
     )
 
     print(dstats_df.head())
@@ -68,7 +69,7 @@ def main():
         mac_thresholds=[2, 5],
     )
 
-    # # Plot benchmarking results.
+    # Plot benchmarking results.
     # NOTE: For development purposes. Comment out for normal use.
     # Benchmark.plot_performance(nrm.genotype_data, nrm.genotype_data.resource_data)
 
