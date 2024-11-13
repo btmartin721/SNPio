@@ -225,6 +225,10 @@ class GenotypeData(BaseGenotypeData):
         if filetype is not None:
             filetype = filetype.lower()
 
+        self.prefix = prefix
+        self.verbose = verbose
+        self.debug = debug
+
         super().__init__(filename, filetype)
 
         self.filename = filename
@@ -238,16 +242,12 @@ class GenotypeData(BaseGenotypeData):
         self.plot_dpi = plot_dpi
         self.plot_despine = plot_despine
         self.show_plots = show_plots
-        self.prefix = prefix
-        self.verbose = verbose
         self.chunk_size = chunk_size
 
         self.supported_filetypes: List[str] = ["vcf", "phylip", "structure", "tree"]
         self._snp_data = None
 
         self.logger: Optional[logging.Logger] = None if logger is None else logger
-
-        self.debug = debug
 
         if self.logger is None:
             kwargs = {"prefix": prefix, "verbose": verbose, "debug": debug}
