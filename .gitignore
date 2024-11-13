@@ -1,4 +1,4 @@
-# Python Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -6,7 +6,7 @@ __pycache__/
 # Python C extensions
 *.so
 
-# Python Distribution / packaging
+# Distribution / packaging
 .Python
 build/
 develop-eggs/
@@ -26,25 +26,16 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-Pipfile
 
-# Python Installer logs
+# Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Python Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
+# Dependency files
+Pipfile
+# Pipfile.lock
 
-# Python Environments
+# Environments
 .env
 .venv
 env/
@@ -60,6 +51,18 @@ venv.bak/
 .snpio-*/
 python
 python3
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
 
 # Web Frameworks
 # Django
@@ -80,19 +83,17 @@ instance/
 celerybeat-schedule
 celerybeat.pid
 
-# Translation Files
+# Translation files
 *.mo
 *.pot
 
 # Documentation
-# Sphinx
 docs/_build/
 docs/build/
-
 # mkdocs
 /site
 
-# Notebook and IDE Settings
+# IDE and Notebook files
 # Jupyter
 .ipynb_checkpoints
 
@@ -116,14 +117,23 @@ dmypy.json
 # Pyre
 .pyre/
 
+# AppMap
+appmap.yml
+
+# PEP 582
+__pypackages__/
+
+# pyenv
+.python-version
+
+# SageMath
+*.sage.py
+
 # Project-Specific Files
 sfs_*
 snpio_plots/
 snpio_output/
 unfiltered_reports/
-*.csv
-*.lock
-*.h5
 snpio/example_data/vcf_files/phylogen.vcf
 vcf_attributes.h5
 phylogen.vcf
@@ -138,48 +148,27 @@ nremover_test.str
 test.popmap
 test.popmap.rearr.txt
 
-# Miscellaneous
-all_packages.txt
-
-# SageMath
-*.sage.py
-
-#AppMap
-appmap.yml
-
-# PEP 582
-__pypackages__/
-
-# pyenv
-.python-version
-
-# benchmarking
+# Output and Benchmarking files
+snpio_filtered_output/
+vcf_output/
+logs/
 profile_stats_*.txt
+data_sorted.txt
+data.txt
+header.txt
+filtered_missingness_report.png
+pca_missingness.html
+filtering_results_sankey_thresholds*.html
 
 # OS files
 .DS_Store
 
-# pipenv
-#Pipfile.lock
-
-data_sorted.txt
-data.txt
-header.txt
-
-snpio_filtered_output/
-
-vcf_output/
-
-logs/
+# Miscellaneous
+all_packages.txt
+*.csv
+*.lock
+*.h5
 _minted-input
-
 header.txt
 keybindings.json
 tasks.json
-data_sorted.txt
-data.txt
-filtered_missingness_report.png
-pca_missingness.html
-filtered_missingness_report.png
-
-filtering_results_sankey_thresholds*.html
