@@ -3,42 +3,45 @@ Getting Started
 
 .. image:: ../../../snpio/img/snpio_logo.png
   :align: center
-  :alt: SNPio Logo
+  :alt: SNPio Logo, decorative image.
   :width: 800px
   :height: 400px
   :scale: 100%
   :class: img-responsive
 
 
-This guide provides an overview of how to get started with the SNPio library. It covers the basic steps to read, manipulate, and analyze genotype data using the VCFReader, PhylipReader, StructureReader, and NRemover2 classes. SNPio is designed to simplify the process of handling genotype data and preparing it for downstream analysis, such as population genetics, phylogenetics, and machine learning. The library supports various file formats, including VCF, PHYLIP, and STRUCTURE, and provides tools for filtering, encoding, and visualizing genotype data. This guide will help you get up and running with SNPio quickly and efficiently. 
+This guide provides an overview of how to get started with the SNPio library. It covers the basic steps to read, manipulate, and analyze genotype data using the VCFReader, PhylipReader, StructureReader, and NRemover2 classes. SNPio is designed to simplify the process of handling genotype data and preparing it for downstream analysis, such as population genetics, phylogenetics, and machine learning. The library supports various file formats, including VCF, PHYLIP, and STRUCTURE, and provides tools for filtering, encoding, and visualizing genotype data. This guide will help you get up and running with SNPio quickly and efficiently.
 
 ``VCFReader``, ``PhylipReader``, and ``StructureReader`` classes are used to read genotype data from VCF, PHYLIP, and STRUCTURE files, respectively. These classes load the data into a ``GenotypeData`` object that has various useful methods and properties. 
 
 The ``NRemover2`` class is used to filter genotype data based on various criteria, such as missing data, minor allele count, minor allele frequency, and more. The ``GenotypeEncoder`` class is used to encode genotype data into different formats, such as one-hot encoding, integer encoding, and 0-1-2 encoding, for downstream analysis and machine learning tasks.
 
-Below is a step-by-step guide to using SNPio to read, filter, and encode genotype data for analysis.
+The ``Plotting`` class provides methods to visualize genotype data, such as running principal component analysis (PCA) and generating missing data reports. The ``PopGenStatistics`` class is used to perform population genetic analyses on SNP datasets, such as D-statistics, Fst outliers, heterozygosity, nucleotide diversity, and Analysis of Molecular Variance (AMOVA).
+
+The ``TreeParser`` class is used to load and parse phylogenetic trees in Newick and NEXUS formats. It can read and parse tree files, modify tree structures, draw trees, and save trees in different formats.
+
+The ``PopGenStatistics`` class is designed to perform a suite of population genetic analyses on SNP datasets. It supports calculations such as D-statistics, Fst outliers, heterozygosity, nucleotide diversity, and Analysis of Molecular Variance (AMOVA). These analyses are essential for understanding genetic structure, diversity, and differentiation within and between populations.
+
+Below is a step-by-step guide to using SNPio to read, filter, encode genotype data for analysis, and calculate population genetic statistics.
 
 Installation
 ------------
 
-Before using SNPio, ensure it is installed in your Python environment. You can install it using pip. In the project root directory (the directory containing setup.py), type the following command into your terminal:
+Before using SNPio, ensure it is installed in your Python environment. You can install it using pip. In the project root directory (the directory containing setup.py), type the below command into your terminal.
 
-.. code-block:: shell
-
-  pip install snpio
-
-We recommend using a virtual environment to manage your Python packages. If you do not have a virtual environment set up, you can create one using the following commands:
+We recommend using a virtual environment to manage your Python packages. If you do not have a virtual environment set up, you can create one using the following command and then activate it and install SNPio:
 
 .. code-block:: shell
 
   python3 -m venv snpio_env
   source snpio_env/bin/activate
+  pip install snpio
 
 This will create a virtual environment named ``snpio_env`` and activate it. You can then install SNPio in this virtual environment using the pip command mentioned above.
 
 .. note::
 
-  SNPio does not support Windows operating systems at the moment. We recommend using a Unix-based operating system such as Linux or macOS.
+  SNPio does not support Windows operating systems at the moment. We recommend using a Unix-based operating system such as Linux or macOS. If you have Windows, you can use the Windows Subsystem for Linux (WSL) to run SNPio, which runs a Linux distribution on Windows.
 
 .. note::
 
@@ -52,7 +55,7 @@ To start using SNPio, import the necessary modules:
 .. code-block:: python
 
   # Import the necessary modules
-  from snpio import NRemover2, VCFReader, PhylipReader, StructureReader, Plotting, GenotypeEncoder
+  from snpio import NRemover2, VCFReader, PhylipReader, StructureReader, Plotting, GenotypeEncoder, PopGenStatistics, TreeParser
 
 Example usage:
 
@@ -72,16 +75,16 @@ You can also include or exclude any populations from the analysis by using the `
 
   # Only include the populations "ON", "DS", "EA", "GU", and "TT"
   # Exclude the populations "MX", "YU", and "CH"
-  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", include_pops=["ON", "DS", "EA", "GU"], exclude_pops=["MX", "YU", "CH"])
+  gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", include_pops=["ON", "DS", "EA", "GU"], exclude_pops=["MX", "YU", "CH", "OG"])
 
-The ``include_pops`` and ``exclude_pops`` parameters are optional and can be used to filter the populations included in the analysis. If both parameters are provided, the populations in ``include_pops`` will be included, and the populations in ``exclude_pops`` will be excluded. However, populations cannot overlap between lists.
+The ``include_pops`` and ``exclude_pops`` parameters are optional and can be used to filter the populations included in the analysis. If both parameters are provided, the populations in ``include_pops`` will be included, and the populations in ``exclude_pops`` will be excluded. However, populations cannot overlap between lists. 
   
 Important Notes:
 ----------------
 
 .. note::
 
-  The ``VCFReader``, ``PhylipReader``, ``StructureReader``, ``NRemover2``, and ``GenotypeEncoder`` classes treat the following characters as missing data:
+  The ``VCFReader``, ``PhylipReader``, ``StructureReader``, ``NRemover2``, ``PopGenStatistics``, and ``GenotypeEncoder`` classes treat the following characters as missing data:
     - "N"
     - "."
     - "?"
@@ -89,7 +92,7 @@ Important Notes:
 
 .. note::
 
-  The ``VCFReader`` class can read both uncompressed and compressed VCF files (gzipped). If your input file is in PHYLIP or STRUCTURE format, it will be forced to be biallelic. To handle more than two alleles per site, use the VCF format.
+  The ``VCFReader`` class can read both uncompressed and compressed VCF files (gzipped). If your input file is in PHYLIP or STRUCTURE format, it will be forced to be biallelic. To handle more than two alleles per site, use the VCF format. However, also note that many of the analyses implemented in ``PopGenStatistics`` and ``NRemover2`` are designed for biallelic and diploid data.
 
 The Population Map File
 -----------------------
@@ -210,7 +213,11 @@ Key Methods in VCFReader, PhylipReader, and StructureReader
 |                     | (for StructureReader).                      |
 +---------------------+---------------------------------------------+
 
-The ``write_vcf``, ``write_phylip``, and ``write_structure`` methods are used to write the filtered or modified genotype data back to a VCF, PHYLIP, or STRUCTURE file, respectively. **These methods can also be used to convert between file VCF, PHYLIP, and STRUCTURE formats.**
+The ``write_vcf``, ``write_phylip``, and ``write_structure`` methods are used to write the filtered or modified genotype data back to a VCF, PHYLIP, or STRUCTURE file, respectively. 
+
+.. note::
+
+  The ``write_vcf``, ``write_phylip``, and ``write_structure`` methods can be used to write the filtered or modified genotype data back to a new file. The original file will not be overwritten.
 
 Other GenotypeData Methods
 --------------------------
@@ -331,7 +338,7 @@ With ``search_thresholds()``, you can specify the thresholds to search for and t
   # Specify filtering thresholds and order of filters
   nrm.search_thresholds(thresholds=[0.25, 0.5, 0.75, 1.0], maf_thresholds=[0.01, 0.05], mac_thresholds=[2, 5], filter_order=["filter_missing_sample", "filter_missing", "filter_missing_pop", "filter_mac", "filter_monomorphic", "filter_singletons", "filter_biallelic"])
 
-The ``search_thresholds()`` method will search for the optimal thresholds for missing data, MAF, and MAC filters based on the specified thresholds and filter order. It will plot the results so you can visualize the impact of different thresholds on the dataset.
+The ``search_thresholds()`` method will search across thresholds for missing data, MAF, MAC, and the boolean filters based on the specified thresholds and filter order. It will plot the results so you can visualize the impact of different thresholds on the dataset.
 
 Below are example plots that are created when running the ``search_thresholds()`` method:
 
@@ -367,11 +374,11 @@ Below are example plots that are created when running the ``search_thresholds()`
 
 .. note::
 
-  The ``search_thresholds()`` method is incompatible with ``thin_loci(size)`` and ``filter_linked()`` being in the filter_order list.
+  The ``search_thresholds()`` method is incompatible with both ``thin_loci(size)`` and ``filter_linked()`` being in the filter_order list.
 
 .. warning::
 
-  The ``search_thresholds()`` method can also be called either before or after any other filtering, but note that it will reset the filtering chain to the original state.
+  The ``search_thresholds()`` method can be called either before or after any other filtering, but note that it will reset the filtering chain to the original state.
 
 ``plot_sankey_filtering_report()`` generates a Sankey plot to visualize how SNPs are filtered at each step of the pipeline. For example:
 
@@ -393,7 +400,6 @@ Below are example plots that are created when running the ``search_thresholds()`
   nrm.plot_sankey_filtering_report()
 
 This will automatically track the number of loci at each filtering step and generate a Sankey plot to visualize the filtering process. The Sankey plot shows how many loci are removed at each step of the filtering process. For example:
-
 
 .. figure:: ../../../snpio/img/nremover_sankey_plot.png
   :alt: Sankey Plot Depicting Loci Removed at Each Filtering Step
