@@ -9,7 +9,20 @@ snpio.popgenstats.pop\_gen\_statistics module
 
 .. automodule:: snpio.popgenstats.pop_gen_statistics
    :members:
-   :noindex:
+   :show-inheritance:
+
+snpio.popgenstats.plot_d_statistics module
+------------------------------------------
+
+.. automodule:: snpio.popgenstats.d_statistics
+   :members:
+   :show-inheritance:
+
+snpio.popgenstats.amova module
+------------------------------
+
+.. automodule:: snpio.popgenstats.amova
+   :members:
    :show-inheritance:
 
 Module contents
@@ -17,5 +30,4 @@ Module contents
 
 .. automodule:: snpio.popgenstats
    :members:
-   :noindex:
    :show-inheritance:
