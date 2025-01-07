@@ -9,7 +9,19 @@ snpio.filtering.nremover2 module
 
 .. automodule:: snpio.filtering.nremover2
    :members:
-   :noindex:
+   :show-inheritance:
+
+snpio.filtering.filtering_helper module
+---------------------------------------
+
+.. automodule:: snpio.filtering.filtering_helper
+   :members:
+   :show-inheritance:
+
+snpio.filtering.filtering_methods module
+
+.. automodule:: snpio.filtering.filtering_methods
+   :members:
    :show-inheritance:
 
 Module contents
@@ -17,5 +29,5 @@ Module contents
 
 .. automodule:: snpio.filtering
    :members:
-   :noindex:
+   :no-index:
    :show-inheritance:
