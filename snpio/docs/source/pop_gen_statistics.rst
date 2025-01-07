@@ -6,13 +6,19 @@ PopGenStatistics Documentation
 
 The `PopGenStatistics` class is designed to perform a suite of population genetic analyses on SNP datasets, supporting methods to calculate D-statistics, Fst, heterozygosity, and more. This class is particularly useful for researchers studying population structure, diversity, and genetic variation within and between populations.
 
-**Key Features:**
+~~~~~~~~~~~~~~~~~~~~~~
+Key Features
+~~~~~~~~~~~~~~~~~~~~~~
+
     - Calculation of Patterson’s, partitioned, and D-foil D-statistics
     - Fst outlier detection using DBSCAN or bootstrapping
     - Calculation of heterozygosity, nucleotide diversity, and summary statistics
     - Perform Analysis of Molecular Variance (AMOVA) to assess genetic variation
 
-**Dependencies:**
+~~~~~~~~~~~~~~~~~~~~~~
+Dependencies
+~~~~~~~~~~~~~~~~~~~~~~
+
 PopGenStatistics is a part of the `snpio` package, which includes classes to calculate GenotypeEncoder, Plotting, and D-statistics, and depends on other packages such as `numpy`, `pandas`, `scipy`, `sklearn`, and `statsmodels`.
 
 -----------
@@ -36,19 +42,55 @@ Quick Start
     # Initialize PopGenStatistics with genotype data
     pgs = PopGenStatistics(genotype_data, verbose=True)
 
-**Methods Overview:**
+~~~~~~~~~~~~~~~~~~~~~
+Methods Overview
+~~~~~~~~~~~~~~~~~~~~~
 
 * `calculate_d_statistics`: Calculates D-statistics and saves them as a CSV. Also makes a plot of the D-statistics and returns a DataFrame with the statistics.
 * `detect_fst_outliers`: Identifies Fst outliers between populations. Makes a plot of the Fst values and returns outlier SNPs as a DataFrame.
 * `observed_heterozygosity`, `expected_heterozygosity`, `nucleotide_diversity`, and `wrights_fst`: Calculates core population genetic metrics.
 * `summary_statistics`: Calculates and summarizes key metrics across populations. Makes informative plots and returns a dictionary of pandas DataFrame and Series objects with the results.
-* `amova`: Conducts an Analysis of Molecular Variance. Returns a dictionary with the AMOVA results.
+* `amova`: Conducts a hierarchical Analysis of Molecular Variance. Returns a dictionary with the AMOVA results. The algorithm supports parallel computation with bootstrapping to estimate variance and significance. The algorithm also supports a region map to group populations for AMOVA analysis and is adapted from Excoffier et al. (1992).
+* `neis_genetic_distance`: Calculates Nei's genetic distance between populations.
+* `plot_fst_heatmap`: Plots a heatmap of pairwise Fst values between populations.
+* `plot_d_statistics`: Plots D-statistics for Patterson's D, partitioned D, and D-foil.
+* `plot_amova_results`: Plots the AMOVA results.
+* `plot_summary_statistics`: Plots summary statistics for heterozygosity, nucleotide diversity, and Fst.
+* `plot_neis_genetic_distance`: Plots Nei's genetic distance between populations.
+* `tajimas_d`: Calculates Tajima's D statistic for each population.
+* `plot_tajimas_d`: Plots Tajima's D statistic for each population.
 
 ------------
 Core Methods
 ------------
 
-**calculate_d_statistics**
+.. list-table:: Core Methods
+    :header-rows: 1
+
+    * - Method
+      - Description
+    * - `calculate_d_statistics`
+      - Calculates D-statistics and saves them as a CSV. Also makes a plot of the D-statistics and returns a DataFrame with the statistics.
+    * - `detect_fst_outliers`
+      - Identifies Fst outliers between populations. Makes a plot of the Fst values and returns outlier SNPs as a DataFrame.
+    * - `observed_heterozygosity`
+      - Calculates observed heterozygosity for each locus.
+    * - `expected_heterozygosity`
+      - Calculates expected heterozygosity for each locus.
+    * - `nucleotide_diversity`
+      - Calculates nucleotide diversity for each locus.
+    * - `summary_statistics`
+      - Calculates and summarizes key metrics across populations. Makes informative plots and returns a dictionary of pandas DataFrame and Series objects with the results.
+    * - `amova`
+      - Conducts a hierarchical Analysis of Molecular Variance. Returns a dictionary with the AMOVA results.
+    * - `neis_genetic_distance`
+      - Calculates Nei's genetic distance between populations.
+    * - `tajimas_d`
+      - Calculates Tajima's D statistic for each population.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+calculate_d_statistics
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Calculates Patterson's D-statistic, partitioned D-statistic, or D-foil for given populations. Bootstrap replicates and heterozygosity inclusion can be customized. The results are saved as a CSV and returned as a pandas DataFrame and a dictionary with mean overall results, and a plot of the D-statistics is generated.
 
@@ -63,7 +105,9 @@ Calculates Patterson's D-statistic, partitioned D-statistic, or D-foil for given
         num_bootstraps=1000
     )
 
-**detect_fst_outliers**
+~~~~~~~~~~~~~~~~~~~~~~~
+detect_fst_outliers
+~~~~~~~~~~~~~~~~~~~~~~~
 
 Detects Fst outliers using bootstrapping or DBSCAN. The method returns Fst outlier SNPs along with their associated population pairs.
 
@@ -76,7 +120,9 @@ Detects Fst outliers using bootstrapping or DBSCAN. The method returns Fst outli
         n_bootstraps=1000
     )
 
-**summary_statistics**
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+summary_statistics
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Calculates a comprehensive suite of summary statistics, including heterozygosity, nucleotide diversity, and Fst. Results can be plotted or returned as a dictionary.
 
@@ -96,16 +142,43 @@ Calculates a comprehensive suite of summary statistics, including heterozygosity
 
 The per-population summary statistics are stored in a dictionary with population labels as keys and pandas DataFrames as values.
 
-**amova**
+~~~~~~~~~~~~~~~~~~~~~~~
+amova
+~~~~~~~~~~~~~~~~~~~~~~~
 
-Conducts an Analysis of Molecular Variance (AMOVA) to assess genetic variation within and among populations.
+Conducts an Analysis of Molecular Variance (AMOVA) to assess genetic variation within and among populations. The algorithm supports parallel computation with bootstrapping to estimate variance and significance. The method also supports a region map to group populations for AMOVA analysis. It is adapted from Excoffier et al. (1992).
 
 .. code-block:: python
 
-    amova_results = pgs.amova()
-    print("Phi_ST:", amova_results["Phi_ST"])
-    print("within_populations:", amova_results["Within_population_variance"])
-    print("among_populations:", amova_results["Among_population_variance"])
+    # Map populations to regions for AMOVA analysis.
+    regionmap = {
+        "EA": "Eastern",
+        "GU": "Eastern",
+        "TT": "Eastern",
+        "TC": "Eastern",
+        "ON": "Ornate",
+        "DS": "Ornate",
+    }
+
+    amova_results = pgs.amova(
+        regionmap=regionmap, n_bootstraps=1000, n_jobs=-1, random_seed=42
+    )
+
+    print(amova_results)
+
+.. code-block:: none
+
+    {
+        "Among_region_variance": 0.123,
+        "Among_population_within_region_variance": 0.456,
+        "Within_population_variance": 0.789,
+        "Phi_RT": 0.123, # Phi component among regions.
+        "Phi_PR": 0.456, # Phi component among populations within regions.
+        "Phi_PT": 0.789, # Phi component within populations.
+        "Phi_PT_p_value": 0.012, # Significance of Phi_PT.
+        "Phi_PR_p_value": 0.345, # Significance of Phi_PR.
+        "Phi_RT_p_value": 0.678, # Significance of Phi_RT.
+    }
 
 ---------------
 Advanced Usage
@@ -119,10 +192,22 @@ Advanced Usage
 Additional Information
 ----------------------
 
-**Notes:**
+.. note::
+
     - SNP data must be encoded in a compatible format.
     - `genotype_data.popmap` must map samples to population labels accurately.
-    - It is advised to run the Fst and D-statistic calculations with sufficient bootstraps to obtain statistically robust estimates.
+    - It is advised to run the Fst, D-statistic, and AMOVA calculations with sufficient bootstraps to obtain statistically robust estimates.
 
-    **Parallelization**:
-    - Many methods support parallel computation by specifying `n_jobs=-1` to use all available CPU cores, optimizing for large SNP datasets.
+    - **Parallelization**:
+        - Many methods support parallel computation by specifying `n_jobs=-1` to use all available CPU cores, optimizing for large SNP datasets.
+    - **Random Seed**:
+        - For reproducibility, set a random seed in the `amova` method to ensure consistent results across runs.
+    - **Region Map**:
+        - The `amova` method supports a region map to group populations for AMOVA analysis. Ensure the region map is correctly defined to avoid errors.
+    - **Outlier Detection**:
+        - The `detect_fst_outliers` method supports outlier detection using bootstrapping or DBSCAN. Adjust the `correction_method` and `alpha` parameters to control the significance level.
+    - **Summary Statistics**:
+        - The `summary_statistics` method calculates and summarizes key metrics across populations. Customize the `save_plots` parameter to save plots to disk.
+
+
+We hope this documentation helps you get started with the `PopGenStatistics` class in the `snpio` package. For more information, please refer to the `snpio` documentation or contact the developers for assistance.
