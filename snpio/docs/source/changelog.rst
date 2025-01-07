@@ -4,6 +4,63 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.2.1 (2025-01-06)
+
+Features
+~~~~~~~~~
+
+- Improved the `PopGenStatistics` class to include new functionality to calculate genetic distances between populations and Tajima's D per locus:
+    -  calculate genetic distances between populations using the `neis_genetic_distance()` method. The method calculates Nei's genetic distance between populations and returns a pandas DataFrame with the genetic distances.
+    -   Tajima's D per locus using the `tajimas_d` method. The method calculates Tajima's D per locus and returns a pandas Series with the Tajima's D values.
+
+- The `PopGenStatistics` class now has the following public methods:
+    - `neis_genetic_distance()`
+    - `tajimas_d()`
+    - `calculate_d_statistics()`
+    - `detect_fst_outliers()`
+    - `observed_heterozygosity()`
+    - `expected_heterozygosity()`
+    - `observed_heterozygosity_per_population()`
+    - `expected_heterozygosity_per_population()`
+    - `nucleotide_diversity()`
+    - `nucleotide_diversity_per_population()`
+    - `summary_statistics()`
+    - `amova()`
+    - `weir_cockerham_fst_between_populations()`
+    - `plot_d_statistics()`
+
+- The AMOVA method now returns a dictionary with the AMOVA results. Its functionality has been greatly extended to follow Excoffier et al. (1992) and Excoffier et al. (1999) methods. 
+    - The method now calculates the variance components (within populations, within regions among popoulations, and among regions), Phi-statistics, and p-values via bootstrapping for the AMOVA analysis.
+    - A `regionmap` dictionary is now required to map populations to regions/groups.
+
+Enhancements
+~~~~~~~~~~~~
+
+- Improved the `PopGenStatistics` class to include new functionality to calculate observed and expected heterozygosity per population and nucleotide diversity per population.
+- Improved the `PopGenStatistics` class to include new functionality to calculate Weir and Cockerham's Fst between populations.
+- Improved aesthetics of the Fst heatmap plot.
+- Improved the `PopGenStatistics` class to include new functionality to plot D-statistics.
+- Improved the `PopGenStatistics` class to include new functionality to plot Fst outliers.
+    - Two ways:
+        - DBSCAN clustering method
+        - Bootstrapping method
+- Improved the `PopGenStatistics` class to include new functionality to plot summary statistics.
+
+Deprecations
+~~~~~~~~~~~~
+
+The following method have been deprecated:
+
+- `wrights_fst()`: Use `weir_cockerham_fst_between_populations()` instead.
+
+Bug Fixes
+~~~~~~~~~~
+
+- Fixed bug where the `PopGenStatistics` class did not have the `verbose` and `debug` attributes.
+- Fixed bug where the `PopGenStatistics` class did not have the `genotype_data` attribute.
+- Fixed warnings in `snpio.plotting.plotting.Plotting` class with the font family.
+- Fixed bug with `VCFReader` class when a non-tabix-indexed and uncompressed VCF file was read. The bug caused an error when reading an uncompressed VCF file.
+
 Version 1.2.0 (2024-11-07)
 ----------------------------
 
