@@ -9,7 +9,7 @@ include = ["snpio*"]
 [project]
 name = "snpio"
 version = "1.2.1"
-description = "Reads and writes VCF, PHYLIP, and STRUCTURE files and performs data filtering on the alignment."
+description = "Reads and writes VCF, PHYLIP, and STRUCTURE files performs data filtering on the alignment, and performs various population genetic analyses."
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
@@ -43,8 +43,10 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Operating System :: OS Independent",
-    "Natural Language :: English"
+    "Natural Language :: English",
+    "Operating System :: Unix",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS",
 ]
 dependencies = [
     "bokeh", # required for interactive plots
@@ -70,7 +72,8 @@ dependencies = [
 [project.urls]
 "Source Code" = "https://github.com/btmartin721/SNPio"
 "Bug Tracker" = "https://github.com/btmartin721/SNPio/issues"
-
+"Documentation" = "https://snpio.readthedocs.io/en/stable/"
+"Changelog" = "https://snpio.readthedocs.io/en/stable/changelog.html"
 
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
