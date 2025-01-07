@@ -1,6 +1,6 @@
 import logging
 import random
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 
@@ -12,9 +12,9 @@ class BaseGenotypeData:
     def __init__(
         self, filename: Optional[str] = None, filetype: Optional[str] = "auto"
     ):
-        self.filename = filename
+        self.filename: str | None = filename
 
-        self.filetype = filetype if filetype is not None else None
+        self.filetype: str | None = filetype if filetype is not None else None
         if filetype is not None:
             self.filetype = filetype.lower()
 
@@ -25,7 +25,9 @@ class BaseGenotypeData:
         self._ref: List[str] = []
         self._alt: List[List[str] | str] = []
 
-        logman = LoggerManager(__name__, verbose=False, debug=False)
+        logman = LoggerManager(
+            __name__, prefix=self.prefix, verbose=self.verbose, debug=self.debug
+        )
         self.logger: Optional[logging.Logger] = logman.get_logger()
 
     def _load_data(self) -> None:
@@ -44,44 +46,48 @@ class BaseGenotypeData:
 
         Returns:
             Tuple[np.ndarray, np.ndarray, List[np.ndarray]]:
-                - Most common alleles (likely ref).
-                - Second most common alleles (likely alt).
+                - Most common alleles (ref).
+                - Second most common alleles (alt).
                 - Less common alleles (for potential multi-allelic sites).
         """
-        # Initialize arrays to hold results
-        most_common_alleles = np.full(data.shape[1], None, dtype=object)
-        second_most_common_alleles = np.full(data.shape[1], None, dtype=object)
+        num_cols = data.shape[1]
+        most_common_alleles = np.full(num_cols, None, dtype=object)
+        second_most_common_alleles = np.full(num_cols, None, dtype=object)
         less_common_alleles_list = []
 
-        for i in range(data.shape[1]):
-            column = data[:, i]
+        for i in range(num_cols):
+            column_data = data[:, i]
+            valid_mask = ~np.isin(column_data, {"N", ".", "?", "-"})
+            valid_genotypes = column_data[valid_mask]
 
-            # Flatten alleles and remove missing and gap values.
-            valid_alleles = []
-            heterozygous_counts: Dict[str, int] = {}
-            for genotype in column:
-                if genotype not in ["N", "?", ".", "-"]:
-                    # Split heterozygous genotypes (e.g., 'A/G') and add each
-                    # allele separately
-                    alleles = genotype.split("/")
-                    valid_alleles.extend(alleles)
-                    # Count heterozygous genotypes for each allele
-                    if len(alleles) == 2:
-                        for allele in alleles:
-                            heterozygous_counts[allele] = (
-                                heterozygous_counts.get(allele, 0) + 1
-                            )
-
-            # Convert valid_alleles to a numpy array
-            valid_alleles_arr: np.ndarray = np.array(valid_alleles)
-
-            if valid_alleles_arr.size == 0:
+            if valid_genotypes.size == 0:
                 # If no valid alleles, log an error and raise an exception
                 self.logger.error(f"No valid alleles found in column {i}")
                 raise NoValidAllelesError(i)
 
+            # Split genotypes into alleles
+            alleles_list = np.char.split(valid_genotypes, sep="/")
+            alleles_flat = np.concatenate(alleles_list)
+
             # Use numpy's unique function with return_counts for counting
-            alleles, counts = np.unique(valid_alleles_arr, return_counts=True)
+            alleles, counts = np.unique(alleles_flat, return_counts=True)
+
+            # Get heterozygous genotypes
+            heterozygous_mask = np.char.count(valid_genotypes, "/") == 1
+            heterozygous_genotypes = valid_genotypes[heterozygous_mask]
+
+            heterozygous_counts_dict = {}
+            if heterozygous_genotypes.size > 0:
+                heterozygous_alleles_list = np.char.split(
+                    heterozygous_genotypes, sep="/"
+                )
+                heterozygous_alleles_flat = np.concatenate(heterozygous_alleles_list)
+                heterozygous_alleles, heterozygous_counts = np.unique(
+                    heterozygous_alleles_flat, return_counts=True
+                )
+                heterozygous_counts_dict = dict(
+                    zip(heterozygous_alleles, heterozygous_counts)
+                )
 
             # Sort by counts (descending order)
             sorted_indices = np.argsort(counts)[::-1]
@@ -94,24 +100,20 @@ class BaseGenotypeData:
                     f"Low allele count in column {i}: {sorted_alleles[0]} occurs only {sorted_counts[0]} times."
                 )
 
-            # If the top two alleles have the same count, choose by fewest
-            # heterozygous occurrences or randomly
+            # If the top two alleles have the same count, choose by fewest heterozygous occurrences or randomly
             if len(sorted_alleles) > 1 and sorted_counts[0] == sorted_counts[1]:
                 top_alleles = [sorted_alleles[0], sorted_alleles[1]]
                 heterozygous_top_counts = [
-                    heterozygous_counts.get(allele, 0) for allele in top_alleles
+                    heterozygous_counts_dict.get(allele, 0) for allele in top_alleles
                 ]
                 if heterozygous_top_counts[0] == heterozygous_top_counts[1]:
-                    # Randomly choose the reference allele if heterozygous
-                    # counts are tied
+                    # Randomly choose the reference allele if heterozygous counts are tied
                     chosen_ref_index = random.choice([0, 1])
-                    most_common_alleles[i] = top_alleles[chosen_ref_index]
-                    second_most_common_alleles[i] = top_alleles[1 - chosen_ref_index]
                 else:
                     # Choose by fewest heterozygous occurrences
                     chosen_ref_index = int(np.argmin(heterozygous_top_counts))
-                    most_common_alleles[i] = top_alleles[chosen_ref_index]
-                    second_most_common_alleles[i] = top_alleles[1 - chosen_ref_index]
+                most_common_alleles[i] = top_alleles[chosen_ref_index]
+                second_most_common_alleles[i] = top_alleles[1 - chosen_ref_index]
             else:
                 # Assign most common and second most common alleles
                 if len(sorted_alleles) > 0:

@@ -191,7 +191,10 @@ class PhylipReader(GenotypeData):
                         raise AlignmentFormatError(msg)
 
                     inds, seqs = cols[0], cols[1]
-                    if len(seqs) != n_loci:
+                    if len(list(seqs)) != n_loci:
+                        self.logger.error(
+                            f"Sequence length mismatch for sample {inds}: {len(list(seqs))} != {n_loci}"
+                        )
                         raise SequenceLengthError(inds)
 
                     snp_data.append(list(seqs))

@@ -1,0 +1,69 @@
+{% set name = "snpio" %}
+{% set version = "1.2.1" %}
+{% set license = "GPL-3.0-or-later" %}
+{% set github_url = "https://github.com/btmartin721/SNPio" %}
+
+package:
+  name: {{ name|lower }}
+  version: "{{ version }}"
+
+source:
+  git_rev: v{{ version }}
+  git_url: {{ github_url }}
+
+build:
+  number: 0
+  script: python -m pip install . --no-deps -vv
+  noarch: python
+
+requirements:
+  build:
+    - python >=3.11,<3.13
+    - setuptools
+    - wheel
+    - pip
+  host:
+    - python >=3.11,<3.13
+    - pip
+  run:
+    - python >=3.11,<3.13
+    - bokeh
+    - h5py
+    - holoviews
+    - kaleido
+    - kneed
+    - matplotlib
+    - numpy
+    - pandas
+    - panel
+    - plotly
+    - pysam
+    - requests
+    - scikit-learn
+    - scipy
+    - statsmodels
+    - seaborn
+    - toytree
+    - tqdm
+
+test:
+  imports:
+    - snpio
+
+about:
+  home: {{ github_url }}
+  license: {{ license }}
+  license_family: GPL
+  license_file: LICENSE
+  summary: "Reads and writes VCF, PHYLIP, and STRUCTURE files, performs data filtering on the alignment, and performs various population genetic analyses."
+  description: |
+    SNPio is a Python package for handling population genetic data,
+    supporting common file formats like VCF, PHYLIP, and STRUCTURE.
+    It provides tools for filtering, encoding, and visualizing SNP data as well as performing various population genetic analyses.
+  dev_url: {{ github_url }}
+  doc_url: https://snpio.readthedocs.io/en/stable/
+
+extra:
+  recipe-maintainers:
+    - btmartin721
+    

@@ -7,8 +7,8 @@ Welcome to SNPio's documentation!
 
    getting_started
    example_script
-   snpio
    changelog
+   modules
 
 Indices and tables
 ==================

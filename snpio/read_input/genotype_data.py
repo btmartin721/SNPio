@@ -12,7 +12,7 @@ from snpio.read_input.genotype_data_base import BaseGenotypeData
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils.custom_exceptions import SequenceLengthError, UnsupportedFileTypeError
 from snpio.utils.logging import LoggerManager
-from snpio.utils.misc import get_gt2iupac, get_iupac2gt
+from snpio.utils.misc import IUPAC
 
 
 class GenotypeData(BaseGenotypeData):
@@ -225,6 +225,10 @@ class GenotypeData(BaseGenotypeData):
         if filetype is not None:
             filetype = filetype.lower()
 
+        self.prefix = prefix
+        self.verbose = verbose
+        self.debug = debug
+
         super().__init__(filename, filetype)
 
         self.filename = filename
@@ -238,16 +242,12 @@ class GenotypeData(BaseGenotypeData):
         self.plot_dpi = plot_dpi
         self.plot_despine = plot_despine
         self.show_plots = show_plots
-        self.prefix = prefix
-        self.verbose = verbose
         self.chunk_size = chunk_size
 
         self.supported_filetypes: List[str] = ["vcf", "phylip", "structure", "tree"]
         self._snp_data = None
 
         self.logger: Optional[logging.Logger] = None if logger is None else logger
-
-        self.debug = debug
 
         if self.logger is None:
             kwargs = {"prefix": prefix, "verbose": verbose, "debug": debug}
@@ -311,6 +311,8 @@ class GenotypeData(BaseGenotypeData):
         self.reverse_iupac_mapping: Dict[str, Tuple[str, str]] = {
             v: k for k, v in self.iupac_mapping.items()
         }
+
+        self.iupac = IUPAC()
 
     def _iupac_from_gt_tuples(self) -> Dict[Tuple[str, str], str]:
         """Returns the IUPAC code mapping.
@@ -615,7 +617,7 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             str: Corresponding IUPAC code for the input genotype. Returns 'N' if the genotype is not in the lookup dictionary.
         """
-        iupac_dict = get_gt2iupac()
+        iupac_dict = self.iupac.get_gt2iupac()
 
         gt = iupac_dict.get(genotype)
 
@@ -634,7 +636,7 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             str: Corresponding genotype string for the input IUPAC code. Returns '-9/-9' if the IUPAC code is not in the lookup dictionary.
         """
-        genotype_dict = get_iupac2gt()
+        genotype_dict = self.iupac.get_iupac2gt()
 
         gt = genotype_dict.get(iupac_code)
         if gt is None:
@@ -731,6 +733,27 @@ class GenotypeData(BaseGenotypeData):
         msg = "load_aln method must be implemented in child class."
         self.logger.errog(msg)
         raise NotImplementedError(msg)
+
+    def get_population_indices(self) -> Dict[str, int]:
+        """Create a mapping from population IDs to sample indices.
+
+        This method creates a dictionary with population IDs as keys and lists of sample indices as values. The sample indices are used to subset the genotype data by population.
+
+        Returns:
+            Dict[str, int]: Dictionary with population IDs as keys and lists of sample indices as values.
+        """
+        sample_id_to_index = {
+            sample_id: idx for idx, sample_id in enumerate(self.samples)
+        }
+        pop_indices = {}
+        for pop_id, sample_ids in self.popmap_inverse.items():
+            indices = [
+                sample_id_to_index[sample_id]
+                for sample_id in sample_ids
+                if sample_id in sample_id_to_index
+            ]
+            pop_indices[pop_id] = indices
+        return pop_indices
 
     @property
     def inputs(self) -> Dict[str, Any]:

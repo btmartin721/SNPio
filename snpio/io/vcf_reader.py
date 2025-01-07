@@ -661,8 +661,7 @@ class VCFReader(GenotypeData):
             header_lines = []
             data_lines = []
             with pysam.VariantFile(filepath, "r") as vcf_in:
-                for line in vcf_in.header.records:
-                    header_lines.append(str(line))
+                header_lines.append(str(vcf_in.header))
                 for record in vcf_in:
                     data_lines.append(record)
 
@@ -677,17 +676,17 @@ class VCFReader(GenotypeData):
             ) as temp_vcf:
                 # Write the header lines
                 for line in header_lines:
-                    temp_vcf.write(line + "\n")
+                    temp_vcf.write(line)
 
                 # Write sorted data lines
                 for record in sorted_data_lines:
-                    temp_vcf.write(str(record) + "\n")
+                    temp_vcf.write(str(record))
 
                 temp_vcf_path = Path(temp_vcf.name)
 
             # Bgzip and tabix index the sorted VCF file
             sorted_bgzip_path = sorted_path
-            pysam.bgzip(str(temp_vcf_path), str(sorted_bgzip_path))
+            pysam.tabix_compress(str(temp_vcf_path), str(sorted_bgzip_path), force=True)
             pysam.tabix_index(str(sorted_bgzip_path), preset="vcf", force=True)
 
             # Clean up the temporary uncompressed VCF

@@ -1,26 +1,30 @@
 Example script
 ===============
 
-The ``run_snpio.py`` script provides a template you can use to get started.
-
-Just type:
+The ``run_snpio.py`` script provides a template you can use to get started. It demonstrates how to use the main classes in the package. The script reads a VCF file, a popmap file, and a tree file, and then runs various analyses on the data. The script also demonstrates how to encode genotypes into different formats, filter the data, and parse a tree file. The script is located in the ``snpio`` directory. To run the script, navigate to the ``snpio`` directory and run the following command:
 
 .. code-block:: shell
 
    python3 run_snpio.py
 
-and it will run the example data.
+It will then run the example data.
 
 Below is the code for the script:
 
 .. code-block:: python
 
+   import pprint
+
    import pandas as pd
 
-   from snpio import GenotypeEncoder, NRemover2, Plotting, TreeParser, VCFReader
-
-   # from snpio.utils.benchmarking import Benchmark
-
+   from snpio import (
+      GenotypeEncoder,
+      NRemover2,
+      Plotting,
+      PopGenStatistics,
+      TreeParser,
+      VCFReader,
+   )
 
    def main():
       # Read the alignment, popmap, and tree files.
@@ -28,23 +32,77 @@ Below is the code for the script:
          filename="snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
          popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
          force_popmap=True,  # Remove samples not in the popmap, or vice versa.
-         chunk_size=5000,  # Number of lines to read into memory at a time.
+         chunk_size=5000,
+         exclude_pops=["OG"],
+         plot_format="pdf",
       )
 
-      # Run PCA and make missingness report plots.
+      pgs = PopGenStatistics(gd, verbose=True)
+
+      summary_stats = pgs.summary_statistics(save_plots=True)
+
+      df_fst_outliers, df_fst_outlier_pvalues = pgs.detect_fst_outliers(
+         correction_method="bonf", use_bootstrap=False
+      )
+
+      # NOTE: Takes a while to run.
+      # Run AMOVA with the regionmap and other parameters.
+      # The regionmap is a dictionary that maps populations to regions/ groups.
+      amova_results = pgs.amova(
+         regionmap={
+               "EA": "Eastern",
+               "GU": "Eastern",
+               "TT": "Eastern",
+               "TC": "Eastern",
+               "ON": "Ornate",
+               "DS": "Ornate",
+         },
+         n_bootstraps=10,
+         n_jobs=8,
+         random_seed=42,
+      )
+
+      print(summary_stats)
+      print(amova_results)
+      print(df_fst_outliers.head())
+      print(df_fst_outlier_pvalues.head())
+
+      nei_dist_df = pgs.neis_genetic_distance()
+
+      print(nei_dist_df)
+
+      taj_d = pgs.tajimas_d()
+
+      print(taj_d)
+
+      dstats_df, overall_results = pgs.calculate_d_statistics(
+         method="patterson",
+         population1="EA",
+         population2="GU",
+         population3="TT",
+         outgroup="ON",
+         num_bootstraps=10,
+         n_jobs=10,
+         max_individuals_per_pop=6,
+      )
+
+      print(dstats_df.head())
+      pprint.pprint(overall_results, indent=4)
+
+      # # Run PCA and make missingness report plots.
       plotting = Plotting(genotype_data=gd)
       gd_components, gd_pca = plotting.run_pca()
       gd.missingness_reports()
 
       nrm = NRemover2(gd)
 
-      # nrm.search_thresholds(
-      #     thresholds=[0.25, 0.5, 0.75, 1.0],
-      #     maf_thresholds=[0.0, 0.01, 0.025, 0.05],
-      #     mac_thresholds=[2, 5],
-      # )
+      nrm.search_thresholds(
+         thresholds=[0.25, 0.5, 0.75, 1.0],
+         maf_thresholds=[0.0],
+         mac_thresholds=[2, 5],
+      )
 
-      # # Plot benchmarking results.
+      # Plot benchmarking results.
       # NOTE: For development purposes. Comment out for normal use.
       # Benchmark.plot_performance(nrm.genotype_data, nrm.genotype_data.resource_data)
 
@@ -61,15 +119,15 @@ Below is the code for the script:
 
       nrm.plot_sankey_filtering_report()
 
-      # Make missingness report plots.
+      # # Make missingness report plots.
       plotting2 = Plotting(genotype_data=gd_filt)
       filt_components, filt_pca = plotting2.run_pca()
       gd_filt.missingness_reports(prefix="filtered")
 
-      # Write the filtered VCF file.
+      # # Write the filtered VCF file.
       gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
 
-      # Encode the genotypes into 012, one-hot, and integer formats.
+      # # Encode the genotypes into 012, one-hot, and integer formats.
       ge = GenotypeEncoder(gd_filt)
       gt_012 = ge.genotypes_012
       gt_onehot = ge.genotypes_onehot
@@ -91,36 +149,37 @@ Below is the code for the script:
          debug=False,
       )
 
-      # Get a toytree object by reading the tree file.
+      # # Get a toytree object by reading the tree file.
       tree = tp.read_tree()
 
-      # Get the tree stats. Returns a dictionary of tree stats.
+      # # Get the tree stats. Returns a dictionary of tree stats.
       print(tp.tree_stats())
 
-      # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
+      # # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
       tp.reroot_tree("~EA")
 
-      # Get a distance matrix between all nodes in the tree.
+      # # Get a distance matrix between all nodes in the tree.
       print(tp.get_distance_matrix())
 
-      # Get the Rate Matrix Q from the Qmatrix file.
+      # # Get the Rate Matrix Q from the Qmatrix file.
       print(tp.qmat)
 
-      # Get the Site Rates from the Site Rates file.
+      # # Get the Site Rates from the Site Rates file.
       print(tp.site_rates)
 
-      # Get a subtree with only the samples containing 'EA' in the sampleID.
+      # # Get a subtree with only the samples containing 'EA' in the sampleID.
       subtree = tp.get_subtree("~EA")
 
-      # Prune the tree to remove samples containing 'ON' in the sampleID.
+      # # Prune the tree to remove samples containing 'ON' in the sampleID.
       pruned_tree = tp.prune_tree("~ON")
 
-      # Write the subtree and pruned tree. Returns a Newick string if 'save_path'
-      # is None.
+      # Write the subtree and pruned tree. Returns a Newick string if
+      # 'save_path' is None.
       print(tp.write_tree(subtree, save_path=None))
       print(tp.write_tree(pruned_tree, save_path=None))
 
 
    if __name__ == "__main__":
       main()
+
 

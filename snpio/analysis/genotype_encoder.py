@@ -1,3 +1,4 @@
+from logging import Logger
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -6,6 +7,7 @@ import pandas as pd
 
 from snpio.utils import misc, sequence_tools
 from snpio.utils.logging import LoggerManager
+from snpio.utils.misc import IUPAC
 
 
 class GenotypeEncoder:
@@ -62,12 +64,14 @@ class GenotypeEncoder:
         debug = genotype_data.debug
         self.filetype = "encoded"
 
-        self.missing_vals = ["N", "-", ".", "?"]
-        self.replace_vals = ["-9"] * len(self.missing_vals)
+        self.missing_vals: List[str] = ["N", "-", ".", "?"]
+        self.replace_vals: List[str] = ["-9"] * len(self.missing_vals)
 
-        kwargs = {"verbose": self.verbose, "debug": debug}
+        kwargs: Dict[str, bool] = {"verbose": self.verbose, "debug": debug}
         logman = LoggerManager(__name__, prefix=self.prefix, **kwargs)
-        self.logger = logman.get_logger()
+        self.logger: Logger = logman.get_logger()
+
+        self.iupac = IUPAC(logger=self.logger)
 
     def read_012(self) -> None:
         """Read 012-encoded comma-delimited file.
@@ -300,7 +304,7 @@ class GenotypeEncoder:
         """
 
         if encodings_dict is None:
-            onehot_dict = misc.get_onehot_dict()
+            onehot_dict = self.iupac.onehot_dict
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
@@ -343,7 +347,7 @@ class GenotypeEncoder:
         """
 
         onehot_dict = (
-            misc.get_onehot_dict() if encodings_dict is None else encodings_dict
+            self.iupac.onehot_dict if encodings_dict is None else encodings_dict
         )
 
         # Create inverse dictionary (from list to key)
@@ -389,7 +393,7 @@ class GenotypeEncoder:
         """
 
         if encodings_dict is None:
-            int_iupac_dict = misc.get_int_iupac_dict()
+            int_iupac_dict = self.iupac.int_iupac_dict
         else:
             if isinstance(snp_data, np.ndarray):
                 snp_data = snp_data.tolist()
@@ -434,7 +438,7 @@ class GenotypeEncoder:
         """
 
         int_encodings_dict = (
-            misc.get_int_iupac_dict() if encodings_dict is None else encodings_dict
+            self.iupac.int_iupac_dict if encodings_dict is None else encodings_dict
         )
 
         # Create inverse dictionary (from integer to key)
@@ -456,7 +460,7 @@ class GenotypeEncoder:
 
     def decode_012(
         self,
-        X: Union[np.ndarray, pd.DataFrame, List[List[int]]],
+        X: np.ndarray | pd.DataFrame | List[List[int]],
         write_output: bool = True,
         is_nuc: bool = False,
     ):
@@ -465,22 +469,16 @@ class GenotypeEncoder:
         This method decodes 012-encoded or 0-9 integer-encoded imputed data to IUPAC format. The decoded data can be saved to a file or returned as a DataFrame.
 
         Args:
-            X (pandas.DataFrame, numpy.ndarray, or List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
+            X (pandas.DataFrame | numpy.ndarray | List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
 
-            write_output (bool, optional): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
+            write_output (bool): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
 
-            is_nuc (bool, optional): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
+            is_nuc (bool): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
 
         Returns:
-            str or pandas.DataFrame: If write_output is True, returns the filename where the imputed data was written. If write_output is False, returns the decoded data as a DataFrame.
-
-        TODO:
-            - Check if VAE still uses IUPAC encodings.
+            str | pandas.DataFrame: If write_output is True, returns the filename where the imputed data was written. If write_output is False, returns the decoded data as a DataFrame.
         """
-        if isinstance(X, pd.DataFrame):
-            df = X.copy()
-        elif isinstance(X, (np.ndarray, list)):
-            df = pd.DataFrame(X)
+        df = misc.validate_input_type(X, return_type="df")
 
         nuc = {
             "A/A": "A",
@@ -511,9 +509,6 @@ class GenotypeEncoder:
         df_decoded = df.copy()
         df_decoded = df.copy().astype(object)
 
-        # TODO: Check if VAE still uses IUPAC encodings.
-        # VAE uses [A,T,G,C] encodings. The other NN methods use
-        # [0,1,2] encodings.
         if is_nuc:
             classes_int = range(10)
             classes_string = [str(x) for x in classes_int]
@@ -643,13 +638,11 @@ class GenotypeEncoder:
 
         if write_output:
             return of
-        return df_decoded.values.tolist()
+        return df_decoded.to_numpy()
 
     @property
-    def genotypes_012(
-        self,
-    ) -> Union[List[List[int]], np.ndarray, pd.DataFrame]:
-        """Encoded 012 genotypes as a 2D list, numpy array, or pandas DataFrame.
+    def genotypes_012(self) -> np.ndarray:
+        """Encode 012 genotypes as a numpy array.
 
         This method encodes genotypes as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles. The encoded genotypes are returned as a 2D list, numpy array, or pandas DataFrame.
 
@@ -664,17 +657,20 @@ class GenotypeEncoder:
             [["0", "1", "2"], ["0", "1", "2"], ["0", "1", "2"]]
         """
         g012 = self.convert_012(self.snp_data)
+        g012 = misc.validate_input_type(g012, return_type="array")
         self.logger.debug(f"Genotypes 012: {g012}")
         return g012
 
     @genotypes_012.setter
-    def genotypes_012(self, value: np.ndarray) -> None:
+    def genotypes_012(
+        self, value: Union[np.ndarray, pd.DataFrame, List[List[int]]]
+    ) -> None:
         """Set the 012 genotypes. They will be decoded back to a 2D list of genotypes as ``snp_data`` object.
 
         012-encoded genotypes are returned as a 2D numpy array of shape (n_samples, n_sites). The encoding is as follows: 0=reference, 1=heterozygous, 2=alternate allele.
 
         Args:
-            value (np.ndarray): 2D numpy array with 012-encoded genotypes.
+            value (np.ndarray | pd.DataFrame | List[List[int]]): 2D numpy array with 012-encoded genotypes.
         """
         self.snp_data = self.decode_012(value, write_output=False)
         self.logger.debug(f"Decoded 012 genotypes: {self.snp_data}")
@@ -689,6 +685,8 @@ class GenotypeEncoder:
             numpy.ndarray: One-hot encoded numpy array of shape (n_samples, n_loci, 4).
         """
         gohe = self.convert_onehot(self.snp_data)
+        gohe = misc.validate_input_type(gohe, return_type="array")
+
         self.logger.debug(f"Genotypes one-hot encoded: {gohe}")
         return gohe
 
@@ -706,17 +704,7 @@ class GenotypeEncoder:
         Raises:
             TypeError: If `value` is not of type pd.DataFrame, np.ndarray, or list.
         """
-        if isinstance(value, pd.DataFrame):
-            X = value.to_numpy()
-        elif isinstance(value, list):
-            X = np.array(value)
-        elif isinstance(value, np.ndarray):
-            X = value
-        else:
-            msg = f"genotypes_onehot must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
+        X = misc.validate_input_type(value, return_type="array")
         Xt = self.inverse_onehot(X)
         self.snp_data = Xt
         self.logger.debug(f"Decoded one-hot genotypes: {Xt}")
@@ -731,6 +719,7 @@ class GenotypeEncoder:
             numpy.ndarray: 2D array of shape (n_samples, n_sites), integer-encoded from 0-9 with IUPAC characters.
         """
         gint = self.convert_int_iupac(self.snp_data)
+        gint = misc.validate_input_type(gint, return_type="array")
         self.logger.debug(f"Genotypes integer-encoded: {gint}")
         return gint
 
@@ -742,17 +731,7 @@ class GenotypeEncoder:
 
         Integer-encoded genotypes are returned as a 2D numpy array of shape (n_samples, n_sites). The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9. Missing values are encoded as -9.
         """
-        if isinstance(value, pd.DataFrame):
-            X = value.to_numpy()
-        elif isinstance(value, list):
-            X = np.array(value)
-        elif isinstance(value, np.ndarray):
-            X = value
-        else:
-            msg = f"genotypes_int must be of type pd.DataFrame, np.ndarray, or list, but got {type(value)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
+        X = misc.validate_input_type(value, return_type="array")
         Xt = self.inverse_int_iupac(X)
         self.snp_data = Xt
         self.logger.debug(f"Decoded integer-encoded genotypes: {Xt}")

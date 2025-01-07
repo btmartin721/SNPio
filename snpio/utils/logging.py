@@ -87,6 +87,7 @@ class LoggerManager:
         """
         self.name = name
         self.logger = logging.getLogger(name)
+        self.verbose = verbose
 
         # Set default log level to INFO
         self.logger.setLevel(logging.INFO)
@@ -146,13 +147,47 @@ class LoggerManager:
         """
         return self.logger
 
-    def set_level(self, level: int) -> None:
+    def set_level(self, level: str) -> None:
         """Sets the logging level.
 
         Args:
-            level (int): The new logging level.
+            level (str): The new logging level.
         """
-        self.logger.setLevel(level)
+        loglevel: int = logging.NOTSET
+
+        if self.verbose:
+            if level == "DEBUG":
+                loglevel = logging.DEBUG
+            elif level == "INFO":
+                loglevel = logging.INFO
+            elif level == "WARNING":
+                loglevel = logging.WARNING
+            elif level == "ERROR":
+                loglevel = logging.ERROR
+            elif level == "CRITICAL":
+                loglevel = logging.CRITICAL
+            else:
+                raise ValueError(
+                    "Invalid logging level. Choose from DEBUG, INFO, WARNING, ERROR, CRITICAL."
+                )
+
+        else:
+            if level == "DEBUG":
+                loglevel = logging.DEBUG
+            elif level == "INFO":
+                loglevel = logging.ERROR
+            elif level == "WARNING":
+                loglevel = logging.ERROR
+            elif level == "ERROR":
+                loglevel = logging.ERROR
+            elif level == "CRITICAL":
+                loglevel = logging.CRITICAL
+            else:
+                raise ValueError(
+                    "Invalid logging level. Choose from DEBUG, INFO, WARNING, ERROR, CRITICAL."
+                )
+
+        self.logger.setLevel(loglevel)
 
     def add_handler(self, handler: logging.Handler) -> None:
         """Adds a logging handler if it's not already added.
