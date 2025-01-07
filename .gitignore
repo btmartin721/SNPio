@@ -174,3 +174,4 @@ keybindings.json
 tasks.json
 
 MAS_*
+.venv*
