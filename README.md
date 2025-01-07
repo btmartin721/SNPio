@@ -4,7 +4,7 @@
 
 This guide provides an overview of how to get started with the SNPio library. It covers the basic steps to read, manipulate, and analyze genotype data using the `VCFReader`, `PhylipReader`, `StructureReader`, `NRemover2`, and `PopGenStatistics` classes. SNPio is designed to simplify the process of handling genotype data and preparing it for downstream analysis, such as population genetics, phylogenetics, and machine learning. The library supports various file formats, including VCF, PHYLIP, and STRUCTURE, and provides tools for filtering, encoding, visualizing, and analyzing genotype data.
 
-**NOTE:** This README file gives basic example usage for SNPio. However, for a full usage tutorial, please refer to the official ![ReadTheDocs Documentation](https://snpio.readthedocs.io/en/stable/)
+**NOTE:** This README file gives basic example usage for SNPio. However, for a full usage tutorial, please refer to the official [ReadTheDocs Documentation](https://snpio.readthedocs.io/en/stable/)
 
 ## Installation
 
