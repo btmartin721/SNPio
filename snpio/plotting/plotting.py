@@ -198,7 +198,7 @@ class Plotting:
 
         self.maf_filter_methods: List[str] = ["filter_maf", "filter_mac"]
 
-        mpl_params = {
+        self.mpl_params = {
             "xtick.labelsize": self.plot_fontsize,
             "ytick.labelsize": self.plot_fontsize,
             "legend.fontsize": self.plot_fontsize,
@@ -208,14 +208,6 @@ class Plotting:
             "figure.facecolor": "white",
             "figure.dpi": self.dpi,
             "font.size": self.plot_fontsize,
-            "font.family": "sans-serif",
-            "font.sans-serif": [
-                "Helvetica",
-                "Verdana",
-                "Arial",
-                "DejaVu Sans",
-                "sans-serif",
-            ],
             "axes.titlesize": self.plot_title_fontsize,
             "axes.labelsize": self.plot_fontsize,
             "axes.grid": False,
@@ -229,9 +221,11 @@ class Plotting:
             "savefig.facecolor": "white",
             "savefig.dpi": self.dpi,
             "savefig.bbox": "tight",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
         }
 
-        mpl.rcParams.update(mpl_params)
+        mpl.rcParams.update(self.mpl_params)
 
     def _get_attribute_value(self, attr: str) -> Any:
         """Determine the value for an attribute based on the provided argument,
@@ -303,15 +297,20 @@ class Plotting:
                 sampled_smoothed_stats[stat],
                 label=stat,
                 color=color,
-                linewidth=2,
+                linewidth=1.5,
             )
 
         # Labeling and grid improvements
-        ax.set_xlabel("Locus", fontsize=12)
-        ax.set_ylabel("Value", fontsize=12)
-        ax.set_title("Summary Statistics per Locus (Overall)", fontsize=14)
-        ax.legend(title="Statistics", loc="upper right", fontsize=10)
-        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.set_xlabel("Locus")
+        ax.set_ylabel("Value")
+        ax.set_title("Summary Statistics per Locus (Overall)")
+        ax.legend(
+            title="Statistics",
+            loc="upper left",
+            bbox_to_anchor=(1, 1.02),
+            fancybox=True,
+            shadow=True,
+        )
         plt.tight_layout()
 
     def _plot_summary_statistics_per_population(
@@ -374,6 +373,10 @@ class Plotting:
         ax.set_xlabel("Population")
         ax.set_ylabel("Mean Value")
         ax.set_title("Mean Summary Statistics per Population")
+        ax.set_xticks(ax.get_xticks())
+        ax.set_xticklabels(
+            ax.get_xticklabels(), rotation=45, ha="right", rotation_mode="anchor"
+        )
         ax.legend(title="Statistics", loc="best", bbox_to_anchor=(1.04, 1))
 
     def _plot_summary_statistics_per_sample_grid(
@@ -391,7 +394,7 @@ class Plotting:
         g.map_lower(sns.kdeplot, cmap="Blues", fill=True, alpha=0.5)
         g.map_diag(sns.kdeplot, lw=2, color="darkblue", fill=True)
 
-        g.figure.suptitle("Summary Statistics per Locus", y=1.02, fontsize=16)
+        g.figure.suptitle("Summary Statistics per Locus", y=1.02)
         of: str = f"summary_statistics_per_locus.{self.plot_format}"
         g.savefig(self.output_dir_analysis / of)
 
@@ -473,14 +476,36 @@ class Plotting:
         """
 
         # Calculate mean Fst and 95% CI for each population pair
-        fst_stats = {
-            pop_pair: (
-                fst_series.mean(),
-                fst_series.mean() - 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
-                fst_series.mean() + 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
-            )
-            for pop_pair, fst_series in fst_between_pops.items()
-        }
+        if isinstance(fst_between_pops.values(), pd.Series):
+            # values are Series of Fst values of shape (n_loci,)
+            fst_stats = {
+                pop_pair: (
+                    fst_series.mean(),
+                    fst_series.mean()
+                    - 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
+                    fst_series.mean()
+                    + 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
+                )
+                for pop_pair, fst_series in fst_between_pops.items()
+            }
+        else:  # numpy array of shape (n_loci, n_bootstraps)
+            fst_stats = {
+                pop_pair: (
+                    np.nanmean(
+                        bootstrap_means
+                    ),  # Mean of the bootstrap means ignoring NaNs
+                    np.nanpercentile(
+                        bootstrap_means, 2.5
+                    ),  # Lower 95% CI bound ignoring NaNs
+                    np.nanpercentile(
+                        bootstrap_means, 97.5
+                    ),  # Upper 95% CI bound ignoring NaNs
+                )
+                for pop_pair, fst_array in fst_between_pops.items()
+                for bootstrap_means in [
+                    np.nanmean(fst_array, axis=0)
+                ]  # Mean across loci for each bootstrap replicate
+            }
 
         # Extract unique population names and initialize an empty Fst matrix
         populations = sorted({pop for pair in fst_stats.keys() for pop in pair})
@@ -494,10 +519,10 @@ class Plotting:
             fst_matrix.loc[pop1, pop2] = mean_fst
             fst_matrix.loc[pop2, pop1] = mean_fst
             annotation_matrix.loc[pop1, pop2] = (
-                f"{mean_fst:.3f}\n[{lower_ci:.3f}, {upper_ci:.3f}]"
+                f"{mean_fst:.2f}\n[{lower_ci:.2f}, {upper_ci:.2f}]"
             )
             annotation_matrix.loc[pop2, pop1] = (
-                f"{mean_fst:.3f}\n[{lower_ci:.3f}, {upper_ci:.3f}]"
+                f"{mean_fst:.2f}\n[{lower_ci:.2f}, {upper_ci:.2f}]"
             )
 
         # Calculate the mean Fst for sorting across rows and columns
@@ -514,21 +539,32 @@ class Plotting:
         mask = np.triu(np.ones_like(fst_matrix, dtype=bool))
 
         # Plot the heatmap
-        plt.figure(figsize=(16, 16))
-        sns.heatmap(
+        plt.figure(figsize=(48, 48))
+        ax = sns.heatmap(
             fst_matrix,
             annot=annotation_matrix,  # Use custom annotations for mean ± CI
+            annot_kws={"fontsize": 38},
             fmt="",  # String format for annotations
-            cmap="coolwarm",
+            cmap="magma",
             mask=mask,  # Mask upper triangle
-            cbar_kws={"label": "Mean Fst Value"},
             linewidths=0,
+            vmin=0,
+            cbar=True,
+            square=True,
         )
 
+        # Reverse the X-axis to ensure proper alignment
+        ax.invert_xaxis()  # Reverse X-axis
+
         # Add title and adjust labels
-        plt.title("Mean Fst Between Populations (95% CI)")
-        plt.xticks(rotation=45, ha="right")
-        plt.yticks(rotation=0)
+        ax.set_title("Mean Fst Between Populations (95% CI)", fontsize=72)
+        ax.set_xticks(ax.get_xticks())
+        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right", fontsize=72)
+        ax.set_yticks(ax.get_yticks())
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=72)
+        cbar = ax.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=72)
+        cbar.set_label("Mean Fst", fontsize=72)
 
         # Save the plot
         of: str = f"fst_between_populations_heatmap.{self.plot_format}"
@@ -555,33 +591,11 @@ class Plotting:
         df = df.copy()
 
         sns.set_theme(style="white")
-        mpl.rcParams["axes.spines.top"] = False
-        mpl.rcParams["axes.spines.right"] = False
-        mpl.rcParams["axes.spines.left"] = True
-        mpl.rcParams["axes.spines.bottom"] = True
-        mpl.rcParams["axes.grid"] = False
-        mpl.rcParams["axes.edgecolor"] = "black"
-        mpl.rcParams["axes.facecolor"] = "white"
-        mpl.rcParams["axes.titlesize"] = self.plot_title_fontsize
-        mpl.rcParams["axes.labelsize"] = self.plot_fontsize
-        mpl.rcParams["savefig.facecolor"] = "white"
-        mpl.rcParams["savefig.dpi"] = self.dpi
-        mpl.rcParams["savefig.bbox"] = "tight"
-        mpl.rcParams["xtick.labelsize"] = self.plot_fontsize
-        mpl.rcParams["ytick.labelsize"] = self.plot_fontsize
-        mpl.rcParams["legend.fontsize"] = self.plot_fontsize
-        mpl.rcParams["legend.fancybox"] = True
-        mpl.rcParams["legend.shadow"] = True
-        mpl.rcParams["figure.titlesize"] = self.plot_title_fontsize
-        mpl.rcParams["font.size"] = self.plot_fontsize
-        mpl.rcParams["font.family"] = "sans-serif"
-        mpl.rcParams["font.sans-serif"] = [
-            "Helvetica",
-            "Verdana",
-            "Arial",
-            "DejaVu Sans",
-            "sans-serif",
-        ]
+
+        # NOTE: Not sure why I re-updated it here.
+        # TODO: Check if this is necessary.
+        # Update Matplotlib parameters
+        mpl.rcParams.update(self.mpl_params)
 
         # 1. Bar Plot of Significant D-Statistic Counts (Raw, Bonferroni,
         # FDR-BH)
