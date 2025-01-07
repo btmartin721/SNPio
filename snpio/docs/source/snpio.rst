@@ -7,6 +7,7 @@ Subpackages
 .. toctree::
    :maxdepth: 2
 
+
    snpio.filtering
    snpio.plotting
    snpio.io
