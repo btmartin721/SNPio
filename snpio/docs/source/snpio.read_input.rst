@@ -30,4 +30,5 @@ Module contents
 
 .. automodule:: snpio.read_input
    :members:
+   :no-index:
    :show-inheritance:
