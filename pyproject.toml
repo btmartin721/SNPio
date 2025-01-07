@@ -72,8 +72,8 @@ dependencies = [
 [project.urls]
 "Source Code" = "https://github.com/btmartin721/SNPio"
 "Bug Tracker" = "https://github.com/btmartin721/SNPio/issues"
-"Documentation" = "https://snpio.readthedocs.io/en/stable/"
-"Changelog" = "https://snpio.readthedocs.io/en/stable/changelog.html"
+"Documentation" = "https://snpio.readthedocs.io/en/latest/"
+"Changelog" = "https://snpio.readthedocs.io/en/latest/changelog.html"
 
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
