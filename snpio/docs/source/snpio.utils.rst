@@ -18,6 +18,26 @@ snpio.utils.sequence_tools module
    :members:
    :show-inheritance:
 
+snpio.utils.custom_exceptions module
+------------------------------------
+
+.. automodule:: snpio.utils.custom_exceptions
+   :members:
+   :show-inheritance:
+
+snpio.utils.benchmarking module
+-------------------------------
+
+.. automodule:: snpio.utils.benchmarking
+   :members:
+   :show-inheritance:
+
+snpio.utils.logging module
+
+.. automodule:: snpio.utils.logging
+   :members:
+   :show-inheritance:
+
 Module contents
 ---------------
 
