@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
 from snpio import GenotypeEncoder, Plotting
+from snpio.popgenstats.amova import AMOVA
 from snpio.popgenstats.d_statistics import DStatistics
 from snpio.utils.logging import LoggerManager
 
@@ -67,7 +68,7 @@ class PopGenStatistics:
         )
 
         self.encoder = GenotypeEncoder(self.genotype_data)
-        self.alignment_012: np.ndarray = self.encoder.genotypes_012
+        self.alignment_012: np.ndarray = self.encoder.genotypes_012.astype(np.float64)
 
     def calculate_d_statistics(
         self,
@@ -494,7 +495,7 @@ class PopGenStatistics:
         fst_mean_df = pd.DataFrame(fst_means)
         fst_std_df = pd.DataFrame(fst_stds)
 
-        # Optionally, add SNP identifiers as index if available
+        # Add SNP identifiers as index
         fst_mean_df.index = np.arange(len(fst_mean_df))
         fst_std_df.index = fst_mean_df.index
 
@@ -669,97 +670,106 @@ class PopGenStatistics:
 
         return eps
 
-    def observed_heterozygosity(self):
+    def observed_heterozygosity(self) -> np.ndarray:
         """Calculate observed heterozygosity (Ho) for each locus.
 
-        This method calculates observed heterozygosity (Ho) for each locus in the SNP data. Ho is defined as the proportion of heterozygous individuals at a given locus.
+        Observed heterozygosity (Ho) is defined as the proportion of heterozygous individuals at a given locus.
 
         Returns:
-            pd.Series: A pandas Series containing the observed heterozygosity values.
+            np.ndarray: An array containing observed heterozygosity values for each locus.
         """
-        alignment = self.alignment_012.astype(float).copy()
-        alignment[alignment == -9] = np.nan  # Replace missing data with NaN
-
-        # Number of non-missing individuals per locus
-        n_individuals = np.sum(~np.isnan(alignment), axis=0)
-
-        ho = (alignment == 1).sum(axis=0) / n_individuals
+        alignment, n_individuals = self._prepare_alignment_and_individuals()
+        ho = self._calculate_heterozygosity(alignment, n_individuals, observed=True)
         return ho
 
-    def expected_heterozygosity(self):
+    def expected_heterozygosity(self) -> np.ndarray:
         """Calculate expected heterozygosity (He) for each locus.
 
-        This method calculates expected heterozygosity (He) for each locus in the SNP data. He is defined as the expected proportion of heterozygous individuals at a given locus under Hardy-Weinberg equilibrium.
+        Expected heterozygosity (He) is the expected proportion of heterozygous individuals under Hardy-Weinberg equilibrium.
 
         Returns:
-            pd.Series: A pandas Series containing the expected heterozygosity values.
+            np.ndarray: An array containing expected heterozygosity values for each locus.
         """
-        alignment = self.alignment_012.astype(float).copy()
-        alignment[alignment == -9] = np.nan  # Replace missing data with NaN
-
-        # Number of non-missing individuals per locus
-        n_individuals = np.sum(~np.isnan(alignment), axis=0)
-
-        # Sum of alternate alleles at each locus
-        alt_allele_counts = np.nansum(alignment, axis=0)
-        total_alleles = 2 * n_individuals  # Since diploidy
-
-        # Frequency of the alternate allele (p)
-        p = alt_allele_counts / total_alleles
-
-        # Frequency of the reference allele (q)
-        q = 1 - p
-
-        # Expected heterozygosity (He = 2pq)
-        he = 2 * p * q
-
+        alignment, n_individuals = self._prepare_alignment_and_individuals()
+        he = self._calculate_heterozygosity(alignment, n_individuals, observed=False)
         return he
 
-    def nucleotide_diversity(self):
-        """Calculate nucleotide diversity (Pi) for each locus.
-
-        This method calculates nucleotide diversity (Pi) for each locus in the SNP data. Pi is defined as the average number of nucleotide differences per site between two sequences.
+    def _prepare_alignment_and_individuals(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Prepare alignment and count non-missing individuals per locus.
 
         Returns:
-            pd.Series: A pandas Series containing the nucleotide diversity values.
+            Tuple[np.ndarray, np.ndarray]: Alignment array and counts of non-missing individuals per locus.
         """
         alignment = self.alignment_012.astype(float).copy()
-        alignment[alignment == -9] = np.nan  # Replace missing data with NaN
 
-        # Number of non-missing individuals per locus
-        n = np.sum(~np.isnan(alignment), axis=0)
-        he = self.expected_heterozygosity()
+        # Replace missing data (-9) with NaN
+        alignment[alignment == -9] = np.nan
 
-        with np.errstate(divide="ignore", invalid="ignore"):
-            pi = (n / (n - 1)) * he  # Bias correction for sample size
-            pi[n <= 1] = np.nan  # Handle where n <= 1; avoid division by zero
+        # Count valid individuals per locus
+        n_individuals = np.sum(~np.isnan(alignment), axis=0)
+        return alignment, n_individuals
 
-        return pi
+    def _calculate_heterozygosity(
+        self, alignment: np.ndarray, n_individuals: np.ndarray, observed: bool
+    ) -> np.ndarray:
+        """Calculate heterozygosity (Ho or He) for each locus.
 
-    def wrights_fst(self):
-        """Calculate Wright's fixation index (Fst) for each locus.
-
-        This method calculates Wright's fixation index (Fst) for each locus in the SNP data. Fst is a measure of population differentiation due to genetic structure. Fst values range from 0 to 1, where 0 indicates no genetic differentiation and 1 indicates complete differentiation.
+        Args:
+            alignment (np.ndarray): The alignment array.
+            n_individuals (np.ndarray): Number of non-missing individuals per locus.
+            observed (bool): If True, calculate observed heterozygosity (Ho); otherwise, expected heterozygosity (He).
 
         Returns:
-            pd.Series: A pandas Series containing the Fst values.
+            np.ndarray: Heterozygosity values for each locus.
         """
-        ho = self.observed_heterozygosity()
+        if observed:
+            # Calculate observed heterozygosity
+            heterozygous_counts = np.sum(alignment == 1, axis=0)
+            ho = np.divide(heterozygous_counts, n_individuals, where=n_individuals > 0)
+            ho[n_individuals == 0] = np.nan  # Handle loci with no valid data
+            return ho
+        else:
+            # Calculate expected heterozygosity
+            alt_allele_counts = np.nansum(alignment, axis=0, dtype=np.float64)
+            total_alleles = 2 * n_individuals  # Assuming diploid organisms
+            with np.errstate(divide="ignore", invalid="ignore"):
+                # Frequency of alternate alleles
+                p = np.divide(alt_allele_counts, total_alleles, where=total_alleles > 0)
+                q = 1 - p
+                he = 2 * p * q  # He = 2pq
+
+                # Handle loci with no valid data
+                he[total_alleles == 0] = np.nan
+            return he
+
+    def nucleotide_diversity(self) -> np.ndarray:
+        """Calculate nucleotide diversity (Pi) for each locus.
+
+        Nucleotide diversity (Pi) is the average number of nucleotide differences per site between two sequences.
+
+        Notes:
+            A bias correction is applied in the calculation.
+
+        Returns:
+            np.ndarray: An array containing nucleotide diversity values for each locus.
+        """
+        _, n_individuals = self._prepare_alignment_and_individuals()
         he = self.expected_heterozygosity()
 
-        # Avoid division by zero
-        with np.errstate(divide="ignore", invalid="ignore"):
-            fst = (he - ho) / he
-            fst[he == 0] = np.nan  # Set Fst to NaN where He is zero
+        # Calculate nucleotide diversity
+        pi = np.full_like(he, np.nan, dtype=float)
+        valid = n_individuals > 1  # Need at least 2 individuals for diversity
+        pi[valid] = he[valid] * n_individuals[valid] / (n_individuals[valid] - 1)
+        return pi
 
-        return fst
-
-    def summary_statistics(self, save_plots: bool = True):
+    def summary_statistics(self, n_bootstraps=0, n_jobs=1, save_plots: bool = True):
         """Calculate a suite of summary statistics for SNP data.
 
         This method calculates a suite of summary statistics for SNP data, including observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and Fst between populations. Summary statistics are calculated both overall and per population.
 
         Args:
+            n_bootstraps (int): Number of bootstrap replicates to use for estimating variance of Fst per SNP. If 0, then bootstrapping is not used and confidence intervals are estimated from the data. Defaults to 0.
+            n_jobs (int): Number of parallel jobs. If set to -1, all available CPU threads are used. Defaults to 1.
             save_plots (bool): Whether to save plots of the summary statistics. In any case, a dictionary of summary statistics is returned. Defaults to True.
 
         Returns:
@@ -794,7 +804,9 @@ class PopGenStatistics:
             )
 
         # Fst between populations
-        fst_between_pops = self.weir_cockerham_fst_between_populations()
+        fst_between_pops = self.weir_cockerham_fst_between_populations(
+            n_bootstraps=n_bootstraps, n_jobs=n_jobs
+        )
         summary_stats["Fst_between_populations"] = fst_between_pops
 
         if save_plots:
@@ -806,8 +818,6 @@ class PopGenStatistics:
 
     def observed_heterozygosity_per_population(self):
         """Calculate observed heterozygosity (Ho) for each locus per population.
-
-        This method calculates observed heterozygosity (Ho) for each locus in the SNP data per population. Ho is defined as the proportion of heterozygous individuals at a given locus within a population.
 
         Returns:
             dict: A dictionary where keys are population IDs and values are pandas Series containing the observed heterozygosity values per locus for that population.
@@ -824,28 +834,28 @@ class PopGenStatistics:
 
             # Number of non-missing individuals per locus
             n_individuals = np.sum(~np.isnan(pop_alignment), axis=0)
-
-            # Number of heterozygotes per locus
             num_heterozygotes = np.nansum(pop_alignment == 1, axis=0)
 
-            with np.errstate(divide="ignore", invalid="ignore"):
-                ho = num_heterozygotes / n_individuals
+            # Calculate Ho
+            ho = np.full(pop_alignment.shape[1], np.nan, dtype=np.float64)
+            valid = n_individuals > 0
+            ho[valid] = num_heterozygotes[valid] / n_individuals[valid]
 
-            ho_per_population[pop_id] = pd.Series(ho)
+            # Store results as a pandas Series with locus indices
+            ho_per_population[pop_id] = pd.Series(
+                ho, index=np.arange(pop_alignment.shape[1]), name="Ho"
+            )
 
         return ho_per_population
 
     def expected_heterozygosity_per_population(self, return_n: bool = False):
         """Calculate expected heterozygosity (He) for each locus per population.
 
-        This method calculates expected heterozygosity (He) for each locus in the SNP data per population. He is defined as the expected proportion of heterozygous individuals at a given locus under Hardy-Weinberg equilibrium.
-
         Args:
             return_n (bool): If True, also return the number of non-missing individuals per locus.
 
         Returns:
-            dict: A dictionary where keys are population IDs and values are pandas Series containing the expected heterozygosity values per locus for that population.
-            If return_n is True, returns a tuple (he, n_individuals) per population.
+            dict: A dictionary where keys are population IDs and values are pandas Series containing the expected heterozygosity values per locus for that population. If return_n is True, returns a tuple (he, n_individuals) per population.
         """
         pop_indices = self.genotype_data.get_population_indices()
         he_per_population = {}
@@ -859,32 +869,33 @@ class PopGenStatistics:
 
             # Number of non-missing individuals per locus
             n_individuals = np.sum(~np.isnan(pop_alignment), axis=0)
-            total_alleles = 2 * n_individuals  # Adjust for missing data
+            total_alleles = 2 * n_individuals
 
-            # Sum of alternate alleles at each locus
-            alt_allele_counts = np.nansum(pop_alignment, axis=0)
-
-            with np.errstate(divide="ignore", invalid="ignore"):
-                # Frequency of the alternate allele (p)
-                p = alt_allele_counts / total_alleles
-
-            # Frequency of the reference allele (q)
+            # Frequency of alternate allele (p)
+            alt_allele_counts = np.nansum(pop_alignment, axis=0, dtype=np.float64)
+            p = np.zeros_like(alt_allele_counts, dtype=float)
+            valid = total_alleles > 0
+            p[valid] = alt_allele_counts[valid] / total_alleles[valid]
             q = 1 - p
 
-            # Expected heterozygosity (He = 2pq)
-            he = 2 * p * q
+            # Expected heterozygosity
+            he = np.zeros_like(p, dtype=float)
+            he[valid] = 2 * p[valid] * q[valid]
 
             if return_n:
-                he_per_population[pop_id] = (pd.Series(he), n_individuals)
+                he_per_population[pop_id] = (
+                    pd.Series(he, index=np.arange(pop_alignment.shape[1]), name="He"),
+                    n_individuals,
+                )
             else:
-                he_per_population[pop_id] = pd.Series(he)
+                he_per_population[pop_id] = pd.Series(
+                    he, index=np.arange(pop_alignment.shape[1]), name="He"
+                )
 
         return he_per_population
 
     def nucleotide_diversity_per_population(self):
         """Calculate nucleotide diversity (Pi) for each locus per population.
-
-        This method calculates nucleotide diversity (Pi) for each locus in the SNP data per population. Pi is defined as the average number of nucleotide differences per site between two sequences.
 
         Returns:
             dict: A dictionary where keys are population IDs and values are pandas Series containing the nucleotide diversity values per locus for that population.
@@ -897,278 +908,342 @@ class PopGenStatistics:
         for pop_id, (he, n_individuals) in he_and_n_per_population.items():
             n = n_individuals.astype(float)
 
-            with np.errstate(divide="ignore", invalid="ignore"):
-                pi = (n / (n - 1)) * he  # Bias correction for sample size
-                pi[n <= 1] = np.nan  # Handle cases where n <=1
+            # Calculate Pi with bias correction
+            pi = np.zeros_like(he, dtype=float)
+            valid = n > 1
+            pi[valid] = (n[valid] / (n[valid] - 1)) * he[valid]
 
-            pi_per_population[pop_id] = pd.Series(pi)
+            # Store results as a pandas Series
+            pi_per_population[pop_id] = pd.Series(
+                pi, index=np.arange(len(pi)), name="Pi"
+            )
 
         return pi_per_population
 
     def weir_cockerham_fst_between_populations(
         self, n_bootstraps: int = 0, n_jobs: int = -1
     ):
-        """Calculate Weir and Cockerham's Fst for each locus between all pairs of populations.
+        """Calculate pairwise Weir and Cockerham's Fst.
 
-        This method calculates Weir and Cockerham's Fst for each locus between all pairs of populations. Fst is a measure of population differentiation due to genetic structure. Fst values range from 0 to 1, where 0 indicates no genetic differentiation and 1 indicates complete differentiation.
+        This method calculates pairwise Weir and Cockerham's Fst between populations. Fst is a measure of population differentiation due to genetic structure. Fst values range from 0 to 1, where 0 indicates no genetic differentiation and 1 indicates complete differentiation. Bootstrapping can be used to estimate the variance of Fst per SNP.
 
         Args:
-            n_bootstraps (int): Number of bootstrap replicates. If 0, no bootstrapping is performed. Defaults to 0.
-            n_jobs (int): Number of threads to use for parallelization. If -1, use all available cores. Defaults to -1.
+            n_bootstraps (int): Number of bootstrap replicates. Default is 0 (no bootstrapping).
+            n_jobs (int): Number of parallel jobs for bootstrapping. Default is -1 (use all available cores).
 
         Returns:
-            dict: If n_bootstraps=0, returns a dictionary where keys are tuples of population pairs,
-                and values are pandas Series containing Fst values per locus.
-                If n_bootstraps>0, returns a dictionary where keys are tuples of population pairs,
-                and values are arrays of shape (n_loci, n_bootstraps) containing Fst values per locus per bootstrap replicate.
+            dict: If n_bootstraps is 0, returns a dictionary where keys are population pairs
+                and values are pandas Series of Fst values per locus.
+                If n_bootstraps > 0, returns a dictionary where keys are population pairs
+                and values are numpy arrays with shape (n_loci, n_bootstraps).
         """
+        # Prepare population indices
         pop_indices = self.genotype_data.get_population_indices()
         populations = list(pop_indices.keys())
         n_loci = self.alignment_012.shape[1]
 
-        # Prepare data for each population
-        pop_alignments = {}
-        for pop in populations:
-            indices = pop_indices[pop]
-            alignment = self.alignment_012[indices, :].astype(float).copy()
+        # Precompute alignments for each population
+        pop_alignments = {
+            pop: self.alignment_012[pop_indices[pop], :].astype(float)
+            for pop in populations
+        }
+        for alignment in pop_alignments.values():
             alignment[alignment == -9] = np.nan  # Replace missing data
-            pop_alignments[pop] = alignment
 
-        # Function to compute Fst per SNP between two populations
         def compute_fst_pair(alignment1, alignment2):
-            # Number of non-missing individuals per locus
+            """Function to compute Fst per SNP between two populations"""
             n1_per_locus = np.sum(~np.isnan(alignment1), axis=0)
             n2_per_locus = np.sum(~np.isnan(alignment2), axis=0)
-            n_per_locus = n1_per_locus + n2_per_locus
+            n_total = n1_per_locus + n2_per_locus
 
-            # Sum of alternate alleles at each locus
-            alt_allele_counts1 = np.nansum(alignment1, axis=0)
-            alt_allele_counts2 = np.nansum(alignment2, axis=0)
-            alt_allele_counts_total = alt_allele_counts1 + alt_allele_counts2
+            alt_allele_counts1 = np.nansum(alignment1, axis=0, dtype=np.float64)
+            alt_allele_counts2 = np.nansum(alignment2, axis=0, dtype=np.float64)
+            total_alt_alleles = alt_allele_counts1 + alt_allele_counts2
 
-            # Total alleles per locus
             total_alleles1 = 2 * n1_per_locus
             total_alleles2 = 2 * n2_per_locus
             total_alleles = total_alleles1 + total_alleles2
 
-            with np.errstate(divide="ignore", invalid="ignore"):
-                # Allele frequencies
-                p1 = alt_allele_counts1 / total_alleles1
-                p2 = alt_allele_counts2 / total_alleles2
-                p_total = alt_allele_counts_total / total_alleles
+            p1 = np.divide(alt_allele_counts1, total_alleles1, where=total_alleles1 > 0)
+            p2 = np.divide(alt_allele_counts2, total_alleles2, where=total_alleles2 > 0)
+            p_total = np.divide(
+                total_alt_alleles, total_alleles, where=total_alleles > 0
+            )
 
-                # Compute components of Fst
-                s2 = ((p1 - p_total) ** 2) * n1_per_locus + (
-                    (p2 - p_total) ** 2
-                ) * n2_per_locus
-                s2 = s2 / (n_per_locus - 1)
+            # Variance in allele frequency between populations
+            s2 = np.divide(
+                np.multiply(((p1 - p_total) ** 2), n1_per_locus, where=~np.isnan(p1))
+                + np.multiply(((p2 - p_total) ** 2), n2_per_locus, where=~np.isnan(p2)),
+                (n_total - 1),
+                where=(n_total - 1) > 0,
+            )
 
-                he_total = 2 * p_total * (1 - p_total)
+            # Expected heterozygosity
+            he_total = 2 * p_total * (1 - p_total)
 
-                # Fst per locus
-                fst = s2 / he_total
-
-                # Avoid invalid values
-                fst[(he_total == 0) | (n_per_locus <= 1)] = np.nan
+            # Compute Fst
+            fst = np.zeros_like(he_total, dtype=float)
+            valid = (he_total > 0) & (n_total > 1)
+            fst[valid] = s2[valid] / he_total[valid]
+            fst[~valid] = np.nan  # Set invalid loci to NaN
 
             return fst
 
+        # Pairwise Fst calculation
         if n_bootstraps == 0:
-            # No bootstrapping, compute Fst per SNP
             fst_per_population_pair = {}
-
-            # Iterate over all unique pairs of populations
             for pop1, pop2 in itertools.combinations(populations, 2):
                 alignment1 = pop_alignments[pop1]
                 alignment2 = pop_alignments[pop2]
-
                 fst = compute_fst_pair(alignment1, alignment2)
-                fst_per_population_pair[(pop1, pop2)] = pd.Series(fst)
-
+                fst_per_population_pair[(pop1, pop2)] = pd.Series(
+                    fst, index=np.arange(n_loci), name=f"Fst {pop1}-{pop2}"
+                )
             return fst_per_population_pair
+
         else:
+            # Bootstrapping for Fst
             fst_bootstrap_per_population_pair = {
                 (pop1, pop2): np.zeros((n_loci, n_bootstraps))
                 for pop1, pop2 in itertools.combinations(populations, 2)
             }
 
-            # Function to perform one bootstrap replicate by resampling SNPs with replacement
+            # Bootstrap function
             def bootstrap_replicate(seed):
-                np.random.seed(seed)
-
-                # Resample SNPs with replacement
-                resample_indices = np.random.choice(n_loci, size=n_loci, replace=True)
-
-                # Compute Fst per population pair for resampled SNPs
+                """Function to compute Fst per SNP between two populations with bootstrapping"""
+                rng = np.random.default_rng(seed)
+                resample_indices = rng.choice(n_loci, size=n_loci, replace=True)
                 fst_replicate = {}
                 for pop1, pop2 in itertools.combinations(populations, 2):
                     alignment1 = pop_alignments[pop1][:, resample_indices]
                     alignment2 = pop_alignments[pop2][:, resample_indices]
-
                     fst = compute_fst_pair(alignment1, alignment2)
                     fst_replicate[(pop1, pop2)] = fst
-
                 return fst_replicate
 
-            if n_jobs == -1:
-                n_jobs = multiprocessing.cpu_count()
-            elif n_jobs > 1:
-                n_jobs = min(n_jobs, multiprocessing.cpu_count())
-            else:
-                if n_jobs < -1:
-                    msg = f"Invalid value for n_jobs: {n_jobs}. Setting n_jobs to 1."
-                    self.logger.warning(msg)
-                n_jobs = 1
+            # Parallel bootstrap
+            seeds = np.random.default_rng().integers(0, 1e9, size=n_bootstraps)
+            n_jobs = n_jobs if n_jobs != -1 else multiprocessing.cpu_count()
+            with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                results = list(executor.map(bootstrap_replicate, seeds))
 
-            # Perform bootstrapping in parallel
-            seeds = np.random.randint(0, 1e9, size=n_bootstraps)
-            if n_jobs > 1:
-                with ThreadPoolExecutor(max_workers=n_jobs) as executor:
-                    results = list(executor.map(bootstrap_replicate, seeds))
-            else:
-                results = [bootstrap_replicate(seed) for seed in seeds]
-
-            # Collect results
+            # Collect bootstrap results
             for b, fst_replicate in enumerate(results):
-                for pop_pair in fst_bootstrap_per_population_pair.keys():
-                    fst_bootstrap_per_population_pair[pop_pair][:, b] = fst_replicate[
-                        pop_pair
-                    ]
+                for pop_pair, fst_values in fst_replicate.items():
+                    fst_bootstrap_per_population_pair[pop_pair][:, b] = fst_values
 
             return fst_bootstrap_per_population_pair
 
-    def amova(self):
-        """Performs an Analysis of Molecular Variance (AMOVA) on the input data.
+    def amova(
+        self,
+        regionmap: Optional[Dict[str, str]] = None,
+        n_bootstraps: int = 0,
+        n_jobs: int = 1,
+        random_seed: Optional[int] = None,
+    ) -> Dict[str, float]:
+        """Conduct AMOVA (Analysis Of Molecular Variance).
 
-        This method performs an Analysis of Molecular Variance (AMOVA) on the input data. AMOVA is a statistical method used to assess the partitioning of genetic variation within and among populations. The method calculates variance components and the Phi_ST statistic, which quantifies the proportion of genetic variation due to population structure.
+        AMOVA (Analysis of Molecular Variance) is a method for partitioning genetic variation into components due to differences among populations, among individuals within populations, and within individuals. This method calculates variance components and Phi statistics for a given number of hierarchical levels (1, 2, or 3). If bootstrapping is enabled, it also estimates p-values for the variance components. The number of hierarchical levels determines the structure of the AMOVA model: 1 => populations only, 2 => region -> populations, 3 => region -> population -> individuals. If regionmap is provided, it is used to map populations to regions.
+
+        Notes:
+            - Algorithm adapted from the R package 'poppr' (Kamvar et al., 2014).
+            - The Phi statistic is a measure of genetic differentiation between populations.
+            - Algorithm description: First, the total variance is calculated. Then, the variance components are calculated by summing the squared differences between the mean of each group and the global mean. The Phi statistic is calculated as the ratio of the among-group variance to the total variance. P-values are estimated by bootstrapping.
+
+        Args:
+            regionmap (dict, optional): Mapping from population_id -> region_id.
+                If None but hierarchical_levels>1, raises ValueError.
+            n_bootstraps (int): Number of bootstrap replicates across SNP loci.
+            n_jobs (int): Number of parallel jobs. -1 uses all cores.
+            random_seed (int, optional): Random seed for reproducibility.
 
         Returns:
-            Dict[str, float]: A dictionary containing within- and among-population variance components and the Phi_ST statistic.
+            dict: AMOVA results (variance components, Phi statistics, and possibly p-values).
+
+        Raises:
+            ValueError: If regionmap is required but not provided.
         """
-        self.logger.info("Performing Analysis of Molecular Variance (AMOVA)...")
+        amova_instance = AMOVA(self.genotype_data, self.alignment, self.logger)
+        return amova_instance.run(
+            regionmap=regionmap,
+            n_bootstraps=n_bootstraps,
+            n_jobs=n_jobs,
+            random_seed=random_seed,
+        )
 
-        # Get the genotype data (samples x loci)
-        # Replace missing data with NaN and convert to float
-        genotypes = self.alignment_012.astype(float)
-        genotypes[genotypes == -9] = np.nan  # Missing values encoded as -9
+    def tajimas_d(self) -> pd.Series:
+        """
+        Calculate Tajima's D for each locus.
 
-        # Get the population mapping
-        popmap_inverse = (
-            self.genotype_data.popmap_inverse
-        )  # {population_id: [sample_ids]}
+        Tajima's D is a measure of the difference between two estimates of genetic diversity: the average number of pairwise differences (π) and Watterson's θ (based on segregating sites). A significant deviation of Tajima's D from zero suggests non-neutral evolution.
 
-        # Create a mapping from sample IDs to indices
-        sample_ids = self.genotype_data.samples
-        sample_id_to_index = {
-            sample_id: idx for idx, sample_id in enumerate(sample_ids)
-        }
+        Returns:
+            pd.Series: Tajima's D values for each locus.
+        """
+        self.logger.info("Calculating Tajima's D...")
 
-        # Group genotypes by populations
-        populations = {}
-        for pop_id, samples in popmap_inverse.items():
-            indices = [sample_id_to_index[sample_id] for sample_id in samples]
-            populations[pop_id] = genotypes[
-                indices, :
-            ]  # Extract genotypes for this population
+        # Step 1: Set up alignment data
+        alignment = self.alignment_012.astype(float).copy()
+        alignment[alignment == -9] = np.nan  # Replace missing data with NaN
 
-        # Total number of populations
-        G = len(populations)
+        # Step 2: Calculate nucleotide diversity (π)
+        pi = self.nucleotide_diversity()
 
-        # Initialize overall sums
-        SSP_total = 0.0  # Sum of squares among populations
-        SSW_total = 0.0  # Sum of squares within populations
-        df_among_total = 0
-        df_within_total = 0
+        # Step 3: Calculate the number of segregating sites (S)
+        S = np.array(
+            [np.sum(np.unique(col[~np.isnan(col)]) > 0) for col in alignment.T]
+        )
 
-        L = genotypes.shape[1]  # Total number of loci
+        # Step 4: Calculate Watterson's theta
+        n_samples = np.sum(~np.isnan(alignment), axis=0)
 
-        for l in range(L):
-            # Extract genotypes for locus l
-            locus_genotypes = genotypes[:, l]
+        # Filter out loci with all missing data
+        a1 = np.array(
+            [np.sum(1.0 / np.arange(1, n + 1)) if n > 0 else 0 for n in n_samples]
+        )
+        a2 = np.array(
+            [
+                np.sum(1.0 / (np.arange(1, n + 1) ** 2)) if n > 0 else 0
+                for n in n_samples
+            ]
+        )
+        a1 = np.array(
+            [np.sum(1.0 / np.arange(1, n + 1)) if n > 0 else 0 for n in n_samples]
+        )
+        a2 = np.array(
+            [
+                np.sum(1.0 / (np.arange(1, n + 1) ** 2)) if n > 0 else 0
+                for n in n_samples
+            ]
+        )
 
-            # Skip locus if all data is missing
-            if np.all(np.isnan(locus_genotypes)):
-                continue
+        theta = np.divide(S, a1, where=a1 > 0)
+        theta[a1 == 0] = np.nan  # Handle invalid cases
 
-            # Overall mean genotype at locus l
-            locus_mean = np.nanmean(locus_genotypes)
+        # Step 5: Calculate variance and constants for Tajima's D
+        b1 = (n_samples - 1) / (2 * n_samples)
+        b2 = (n_samples - 1) * (2 * n_samples + 1) / (6 * n_samples**2)
+        c1 = b1 - (1 / a1)
+        c2 = b2 - (n_samples + 2) / (a1 * n_samples) + a2 / (a1**2)
 
-            # Initialize sums for this locus
-            SSP_l = 0.0  # Sum of squares among populations at locus l
-            SSW_l = 0.0  # Sum of squares within populations at locus l
+        e1 = np.divide(c1, a1, where=a1 > 0)
+        e2 = np.divide(c2, a1**2 + a2, where=(a1**2 + a2) > 0)
 
-            # Total number of individuals with data at locus l
-            N_l = np.count_nonzero(~np.isnan(locus_genotypes))
+        # Step 6: Calculate Tajima's D
+        variance_term = e1 * S + e2 * S * (S - 1)
+        variance = np.sqrt(variance_term)
 
-            # Degrees of freedom
-            df_total = N_l - 1
-            df_among = G - 1
-            df_within = df_total - df_among
+        # Set variance to NaN where S is zero or one
+        variance[(S == 0) | (S == 1)] = np.nan
+        tajimas_d = np.divide(pi - theta, variance, where=variance > 0)
 
-            if df_within <= 0 or df_among <= 0:
-                # Skip this locus if degrees of freedom are invalid
-                continue
+        # Handle invalid cases
+        tajimas_d[(variance == 0) | (n_samples <= 1)] = np.nan
+        # Handle invalid cases
+        tajimas_d[(variance == 0) | (n_samples <= 1)] = np.nan
 
-            # Population means and sums of squares
-            for pop_id, pop_genotypes in populations.items():
-                pop_locus_genotypes = pop_genotypes[:, l]
-                n_i = np.count_nonzero(~np.isnan(pop_locus_genotypes))
+        tajimas_d = pd.Series(tajimas_d, name="Tajima's D")
 
-                # Skip if no data for this population at locus l
-                if n_i == 0:
-                    continue
+        self.logger.info("Tajima's D calculation complete!")
 
-                pop_mean = np.nanmean(pop_locus_genotypes)
+        return tajimas_d
 
-                # Sum of squares within population i at locus l
-                SSW_l += np.nansum((pop_locus_genotypes - pop_mean) ** 2)
+    def neis_genetic_distance(self) -> pd.DataFrame:
+        """Calculate Nei's genetic distance between all pairs of populations.
 
-                # Sum of squares among populations at locus l
-                SSP_l += n_i * (pop_mean - locus_mean) ** 2
+        Nei's genetic distance is a measure of genetic divergence between populations. It is calculated based on the allele frequencies at each locus. A higher value indicates greater genetic distance, or differentiation, between populations.
 
-            # Accumulate sums and degrees of freedom
-            SSP_total += SSP_l
-            SSW_total += SSW_l
-            df_among_total += df_among
-            df_within_total += df_within
+        Returns:
+            pd.DataFrame: A DataFrame where each cell (i, j) represents Nei's genetic distance between populations i and j.
+        """
+        # Step 1: Get allele frequencies per population
+        allele_freqs_per_pop = self._calculate_allele_frequencies()
 
-        # Check that degrees of freedom are valid
-        if df_among_total <= 0 or df_within_total <= 0:
-            # Cannot compute variance components
-            results = {
-                "Among_population_variance": np.nan,
-                "Within_population_variance": np.nan,
-                "Phi_ST": np.nan,
-            }
-            return results
+        # Step 2: Initialize DataFrame to store Nei's genetic distance for each population pair
+        populations = list(allele_freqs_per_pop.keys())
+        dist_matrix = pd.DataFrame(index=populations, columns=populations, dtype=float)
 
-        # Calculate overall mean squares
-        MSP = SSP_total / df_among_total
-        MSW = SSW_total / df_within_total
+        # Step 3: Calculate Nei's genetic distance for each pair of populations
+        for i, pop1 in enumerate(populations):
+            freqs_pop1 = allele_freqs_per_pop[pop1]
 
-        # Sample sizes per population
-        n_i_array = np.array([len(populations[pop_id]) for pop_id in populations])
-        N = np.sum(n_i_array)
+            # Compare each population with every other population, including itself
+            for j, pop2 in enumerate(populations):
+                if i == j:
+                    dist_matrix.loc[pop1, pop2] = (
+                        0.0  # Genetic distance with itself is zero
+                    )
+                else:
+                    freqs_pop2 = allele_freqs_per_pop[pop2]
 
-        # Calculate n_c (average sample size corrected for sample size variance)
-        n_c = (N - np.sum(n_i_array**2) / N) / (G - 1)
+                    # Calculate Nei's genetic distance across loci
+                    neis_distance = self._calculate_neis_distance_between_pops(
+                        freqs_pop1, freqs_pop2
+                    )
 
-        # Variance components
-        sigma_squared_among = (MSP - MSW) / n_c
-        sigma_squared_within = MSW
+                    # Set distance symmetrically
+                    dist_matrix.loc[pop1, pop2] = neis_distance
+                    dist_matrix.loc[pop2, pop1] = neis_distance
 
-        # Phi_ST statistic
-        phi_st = sigma_squared_among / (sigma_squared_among + sigma_squared_within)
+        # Ensure all expected indices are in the DataFrame
+        dist_matrix = dist_matrix.reindex(index=populations, columns=populations)
 
-        # Compile results
-        results = {
-            "Among_population_variance": sigma_squared_among,
-            "Within_population_variance": sigma_squared_within,
-            "Phi_ST": phi_st,
-        }
+        return dist_matrix
 
-        results = {k: float(v) for k, v in results.items()}  # Convert to float
+    def _calculate_allele_frequencies(self) -> dict:
+        """
+        Helper method to calculate allele frequencies for each population at each locus.
 
-        self.logger.info("AMOVA calculation complete!")
+        Returns:
+            dict: A dictionary where keys are population IDs and values are arrays of allele
+            frequencies per locus.
+        """
+        pop_indices = self.genotype_data.get_population_indices()
+        allele_freqs_per_pop = {}
 
-        return results
+        for pop_id, indices in pop_indices.items():
+            # Subset alignment for population
+            pop_alignment = self.alignment_012[indices, :].astype(float).copy()
+            pop_alignment[pop_alignment == -9] = np.nan  # Replace missing data
+
+            # Calculate allele frequencies
+            # Since diploid
+            total_alleles = 2 * np.sum(~np.isnan(pop_alignment), axis=0)
+            alt_allele_counts = np.nansum(pop_alignment, axis=0)
+
+            # Avoid division by zero
+            freqs = np.divide(alt_allele_counts, total_alleles, where=total_alleles > 0)
+
+            allele_freqs_per_pop[pop_id] = freqs
+
+        return allele_freqs_per_pop
+
+    def _calculate_neis_distance_between_pops(
+        self, freqs_pop1: np.ndarray, freqs_pop2: np.ndarray
+    ) -> float:
+        """
+        Helper method to calculate Nei's genetic distance between two populations based on
+        their allele frequencies.
+
+        Args:
+            freqs_pop1 (np.ndarray): Allele frequencies of population 1.
+            freqs_pop2 (np.ndarray): Allele frequencies of population 2.
+
+        Returns:
+            float: Nei's genetic distance between the two populations.
+        """
+        # Step 1: Calculate mean allele frequencies (p-bar) across populations
+        mean_freqs = (freqs_pop1 + freqs_pop2) / 2
+
+        # Step 2: Calculate gene diversity within each population
+        h_pop1 = 1 - np.nansum(freqs_pop1**2 + (1 - freqs_pop1) ** 2)
+        h_pop2 = 1 - np.nansum(freqs_pop2**2 + (1 - freqs_pop2) ** 2)
+
+        # Step 3: Calculate mean gene diversity across populations
+        h_mean = 1 - np.nansum(mean_freqs**2 + (1 - mean_freqs) ** 2)
+
+        # Step 4: Calculate Nei's genetic distance
+        with np.errstate(divide="ignore", invalid="ignore"):
+            nei_distance = -np.log((h_pop1 + h_pop2) / (2 * h_mean))
+
+        return nei_distance
