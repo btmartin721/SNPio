@@ -67,8 +67,44 @@ class IUPAC:
             self.logger.error(msg)
             raise ValueError(msg)
 
+    def get_iupac_int_map(self) -> Dict[str, int]:
+        """Get a dictionary of IUPAC ambiguity codes to integers.
+
+        This method returns a dictionary of IUPAC ambiguity codes to integers. The keys are the IUPAC ambiguity codes and the values are the corresponding integers. The integer values are used to encode the IUPAC ambiguity codes. The integer values are assigned as follows: A=1, C=2, G=3, T=4, R=5, Y=6, S=7, W=8, K=9, M=10, B=11, D=12, H=13, V=14, N=15, -=16, ?=16, .=16.
+
+        Returns:
+            Dict[str, int]: A dictionary of IUPAC ambiguity codes to integers.
+
+        Example:
+            >>> iupac_data = IUPAC()
+            >>> print(iupac_data.get_iupac_int_map())
+            >>> # Outputs: {'A': 1, 'C': 2, 'G': 3, 'T': 4, 'R': 5, 'Y': 6, 'S': 7, 'W': 8, 'K': 9, 'M': 10, 'B': 11, 'D': 12, 'H': 13, 'V': 14, 'N': 15, '-': 16, '?': 16, '.': 16}
+        """
+        return {
+            "A": 1,
+            "C": 2,
+            "G": 3,
+            "T": 4,
+            "R": 5,
+            "Y": 6,
+            "S": 7,
+            "W": 8,
+            "K": 9,
+            "M": 10,
+            "B": 11,
+            "D": 12,
+            "H": 13,
+            "V": 14,
+            "N": 15,
+            "-": 16,
+            "?": 16,
+            ".": 16,
+        }
+
     def get_iupac_ambiguous(self) -> Dict[str, str]:
         """Get a dictionary of IUPAC ambiguity values.
+
+        This dictionary contains the IUPAC ambiguity values for DNA sequences. The keys are the IUPAC ambiguity codes and the values are the corresponding DNA bases or ambiguity codes as strings.
 
         Returns:
             Dict[str, str]: A dictionary of IUPAC ambiguity values.
@@ -142,8 +178,15 @@ class IUPAC:
     def get_int_iupac_dict(self) -> Dict[str, int]:
         """Get a dictionary of IUPAC ambiguity codes to integers.
 
+        This dictionary is used to convert IUPAC ambiguity codes to integers. It differs from the `get_iupac_int_map` function in that it only includes the main IUPAC codes and not the extended codes.
+
         Returns:
             Dict[str, int]: A dictionary of IUPAC ambiguity codes to integers.
+
+        Example:
+            >>> iupac_data = IUPAC()
+            >>> print(iupac_data.int_iupac_dict)
+            >>> # Outputs: {'A': 0, 'T': 1, 'G': 2, 'C': 3, 'W': 4, 'R': 5, 'M': 6, 'K': 7, 'Y': 8, 'S': 9, 'N': -9}
         """
         return {
             "A": 0,
@@ -254,7 +297,7 @@ class IUPAC:
             [attr for attr in vars(self) if isinstance(getattr(self, attr), dict)]
         )
 
-    def __iter__(self) -> Generator[str, Dict[str, Dict[str, str | List[float]]]]:
+    def __iter__(self):
         """Iterate over main dictionary attributes.
 
         Returns:
