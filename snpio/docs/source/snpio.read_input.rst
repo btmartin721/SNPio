@@ -11,7 +11,6 @@ snpio.read_input.genotype_data module
    :members:
    :no-index:
    :undoc-members:
-   :show-inheritance:
 
 snpio.read_input.genotype_data_base module
 --------------------------------------------
@@ -20,7 +19,6 @@ snpio.read_input.genotype_data_base module
    :members:
    :no-index:
    :undoc-members:
-   :show-inheritance:
 
 snpio.read_input.popmap_file module
 -------------------------------------
@@ -29,4 +27,3 @@ snpio.read_input.popmap_file module
    :members:
    :no-index:
    :undoc-members:
-   :show-inheritance:
