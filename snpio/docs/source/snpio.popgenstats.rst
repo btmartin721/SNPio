@@ -4,7 +4,7 @@ snpio.popgenstats package
 Submodules
 ----------
 
-snpio.popgenstats.pop\_gen\_statistics module
+snpio.popgenstats.pop_gen_statistics module
 ---------------------------------------------
 
 .. automodule:: snpio.popgenstats.pop_gen_statistics
@@ -30,3 +30,27 @@ snpio.popgenstats.amova module
    :no-index:
    :undoc-members:
    :show-inheritance:
+
+snpio.popgenstats.genetic_distance module
+-----------------------------------------
+
+.. automodule:: snpio.popgenstats.genetic_distance
+   :members:
+   :no-index:
+   :undoc-members:
+
+snpio.popgenstats.fst_outliers module
+--------------------------------------
+
+.. automodule:: snpio.popgenstats.fst_outliers
+   :members:
+   :no-index:
+   :undoc-members:
+
+snpio.popgenstats.summary_statistics module
+-------------------------------------------
+
+.. automodule:: snpio.popgenstats.summary_statistics
+   :members:
+   :no-index:
+   :undoc-members:
