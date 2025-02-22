@@ -41,9 +41,19 @@ snpio.utils.benchmarking module
    :show-inheritance:
 
 snpio.utils.logging module
+--------------------------
 
 .. automodule:: snpio.utils.logging
    :members:
    :no-index:
    :undoc-members:
    :show-inheritance:
+
+snpio.utils.results_explorer module
+-----------------------------------
+
+.. automodule:: snpio.utils.results_explorer
+   :members:
+   :no-index:
+   :undoc-members:
+
