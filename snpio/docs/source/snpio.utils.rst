@@ -49,10 +49,10 @@ snpio.utils.logging module
    :undoc-members:
    :show-inheritance:
 
-snpio.utils.results_explorer module
+snpio.utils.results_exporter module
 -----------------------------------
 
-.. automodule:: snpio.utils.results_explorer
+.. automodule:: snpio.utils.results_exporter
    :members:
    :no-index:
    :undoc-members:
