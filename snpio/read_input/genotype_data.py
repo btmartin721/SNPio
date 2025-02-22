@@ -731,7 +731,7 @@ class GenotypeData(BaseGenotypeData):
 
     def load_aln(self):
         msg = "load_aln method must be implemented in child class."
-        self.logger.errog(msg)
+        self.logger.error(msg)
         raise NotImplementedError(msg)
 
     def get_population_indices(self) -> Dict[str, int]:
