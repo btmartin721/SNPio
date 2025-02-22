@@ -4,22 +4,22 @@ PopGenStatistics Documentation
 
 .. class:: PopGenStatistics
 
-The ``PopGenStatistics`` class is designed to perform a suite of population genetic analyses on SNP datasets. It includes methods for calculating D-statistics, detecting Fst outliers, computing genetic diversity metrics, AMOVAs, and calculating population genetic summary statistics. This class is particularly useful for researchers studying population structure, diversity, and genetic variation within and between populations. 
+The ``PopGenStatistics`` class is designed to perform a suite of population genetic analyses on SNP datasets. It includes methods for calculating D-statistics, detecting Fst outliers, computing genetic diversity metrics, AMOVAs, and calculating population genetic summary statistics. This class is particularly useful for researchers studying population structure, diversity, and genetic variation within and between populations. The class is part of the ``snpio`` package and is designed to work with genotype data loaded using the ``GenotypeData`` class.
 
-
-~~~~~~~~~~~~~~~~~~~~~~
+------------
 Key Features
-~~~~~~~~~~~~~~~~~~~~~~
+------------
 
+- Comprehensive suite of population genetic analyses for unlinked SNP datasets.
 - Calculation of Patterson's, partitioned, and/ or D-foil D-statistics.
-- Fst outlier detection using DBSCAN or bootstrapping.
+- Fst outlier detection using DBSCAN or bootstrapping. Supports one-tailed and two-tailed P-values.
 - Estimation of heterozygosity, nucleotide diversity, and summary statistics.
 - Nei's Distance matrix estimation and visualization between populations with dynamic ordering.
 - Hierarchical AMOVA with bootstrapping and parallel bootstrapping computation.
 
-~~~~~~~~~~~~~~~~~~~~~~
+----------------
 Dependencies
-~~~~~~~~~~~~~~~~~~~~~~
+----------------
 
 PopGenStatistics is a part of the ``snpio`` package, which includes classes such as ``GenotypeEncoder``, ``Plotting``, and modules for calculating D-statistics. It depends on packages such as ``numpy``, ``pandas``, ``scipy``, ``scikit-learn``, ``statsmodels``, ``seaborn``, and ``plotly``.
 
@@ -29,7 +29,7 @@ Quick Start
 
 .. code-block:: python
 
-    # Import necessary classes and initialize GenotypeData with your SNP data
+    # Import classes and initialize GenotypeData with SNP data.
     from snpio import VCFReader
     from snpio.popgenstats import PopGenStatistics
 
@@ -44,51 +44,37 @@ Quick Start
     # Initialize PopGenStatistics with genotype data
     pgs = PopGenStatistics(genotype_data, verbose=True)
 
-~~~~~~~~~~~~~~~~~~~~~
+----------------
 Methods Overview
-~~~~~~~~~~~~~~~~~~~~~
-
-* ``calculate_d_statistics``  
-  Calculates D-statistics (Patterson’s, partitioned D, or D-foil) with bootstrap replicates. Saves results as CSV and generates informative plots.
-
-* ``detect_fst_outliers``  
-  Identifies Fst outliers between populations using bootstrapping or DBSCAN. Generates plots and returns a DataFrame of outlier SNPs.
-
-* ``summary_statistics``  
-  Summarizes key statistics (heterozygosity, nucleotide diversity, Fst) across populations, with plotting capabilities.
-
-* ``amova``  
-  Performs hierarchical Analysis of Molecular Variance (AMOVA) with bootstrapping and parallel computation options.
-
-* ``neis_genetic_distance``  
-  Calculates Nei's genetic distance between populations.
-
----------------
-Core Methods
----------------
+----------------
 
 .. list-table:: Core Statistical Methods
     :header-rows: 1
+    :class: responsive-table
 
-    * - Method
+    * - Class Method
       - Description
+      - Supported Algorithm(s)
     * - ``calculate_d_statistics``
-      - Calculates D-statistics and saves them as CSV. Also generates plots.
+      - Calculates D-statistics and saves them as CSV.
+      - Patterson's, partitioned, and D-foil D-statistics.
     * - ``detect_fst_outliers``
-      - Identifies Fst outliers. Returns a DataFrame of outlier SNPs with plots.
+      - Identifies Fst outliers. Supports one-tailed & two-tailed P-values.
+      - DBSCAN clustering, Traditional bootstrapping.
     * - ``summary_statistics``
-      - Summarizes the following population statistics:
-        - Observed heterozygosity (Ho)
-        - Expected heterozygosity (He)
-        - Nucleotide diversity (Pi)
-        - Weir and Cockerham's Fst
+      - Calculates several population genetic summary statistics.
+      - Observed heterozygosity (Ho), Expected heterozygosity (He), Nucleotide diversity (Pi), Weir and Cockerham's Fst.
     * - ``amova``
       - Conducts AMOVA with bootstrapping and parallel computation.
+      - Hierarchical AMOVA, variance components, Phi statistics.
     * - ``neis_genetic_distance``
       - Computes Nei's genetic distance between population pairs.
+      - Nei's genetic distance.
 
+---------------------
 Calculated Statistics
 ---------------------
+
 - D-statistics (Patterson's, Partitioned, and D-foil)
 - Fst outliers and pairwise Fst values
 - Observed heterozygosity (Ho)
@@ -96,11 +82,12 @@ Calculated Statistics
 - Nucleotide diversity (Pi)
 - Weir and Cockerham's Fst (from summary statistics)
 - AMOVA results (variance components and Phi statistics)
-- Nei's genetic distance
+- Nei's genetic distance matrix between populations
+- Summary statistics (Ho, He, Pi, Fst)
 
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-Advanced Usage and Recent Developments
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+---------------------------------
+Advanced Usage and Best Practices
+---------------------------------
 
 - **Distance Matrix Sorting:**  
   The ``plot_dist_matrix`` method employs dynamic ordering based on the sum of distances, ensuring that the populations with the highest overall divergence are highlighted.
