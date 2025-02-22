@@ -4,7 +4,7 @@ snpio.analysis package
 Submodules
 ----------
 
-snpio.analysis.genotype\_encoder module
+snpio.analysis.genotype_encoder module
 ---------------------------------------
 
 .. automodule:: snpio.analysis.genotype_encoder
@@ -13,7 +13,7 @@ snpio.analysis.genotype\_encoder module
    :no-index:
    :show-inheritance:
 
-snpio.analysis.tree\_builder module
+snpio.analysis.tree_builder module
 -----------------------------------
 
 .. automodule:: snpio.analysis.tree_parser
