@@ -1,3 +1,4 @@
+import string
 import warnings
 from ctypes import Union
 from logging import Logger
@@ -2336,3 +2337,92 @@ class Plotting:
         plt.close()
 
         return loc, ind, poploc, poptotal, indpop
+
+    def plot_dist_matrix(
+        self,
+        df: pd.DataFrame,
+        pvals: pd.DataFrame | None = None,
+        palette: str = "coolwarm",
+        title: str = "Distance Matrix",
+    ) -> None:
+        """Plot a distance matrix.
+
+        This method plots a distance matrix. A distance matrix is a heatmap plot that shows the pairwise distances between populations. The plot is saved to a file.
+
+        Args:
+            df (pd.DataFrame): The input dataframe containing the distance matrix data.
+            pvals (pd.DataFrame | None): The input dataframe containing the p-values for the distance matrix data. If not provided, the p-values will not be plotted. Defaults to None.
+            palette (str): The color palette to use for the heatmap plot. Defaults to "coolwarm".
+            title (str): The title of the plot. Defaults to "Distance Matrix".
+
+        Returns:
+            None: A plot is saved to a file.
+
+        Raises:
+            ValueError: Raised if the input dataframes are empty.
+
+        Note:
+            - The input dataframe must contain the distance matrix data.
+            - The input dataframe must contain the p-values for the distance matrix data.
+            - The plot will be saved in the '<prefix>_output/gtdata/plots' directory.
+            - Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
+            - The distance matrix is a heatmap plot that shows the pairwise distances between populations.
+        """
+        plot_dir = Path(f"{self.prefix}_output", "analysis", "plots")
+        plot_dir.mkdir(parents=True, exist_ok=True)
+
+        if df.empty:
+            msg = "The input distance matrix is empty."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if pvals is not None and pvals.empty:
+            msg = "The input p-values dataframe is empty."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        # Compute row sums to determine sorting order
+        sort_order = df.sum(axis=1).sort_values(ascending=False).index
+
+        # Reorder both rows and columns using the same order
+        df = df.loc[sort_order, sort_order]
+
+        if pvals is not None:
+            pvals = pvals.loc[sort_order, sort_order]
+
+        # Create a mask for the upper triangle (excluding diagonal)
+        mask = np.tril(np.ones(df.shape, dtype=bool), k=-1)
+
+        sns.set_style(style="white")
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+
+        sns.heatmap(
+            df,
+            annot=True,
+            fmt=".3f",
+            cmap=palette,
+            cbar_kws={"label": "Distance"},
+            robust=True,
+            mask=mask,
+            ax=ax,
+        )
+
+        ax.invert_yaxis()
+
+        if pvals is not None:
+            for i in range(df.shape[0]):
+                for j in range(df.shape[1]):
+                    if pvals.iloc[i, j] < 0.05:
+                        ax.text(j + 0.5, i + 0.5, "*", ha="center", va="center")
+
+        ax.set_title(string.capwords(title))
+        ax.set_xlabel("Population")
+        ax.set_ylabel("Population")
+
+        fn = "_".join(title.lower().split())
+        fig.savefig(plot_dir / f"{fn}.{self.plot_format}")
+
+        if self.show:
+            plt.show()
+        plt.close()
