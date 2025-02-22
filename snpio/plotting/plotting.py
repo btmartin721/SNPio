@@ -722,8 +722,10 @@ class Plotting:
             bbox_to_anchor=(1.2, 1),
         )
 
-        # Save the plot
-        of: str = f"d_statistics_sample_combos_barplot.{self.plot_format}"
+        # Save the plot.
+        # Cannot use 'png' here, and must use a vector format (e.g., 'pdf')
+        # due to the frequently large number of combinations.
+        of: str = f"d_statistics_sample_combos_barplot.pdf"
         outpath: Path = self.output_dir_analysis / of
         fig.savefig(outpath)
 
