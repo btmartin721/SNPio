@@ -7,6 +7,7 @@ Welcome to SNPio's documentation!
 
    getting_started
    example_script
+   pop_gen_statistics
    changelog
    modules
 
