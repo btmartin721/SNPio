@@ -1,0 +1,53 @@
+\usepackage{tcolorbox}
+
+% Define colors
+\definecolor{notebg}{RGB}{235, 245, 255}  % Light blue background for notes
+\definecolor{tipbg}{RGB}{235, 255, 235}   % Light green background for tips
+\definecolor{warningbg}{RGB}{255, 245, 225} % Light yellow background for warnings
+
+\definecolor{noteborder}{RGB}{0, 120, 200} % Blue border for notes
+\definecolor{tipborder}{RGB}{0, 180, 80}   % Green border for tips
+\definecolor{warningborder}{RGB}{200, 120, 0} % Dark orange border for warnings
+
+% Note Box
+\newtcolorbox{notebox}{
+    colframe=noteborder,
+    colback=notebg,
+    coltitle=black,
+    boxrule=1pt,
+    arc=3pt,
+    left=6pt,
+    right=6pt,
+    top=4pt,
+    bottom=4pt,
+    title=\textbf{Note}
+}
+
+% Tip Box
+\newtcolorbox{tipbox}{
+    colframe=tipborder,
+    colback=tipbg,
+    coltitle=black,
+    boxrule=1pt,
+    arc=3pt,
+    left=6pt,
+    right=6pt,
+    top=4pt,
+    bottom=4pt,
+    title=\textbf{Tip}
+}
+
+% Warning Box
+\newtcolorbox{warningbox}{
+    colframe=warningborder,
+    colback=warningbg,
+    coltitle=black,
+    boxrule=1pt,
+    arc=3pt,
+    left=6pt,
+    right=6pt,
+    top=4pt,
+    bottom=4pt,
+    title=\textbf{Warning}
+}
+% End of snpio/docs/admonitions.tex
