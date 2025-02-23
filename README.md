@@ -1,8 +1,10 @@
 # Getting Started with SNPio
 
-<img src="snpio/img/snpio_logo.png"
-class="img-responsive img-responsivealign-center" width="800"
-height="400" alt="SNPio Logo, decorative image." />
+\begin{figure}
+  \centering
+  \includegraphics[width=0.5\textwidth]{snpio/img/snpio_logo.png}
+  \caption{SNPio Logo (Decorative Image)}
+\end{figure}
 
 This guide provides an overview of how to get started with the SNPio
 library. It covers the basic steps to read, manipulate, and analyze
@@ -58,10 +60,7 @@ directory containing pyproject.toml), type the below command into your
 terminal.
 
 > [!TIP]
-> We recommend using a virtual environment to manage your Python
-> packages. If you do not have a virtual environment set up, you can
-> create one using the following command and then activate it and
-> install SNPio:
+> We recommend using a virtual environment to manage your Python packages. If you do not have a virtual environment set up, you can create one using the following command and then activate it and install SNPio:
 
 ``` shell
 python3 -m venv snpio_env
@@ -74,14 +73,10 @@ it. You can then install SNPio in this virtual environment using the pip
 command mentioned above.
 
 > [!NOTE]
-> SNPio does not support Windows operating systems at the moment. We
-> recommend using a Unix-based operating system such as Linux or MacOS.
-> If you have Windows, you can use the Windows Subsystem for Linux (WSL)
-> to run SNPio, which runs a Linux distribution on Windows.
+> SNPio does not support Windows operating systems at the moment. We recommend using a Unix-based operating system such as Linux or MacOS. If you have Windows, you can use the Windows Subsystem for Linux (WSL) to run SNPio, which runs a Linux distribution on Windows.
 
 > [!NOTE]
-> We aim to support anaconda environments in the future. For now, we
-> recommend using a virtual environment with `pip` to install SNPio.
+> We aim to support anaconda environments in the future. For now, we recommend using a virtual environment with `pip` to install SNPio.
 
 ## Importing SNPio
 
@@ -113,42 +108,20 @@ classes. For example:
 gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", plot_fontsize=20, plot_dpi=300, despine=True, prefix="snpio_example", include_pops=["ON", "DS", "EA", "GU"], exclude_pops=["MX", "YU", "CH", "OG"])
 ```
 
-The `include_pops` and `exclude_pops` parameters are optional and can be
+The ``include_pops`` and ``exclude_pops`` parameters are optional and can be
 used to filter the populations included in the analysis. If both
-parameters are provided, the populations in `include_pops` will be
-included, and the populations in `exclude_pops` will be excluded.
+parameters are provided, the populations in ``include_pops`` will be
+included, and the populations in ``exclude_pops`` will be excluded.
 However, populations cannot overlap between lists.
 
 > [!NOTE]
-> If you provide both parameters, the populations in `include_pops` will
-> take precedence.
-
-## Important Notes
-
-<div class="note">
-
-<div class="title">
-
-Note
-
-</div>
-
-The `VCFReader`, `PhylipReader`, `StructureReader`, `NRemover2`, `PopGenStatistics`, and `GenotypeEncoder` classes treat the following characters as missing data:  
-
-- "N"
-- "."
-- "?"
-- "-"
-
-</div>
+> If you provide both parameters, the populations in ``include_pops`` will take precedence.
 
 > [!NOTE]
-> The `VCFReader` class can read both uncompressed and compressed VCF
-> files (gzipped). If your input file is in PHYLIP or STRUCTURE format,
-> it will be forced to be biallelic. To handle more than two alleles per
-> site, use the VCF format. However, also note that many of the analyses
-> implemented in `PopGenStatistics` and `NRemover2` are designed for
-> biallelic and diploid data.
+> The `VCFReader`, `PhylipReader`, `StructureReader`, `NRemover2`, `PopGenStatistics`, and `GenotypeEncoder` classes treat the following characters as missing data: "N", ".", "?", "-".
+
+> [!NOTE]
+> The `VCFReader` class can read both uncompressed and compressed VCF files (gzipped). If your input file is in PHYLIP or STRUCTURE format, it will be forced to be biallelic. To handle more than two alleles per site, use the VCF format. However, also note that many of the analyses implemented in `PopGenStatistics` and `NRemover2` are designed for biallelic and diploid data.
 
 ## The Population Map File
 
@@ -197,26 +170,11 @@ gd = VCFReader(filename=vcf, popmapfile=popmap, force_popmap=True, verbose=True,
 ```
 
 > [!NOTE]
-> The `force_popmap` parameter in the reader classes is used to force
-> the population map file to align with the samples in the alignment
-> without an error. If set to `False`, the population map file must
-> match the samples in the alignment exactly, and if they do not match,
-> an error will be raised. If set to `True`, the population map file
-> will be forced to align with the samples in the alignment by removing
-> extra samples, anc vice versa. This parameter is set to `False` by
-> default.
->
-> The `verbose` parameter in the reader classes is used to print
-> additional information about the genotype data and filtering steps. If
-> set to `True`, the reader classes will print information about the
-> genotype data, such as the number of samples, loci, and populations,
-> and the filtering steps applied. This parameter is set to `False` by
-> default.
->
-> The `plot_format`, `plot_fontsize`, `plot_dpi`, and `despine`
-> parameters in the reader classes are used to customize the output
-> plots generated by the reader classes. See API documentation for more
-> details.
+> The `force_popmap` parameter in the reader classes is used to force the population map file to align with the samples in the alignment without an error. If set to `False`, the population map file must match the samples in the alignment exactly, and if they do not match, an error will be raised. If set to `True`, the population map file will be forced to align with the samples in the alignment by removing extra samples, anc vice versa. This parameter is set to ``False`` by default.
+
+> The ``verbose`` parameter in the reader classes is used to print additional information about the genotype data and filtering steps. If set to ``True``, the reader classes will print information about the genotype data, such as the number of samples, loci, and populations, and the filtering steps applied. This parameter is set to `False` by default.
+
+> The ``plot_format``, ``plot_fontsize``, ``plot_dpi``, and ``despine`` parameters in the reader classes are used to customize the output plots generated by the reader classes. See API documentation for more details.
 
 ## Reading Genotype Data
 
@@ -267,34 +225,25 @@ This will read the genotype data from a STRUCTURE file and apply the
 population map (if provided).
 
 > [!NOTE]
-> The `StructureReader` class will automatically detect the format of
-> the STRUCTURE file. It can be in one-line or two-line format (see
-> STRUCTURE documentation), and can optionally contain population
-> information in the file as the second tab-delimited column. If the
-> population information is not provided in the STRUCTURE file, you can
-> provide a population map file to assign samples to populations.
+> The `StructureReader` class will automatically detect the format of the STRUCTURE file. It can be in one-line or two-line format (see STRUCTURE documentation), and can optionally contain population information in the file as the second tab-delimited column. If the population information is not provided in the STRUCTURE file, you can provide a population map file to assign samples to populations.
 
 ### Key Methods in VCFReader, PhylipReader, and StructureReader
 
-|  |  |
-|----|----|
-| **Function/Method** | **Description** |
-| `VCFReader` | Reads and writes genotype data from/ to a VCF file and applies a population map if provided. |
-| `write_vcf` | Writes the filtered or modified genotype data back to a VCF file (for all three readers). |
-| `PhylipReader` | Reads and writes genotype data from/ to a PHYLIP file and applies a population map. |
-| `write_phylip` | Writes the filtered or modified genotype data back to a PHYLIP file (for PhylipReader). |
-| `StructureReader` | Reads and writes genotype data from/ to a STRUCTURE file and applies a population map (if provided). |
-| `write_structure` | Writes the filtered or modified genotype data. back to a STRUCTURE file (for StructureReader). |
+| Function/Method   | Description |
+|------------------|-------------|
+| `VCFReader`      | Reads and writes genotype data from/to a VCF file and applies a population map if provided. |
+| `write_vcf`      | Writes the filtered or modified genotype data back to a VCF file. |
+| `PhylipReader`   | Reads and writes genotype data from/to a PHYLIP file and applies a population map. |
+| `write_phylip`   | Writes the filtered or modified genotype data back to a PHYLIP file. |
+| `StructureReader` | Reads and writes genotype data from/to a STRUCTURE file and applies a population map. |
+| `write_structure` | Writes the filtered or modified genotype data back to a STRUCTURE file. |
 
 The `write_vcf`, `write_phylip`, and `write_structure` methods are used
 to write the filtered or modified genotype data back to a VCF, PHYLIP,
 or STRUCTURE file, respectively.
 
 > [!NOTE]
-> The `write_vcf`, `write_phylip`, and `write_structure` methods can be
-> used to write the filtered or modified genotype data back to a new
-> file. The new file will contain the filtered or modified genotype data
-> based on the filtering criteria applied.
+> The ``write_vcf``, ``write_phylip``, and ``write_structure`` methods can be used to write the filtered or modified genotype data back to a new file. The new file will contain the filtered or modified genotype data based on the filtering criteria applied.
 
 ## Other GenotypeData Methods
 
@@ -309,16 +258,11 @@ methods for working with genotype data:
     shapes. A 2-dimensional PCA plot is generated by default, but you
     can specify three PCA axes as well. For example:
 
-<figure class="img-responsive">
-<img src="snpio/img/pca_missingness.png"
-alt="snpio/img/pca_missingness.png" />
-<figcaption>Figure 1: PCA Plot with samples colored by missing data
-proportion and populations represented by different shapes. The plot
-shows the genetic structure of the populations in the dataset, with each
-point representing an individual. The individuals are colored by the
-proportion of missing data, and the populations are represented by
-different shapes.</figcaption>
-</figure>
+    \begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{snpio/img/pca_missingness.png}
+    \caption{PCA Plot with samples colored by missing data proportion and populations represented by different shapes.}
+    \end{figure}
 
 2. `GenotypeData.missingness_reports()`: Generates missing data reports
     and plots for the dataset. The reports include the proportion of
@@ -326,30 +270,21 @@ different shapes.</figcaption>
     reports can help you identify samples, loci, or populations with
     high levels of missing data. For example:
 
-<figure class="img-responsive">
-<img src="snpio/img/missingness_report.png"
-alt="snpio/img/missingness_report.png" />
-<figcaption>Figure 2: Missing Data Report with Plots Depicting Missing
-Data Proportion per Sample, Locus, and Population. The plots show the
-proportion of missing data per sample, per locus, and per population,
-which can help identify samples, loci, or populations with high levels
-of missing data.</figcaption>
-</figure>
+    \begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{snpio/img/missingness_report.png}
+    \caption{Missing Data Report with plots depicting missing data per sample, locus, and population.}
+    \end{figure}
 
 3. The `GenotypeData` class will automatically create a plot showing
     the number of inidviduals present in each population, if a
     `popmapfile` is provided. For example:
 
-<figure class="img-responsive">
-<img src="snpio/img/population_counts.png"
-alt="snpio/img/population_counts.png" />
-<figcaption>Figure 3: Population Counts (left) and proportion (right)
-Bar Plots, with the median number of individuals per population
-indicated by the dashed horizontal lines. The plot shows the number of
-individuals present in each population, with the median number of
-individuals per population indicated by the dashed horizontal
-line.</figcaption>
-</figure>
+    \begin{figure}
+    \centering
+    \includegraphics[width=0.8\textwidth]{snpio/img/population_counts.png}
+    \caption{Population Counts and proportion bar plots with median indicated.}
+    \end{figure}
 
 ## Filtering Genotype Data with NRemover2
 
@@ -369,47 +304,25 @@ gd_filt.write_vcf("filtered_output.vcf")
 
 ### Key Methods in NRemover2
 
-|  |  |
-|----|----|
-| **Function/Method** | **Description** |
+| Function/Method        | Description |
+|-----------------------|-------------|
 | `filter_missing_sample` | Filters samples with missing data above the threshold. |
-| `filter_missing` | Filters loci with missing data above the threshold. |
-| `filter_missing_pop` | Filters loci where missing data for any population is above the threshold. |
-| `filter_mac` | Filters loci with a minor allele count below the threshold. |
-| `filter_maf` | Filters loci with a minor allele frequency below the threshold. |
-| `filter_monomorphic` | Filters monomorphic loci (sites with only one allele). |
-| `filter_singletons` | Filters singletons (sites with only one occurrence of an allele). |
-| `filter_biallelic` | Filters biallelic loci (sites with only two alleles). |
-| `thin_loci` | Thins loci by removing loci within `size` bases of each other on the same locus or chromosome. |
-| `filter_linked` | Filters loci that are linked within a specified distance. |
-| `random_subset_loci` | Randomly selects `size` number of loci from the input dataset. |
-| `resolve` | Applies the filters and returns the filtered GenotypeData object. |
+| `filter_missing`        | Filters loci with missing data above the threshold. |
+| `filter_mac`            | Filters loci with a minor allele count below the threshold. |
+| `filter_maf`            | Filters loci with a minor allele frequency below the threshold. |
+| `filter_monomorphic`    | Filters monomorphic loci (sites with only one allele). |
 
 > [!NOTE]
-> You must call `resolve()` at the end of the filtering chain to apply
-> the filters and return the filtered GenotypeData object. The
-> `resolve()` method is required to finalize the filtering process and
-> return the filtered dataset.
+> You must call `resolve()` at the end of the filtering chain to apply the filters and return the filtered GenotypeData object. The ``resolve()`` method is required to finalize the filtering process and return the filtered dataset.
 
 > [!NOTE]
-> The `exclude_heterozygous` parameter in `filter_monomorphic`,
-> `filter_singletons`, and `filter_biallelic` methods allows you to
-> exclude heterozygous genotypes from the filtering process. By default,
-> heterozygous genotypes are included in the filtering process.
+> The `exclude_heterozygous` parameter in `filter_monomorphic`, `filter_singletons`, and `filter_biallelic` methods allows you to exclude heterozygous genotypes from the filtering process. By default, heterozygous genotypes are included in the filtering ocess.
 
 > [!NOTE]
-> `thin_loci` and `filter_linked` are only available for VCFReader and
-> not for PhylipReader and StructureReader. These methods are used to
-> thin loci by removing loci within a specified distance of each other
-> on the same locus or chromosome, as defined in the VCF file. The
-> `thin_loci` method removes loci within a specified distance of each
-> other, while the `filter_linked` method filters loci that are linked
-> within a specified distance.
+> ``thin_loci`` and ``filter_linked`` are only available for VCFReader and not for PhylipReader and StructureReader. These methods are used to thin loci by removing loci within a specified distance of each other on the same locus or chromosome, as defined in the VCF file. The `thin_loci` method removes loci within a specified distance of each other, while the `filter_linked` method filters loci that are linked within a specified distance.
 
 > [!WARNING]
-> The `filter_linked(size)` method might yield a limited number of loci
-> with unlinked SNP data. It is recommended to use this method with
-> caution and check the output carefully.
+> The ``filter_linked(size)`` method might yield a limited number of loci with unlinked SNP data. It is recommended to use this method with caution and check the output carefully.
 
 ### Additional Methods in NRemover2
 
@@ -435,60 +348,45 @@ missing data, MAF, MAC, and the boolean filters based on the specified
 thresholds and filter order. It will plot the results so you can
 visualize the impact of different thresholds on the dataset.
 
-Below are example plots that are created when running the
-`search_thresholds()` method:
+Below are example plots that are created when running the ``search_thresholds()`` method:
 
-<figure class="img-responsive">
-<img src="snpio/img/filtering_results_bool.png"
-alt="snpio/img/filtering_results_bool.png" />
-<figcaption>Figure 4: Filtering Results for Boolean Filtering Methods
-(Singletons, Monomorphic Sites, and Biallelic Sites), where loci that
-are monomorphic, singletons, or non-biallelic are removed.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/filtering_results_bool.png}
+  \caption{Filtering results for boolean filtering methods.}
+\end{figure}
 
-<figure class="img-responsive">
-<img src="snpio/img/filtering_results_mac.png"
-alt="snpio/img/filtering_results_mac.png" />
-<figcaption>Figure 5: Filtering Results for Minor Allele Count (MAC),
-where loci with MAC below the threshold are removed.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/filtering_results_mac.png}
+  \caption{Filtering results for minor allele count (MAC).}
+\end{figure}
 
-<figure class="img-responsive">
-<img src="snpio/img/filtering_results_maf.png"
-alt="snpio/img/filtering_results_maf.png" />
-<figcaption>Figure 6: Filtering Results for Minor Allele Frequency
-(MAF), where loci with MAF below the threshold are removed.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/filtering_results_maf.png}
+  \caption{Filtering results for minor allele frequency (MAF).}
+\end{figure}
 
-<figure class="img-responsive">
-<img src="snpio/img/filtering_results_missing_loci_samples.png"
-alt="snpio/img/filtering_results_missing_loci_samples.png" />
-<figcaption>Figure 7: Missing Data Filtering Results for Loci (columns)
-and Samples (rows), where any loci or samples with missing data
-exceeding the user-provided threshold are removed.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/filtering_results_missing_loci_samples.png}
+  \caption{Missing data filtering results for loci and samples.}
+\end{figure}
 
-<figure class="img-responsive">
-<img src="snpio/img/filtering_results_missing_population.png"
-alt="snpio/img/filtering_results_missing_population.png" />
-<figcaption>Figure 8: Missing Data Filtering Results for Populations,
-where any loci with missing data above the threshold for any given
-population are removed.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/filtering_results_missing_population.png}
+  \caption{Missing data filtering results for populations.}
+\end{figure}
 
 > [!NOTE]
-> The `search_thresholds()` method is incompatible with both
-> `thin_loci(size)` and `filter_linked()` being in the filter_order
-> list.
+> The `search_thresholds()` method is incompatible with both ``thin_loci(size)`` and ``filter_linked()`` being in the ``filter_order`` list.
 
 > [!WARNING]
-> The `search_thresholds()` method can be called either before or after
-> any other filtering, but note that it will reset the filtering chain
-> to the original state. If you call `search_thresholds()` after
-> applying other filters, it will reset the filtering chain to the
-> original state and apply the search across the specified thresholds.
+> The ``search_thresholds()`` method can be called either before or after any other filtering, but note that it will reset the filtering chain to the original state. If you call ``search_thresholds()`` after applying other filters, it will reset the filtering chain to the original state and apply the search across the specified thresholds.
 
-`plot_sankey_filtering_report()` generates a Sankey plot to visualize
+``plot_sankey_filtering_report()`` generates a Sankey plot to visualize
 how SNPs are filtered at each step of the pipeline. For example:
 
 ``` python
@@ -513,49 +411,37 @@ and generate a Sankey plot to visualize the filtering process. The
 Sankey plot shows how many loci are removed at each step of the
 filtering process. For example:
 
-<figure class="img-responsive">
-<img src="snpio/img/nremover_sankey_plot.png"
-alt="snpio/img/nremover_sankey_plot.png" />
-<figcaption>Figure 9: Sankey Plot Depicting Loci Retained and Removed at
-Each Filtering Step. The green bands represent the number of loci
-remaining after each filtering step, and the red bands represent the
-number of loci removed at each filtering step. The bands are
-proportional to the number of loci retained or removed at each step. The
-order of the filtering steps is dynamic based on the order of the
-filters applied in the filtering chain.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/nremover_sankey_plot.png}
+  \caption{Sankey plot depicting loci retained and removed at each filtering step.}
+\end{figure}
 
 > [!NOTE]
-> The `plot_sankey_filtering_report()` must be called after filtering
-> and calling the `resolve()` method to generate the Sankey plot. It is
-> also incompatible with `thin_loci()`, `filter_linked()`, and
-> `random_subset_loci()` being in the filter_order list.
->
-> `plot_sankey_filtering_report()` also only plots loci removed at each
-> filtering step and does not plot samples removed. It is designed to
-> visualize the filtering process for loci only.
+> The `plot_sankey_filtering_report()` must be called after filtering and calling the `resolve()` method to generate the Sankey plot. It is also incompatible with `thin_loci()`, ``filter_linked()``, and ``random_subset_loci()`` being in the ``filter_order`` list.
+
+> `plot_sankey_filtering_report()` also only plots loci removed at each filtering step and does not plot samples removed. It is designed to visualize the filtering process for loci only.
 
 ## GenotypeData Properties
 
 Once genotype data is loaded using any of the readers, you can access
 several useful properties from the `GenotypeData` object:
 
-|  |  |
-|----|----|
-| **Attribute** | **Description** |
-| `num_snps` | Number of SNPs or loci in the dataset. |
-| `num_inds` | Number of individuals in the dataset. |
-| `populations` | List of populations in the dataset. |
-| `popmap` | Mapping of SampleIDs to PopulationIDs. |
+| Attribute          | Description |
+|-------------------|-------------|
+| `num_snps`       | Number of SNPs or loci in the dataset. |
+| `num_inds`       | Number of individuals in the dataset. |
+| `populations`    | List of populations in the dataset. |
+| `popmap`         | Mapping of SampleIDs to PopulationIDs. |
 | `popmap_inverse` | Dictionary with population IDs as keys and lists of samples as values. |
-| `samples` | List of samples in the dataset. |
-| `snpsdict` | Dictionary with sampleIDs as keys and genotypes as values. |
-| `loci_indices` | Numpy array with boolean values indicating the loci that passed the filtering criteria set to `True`. |
+| `samples`        | List of samples in the dataset. |
+| `snpsdict`       | Dictionary with SampleIDs as keys and genotypes as values. |
+| `loci_indices`   | Numpy array with boolean values indicating the loci that passed the filtering criteria set to `True`. |
 | `sample_indices` | Numpy array with boolean values indicating the samples that passed the filtering criteria set to `True`. |
-| `snp_data` | 2D numpy array of SNP data of shape (num_inds, num_snps). |
-| `ref` | List of reference alleles for each locus. |
-| `alt` | List of alternate alleles for each locus. |
-| `inputs` | Dictionary of input parameters used to load the genotype data. |
+| `snp_data`       | 2D numpy array of SNP data of shape (num_inds, num_snps). |
+| `ref`            | List of reference alleles for each locus. |
+| `alt`            | List of alternate alleles for each locus. |
+| `inputs`         | Dictionary of input parameters used to load the genotype data. |
 
 ## Genotype Encoding with GenotypeEncoder
 
@@ -643,7 +529,7 @@ GenotypeData object and convert it to the original format stored in the
 
 ## Population Genetics Analysis with PopGenStatistics
 
-The <span class="title-ref">PopGenStatistics</span> class is designed to
+The ``PopGenStatistics`` class is designed to
 perform a suite of population genetic analyses on SNP datasets. It
 supports calculations such as D-statistics, Fst outliers,
 heterozygosity, nucleotide diversity, and Analysis of Molecular Variance
@@ -651,23 +537,17 @@ heterozygosity, nucleotide diversity, and Analysis of Molecular Variance
 structure, diversity, and differentiation within and between
 populations.
 
-The <span class="title-ref">PopGenStatistics</span> class provides
-several methods for calculating population genetic statistics and
-performing analyses on genotype data:
+The ``PopGenStatistics`` class provides several methods for calculating population genetic statistics and performing analyses on genotype data:
 
-| Class Method | Description | Supported Algorithm(s) |
-|----|----|----|
-| `calculate_d_statistics` | Calculates D-statistics and saves them as CSV. | Patterson's, partitioned, and D-foil D-statistics. |
-| `detect_fst_outliers` | Identifies Fst outliers. Supports one-tailed & two-tailed P-values. | DBSCAN clustering, Traditional bootstrapping. |
-| `summary_statistics` | Calculates several population genetic summary statistics. | Observed heterozygosity (Ho), Expected heterozygosity (He), Nucleotide diversity (Pi), Weir and Cockerham's Fst. |
-| `amova` | Conducts AMOVA with bootstrapping and parallel computation. | Hierarchical AMOVA, variance components, Phi statistics. |
-| `neis_genetic_distance` | Computes Nei's genetic distance between population pairs. | Nei's genetic distance. |
+| Class Method            | Description | Supported Algorithm(s) |
+|------------------------|-------------|------------------------|
+| `calculate_d_statistics` | Calculates D-statistics and saves as CSV. | Patterson's, partitioned, and D-foil D-statistics. |
+| `detect_fst_outliers`   | Identifies Fst outliers. Supports P-values. | DBSCAN clustering, Traditional bootstrapping. |
+| `summary_statistics`    | Calculates genetic summary statistics. | Observed heterozygosity (Ho), Expected heterozygosity (He), Nucleotide diversity (Pi), Weir and Cockerham's Fst. |
 
-PopGenStatistics Core Methods
+### PopGenStatistics Core Methods
 
-Here is an example of how to use the
-<span class="title-ref">PopGenStatistics</span> class to perform
-population genetic analyses:
+Here is an example of how to use the ``PopGenStatistics`` class to perform population genetic analyses:
 
 ``` python
 from snpio import VCFReader, PopGenStatistics
@@ -725,24 +605,15 @@ df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
 )
 ```
 
-The <span class="title-ref">PopGenStatistics</span> class provides a
-comprehensive suite of methods for calculating population genetic
-statistics and performing analyses on genotype data. These methods can
-help you understand the genetic structure, diversity, and
-differentiation within and between populations, and identify outliers
-and patterns in the data.
+The ``PopGenStatistics`` class provides a comprehensive suite of methods for calculating population genetic statistics and performing analyses on genotype data. These methods can help you understand the genetic structure, diversity, and differentiation within and between populations, and identify outliers and patterns in the data.
 
-Below is an example of the output from the
-<span class="title-ref">neis_genetic_distance</span> method:
+Below is an example of the output from the ``neis_genetic_distance`` method:
 
-<figure class="img-responsive">
-<img src="snpio/img/nei&#39;s_genetic_distance.png"
-alt="snpio/img/nei&#39;s_genetic_distance.png" />
-<figcaption>Figure 10: Nei's Genetic Distance Matrix, with the genetic
-distance between population pairs indicated by the heatmap. The plot
-shows the genetic distance between population pairs, with the genetic
-distance values indicated by the heatmap colors.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/neis_genetic_distance.png}
+  \caption{Nei's Genetic Distance Matrix.}
+\end{figure}
 
 The summary statistics method generates a summary report with observed
 heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity
@@ -750,65 +621,47 @@ heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity
 report includes plots of the summary statistics for each population,
 which can help you visualize the genetic diversity and differentiation
 within and between populations. Below is an example figure generated by
-the <span class="title-ref">summary_statistics</span> method:
+the ``summary_statistics`` method:
 
-<figure class="img-responsive">
-<img src="snpio/img/summary_statistics.png"
-alt="snpio/img/summary_statistics.png" />
-<figcaption>Figure 11: Summary Statistics Report, with observed
-heterozygosity (Ho), expected heterozygosity (He), and nucleotide
-diversity (Pi) plotted per-locus (left panel) and with the overal means
-(right panel). The plot shows the genetic diversity and differentiation
-within and between populations, with the summary statistics values
-indicated by the line and bar plots.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/summary_statistics.png}
+  \caption{Summary statistics report with heterozygosity and nucleotide diversity.}
+\end{figure}
 
 The D-statistics method calculates Patterson's D-statistics, partitioned
 D-statistics, and D-foil D-statistics for the specified population
 groups. The method returns a DataFrame with the D-statistics values and
 overall results for the analysis. Below are three example visualizations
-made by the <span class="title-ref">calculate_d_statistics</span>
-method:
+made by the ``calculate_d_statistics`` method:
 
-<figure class="img-responsive">
-<img src="snpio/img/d_statistics_distribution.png"
-alt="snpio/img/d_statistics_distribution.png" />
-<figcaption>Figure 12: D-statistics Distribution Histogram Plot, with
-the overall distribution of D-statistic values visualized and with the
-mean indicated by the vertical line.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/d_statistics_distribution.png}
+  \caption{D-statistics distribution histogram plot.}
+\end{figure}
 
-<figure class="img-responsive">
-<img src="snpio/img/d_statistics_significance_counts.png"
-alt="snpio/img/d_statistics_significance_counts.png" />
-<figcaption>Figure 13: D-statistics Significance Counts Bar Plot, with
-the number of significant and non-significant D-statistics values
-indicated for each multiple comparison test correction method (None,
-Bonferroni, FDR).</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/d_statistics_significance_counts.png}
+  \caption{D-statistics significance counts bar plot.}
+\end{figure}
 
-Below is an example of the plot made by the
-<span class="title-ref">detect_fst_outliers</span> method:
+Below is an example of the plot made by the ``detect_fst_outliers`` method:
 
-<figure class="img-responsive">
-<img src="snpio/img/outlier_snps_heatmap.png"
-alt="snpio/img/outlier_snps_heatmap.png" />
-<figcaption>Figure 14: Fst Outlier SNPs Heatmap, with the Fst values for
-each SNP visualized as a heatmap. The plot shows the Fst values for each
-SNP, with the Fst values indicated by the heatmap colors.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[height=0.5\textwidth]{snpio/img/outlier_snps_heatmap.png}
+  \caption{Fst outlier SNPs heatmap.}
+\end{figure}
 
-Finally, below is a plot depicting the results of the per-population
-pairwise Fst analysis:
+Finally, below is a plot depicting the results of the per-population pairwise Fst analysis:
 
-<figure class="img-responsive">
-<img src="snpio/img/fst_between_populations_heatmap.png"
-alt="snpio/img/fst_between_populations_heatmap.png" />
-<figcaption>Figure 15: Pairwise Fst Heatmap, with the pairwise Fst
-values between populations visualized as a heatmap. The plot shows the
-pairwise Fst values between populations, with the Fst values indicated
-by the heatmap colors.</figcaption>
-</figure>
+\begin{figure}
+  \centering
+  \includegraphics[width=0.8\textwidth]{snpio/img/fst_between_populations_heatmap.png}
+  \caption{Pairwise Fst heatmap.}
+\end{figure}
 
 ## Loading and Parsing Phylogenetic TreeParser
 
@@ -961,10 +814,7 @@ questions or feedback, please feel free to reach out to the developers.
 We hope you find SNPio useful for your bioinformatic analyses!
 
 > [!NOTE]
-> The SNPio library is under active development, and we welcome
-> contributions from the community. If you would like to contribute to
-> the project, please check the GitHub repository for open issues and
-> submit a pull request. We appreciate your support and feedback!
+> The SNPio library is under active development, and we welcome contributions from the community. If you would like to contribute to the project, please check the GitHub repository for open issues and submit a pull request. We appreciate your support and feedback!
 
 If you encounter any issues or have any questions about the SNPio
 library, please feel free to reach out to the developers or open an
