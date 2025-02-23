@@ -4,7 +4,7 @@ import sys
 # -- Project information -----------------------------------------------------
 project = "SNPio"
 copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
-author = "Bradley T. Martin and Tyler K. Chafin"
+author = "Drs. Bradley T. Martin and Tyler K. Chafin"
 release = "1.2.1"
 
 # -- Path setup --------------------------------------------------------------
