@@ -50,6 +50,6 @@ about:
     license: {{ license }}
     license_family: GPL
     license_file: LICENSE
-    summary: "Reads and writes VCF, PHYLIP, and STRUCTURE files, performs data filtering on the alignment, and performs various population genetic analyses."
+    summary: "SNPio is a Python API for population genetic file processing, filtering, and analysis. SNPio is designed to be a user-friendly tool for the manipulation of population genetic data in a variety of formats, including VCF, PHYLIP, and STRUCTURE files. SNPio can be used to filter data based on missing data, minor allele frequency, singletons, and monomorphic sites. SNPio can also be used to convert between file formats, and to generate summary statistics for population genetic analyses. SNPio is designed to be a flexible and user-friendly tool for the analysis of population genetic data."
     dev_url: {{ github_url }}
     doc_url: https://snpio.readthedocs.io/en/latest/
