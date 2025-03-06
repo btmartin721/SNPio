@@ -1,4 +1,4 @@
-% Contents of listings-setup.tex
+% Required Packages
 \usepackage{xcolor}
 \usepackage{graphicx}
 \usepackage{caption}
@@ -6,30 +6,41 @@
 \usepackage{hyperref}
 \usepackage{float}
 \usepackage{tocloft}
-\providecommand{\pandocbounded}[1]{#1}
+\usepackage{fvextra}
+\usepackage{listings}
+\usepackage{fontspec}
+\usepackage{tcolorbox}
 
+% Ensure proper monospaced font support
+\setmonofont{Courier New}  % Change to a different monospaced font if needed
 
-\lstset{
-    basicstyle=\ttfamily,
-    numbers=left,
-    numberstyle=\footnotesize,
-    stepnumber=2,
-    numbersep=5pt,
-    backgroundcolor=\color{black!10},
+% Define Clean, Readable Colors
+\definecolor{codebg}{RGB}{240, 240, 240}      % Light gray background
+\definecolor{codeborder}{RGB}{200, 200, 200}  % Slightly darker gray for borders
+\definecolor{keywordcolor}{RGB}{0, 102, 204}  % Deep blue for keywords
+\definecolor{stringcolor}{RGB}{163, 21, 21}   % Dark red for strings
+\definecolor{commentcolor}{RGB}{0, 153, 51}   % Green for comments
+\definecolor{numbercolor}{RGB}{128, 0, 128}   % Purple for numbers
+\definecolor{textcolor}{RGB}{0, 0, 0}         % Black for normal text
+
+% ========== Define Block Code Formatting ==========
+
+\lstdefinestyle{cleanstyle}{
+    backgroundcolor=\color{codebg},  % Light gray background
+    frame=single,                    % Single-line frame
+    rulecolor=\color{codeborder},     % Gray frame border
+    basicstyle=\ttfamily\footnotesize\color{textcolor},  % Monospace dark text
+    keywordstyle=\bfseries\color{keywordcolor},  % Keywords in deep blue
+    stringstyle=\color{stringcolor},  % Strings in dark red
+    commentstyle=\color{commentcolor}, % Comments in green
+    numberstyle=\color{numbercolor},  % Numbers in purple
     showspaces=false,
     showstringspaces=false,
-    showtabs=false,
-    tabsize=2,
-    captionpos=b,
     breaklines=true,
-    breakatwhitespace=true,
-    breakautoindent=true,
-    linewidth=\textwidth
+    tabsize=4,
+    captionpos=b,
+    language=Python
 }
 
-% Adjust spacing between TOC and LOF.
-% Adjust spacing before section entries in ToC
-\setlength{\cftbeforesecskip}{10pt}     
-\setlength{\cftbeforesubsecskip}{10pt} 
-\setlength{\cftbeforesecskip}{10pt}
-\setlength{\cftbeforefigskip}{10pt}
+% Apply Default Code Style
+\lstset{style=cleanstyle}

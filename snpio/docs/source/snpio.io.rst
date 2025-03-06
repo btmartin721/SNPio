@@ -4,30 +4,29 @@ snpio.io package
 Submodules
 ----------
 
-snpio.io.phylip\_reader module
+snpio.io.phylip_reader module
 ------------------------------
 
 .. automodule:: snpio.io.phylip_reader
    :members:
+   :no-index:
+   :undoc-members:
    :show-inheritance:
 
-snpio.io.structure\_reader module
+snpio.io.structure_reader module
 ---------------------------------
 
 .. automodule:: snpio.io.structure_reader
    :members:
+   :no-index:
+   :undoc-members:
    :show-inheritance:
 
-snpio.io.vcf\_reader module
+snpio.io.vcf_reader module
 ---------------------------
 
 .. automodule:: snpio.io.vcf_reader
    :members:
-   :show-inheritance:
-
-Module contents
----------------
-
-.. automodule:: snpio.io
-   :members:
+   :no-index:
+   :undoc-members:
    :show-inheritance:

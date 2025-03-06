@@ -13,8 +13,6 @@ Below is the code for the script:
 
 .. code-block:: python
 
-   import pprint
-
    import pandas as pd
 
    from snpio import (
@@ -25,6 +23,11 @@ Below is the code for the script:
       TreeParser,
       VCFReader,
    )
+
+   # Uncomment the following line to import the Benchmark class.
+   # NOTE: For development purposes. Comment out for normal use.
+   # from snpio.utils.benchmarking import Benchmark
+
 
    def main():
       # Read the alignment, popmap, and tree files.
@@ -41,39 +44,33 @@ Below is the code for the script:
 
       summary_stats = pgs.summary_statistics(save_plots=True)
 
-      df_fst_outliers, df_fst_outlier_pvalues = pgs.detect_fst_outliers(
-         correction_method="bonf", use_bootstrap=False
+      df_fst_outliers_boot, df_fst_outlier_pvalues_boot = pgs.detect_fst_outliers(
+         correction_method="bonf",
+         use_bootstrap=True,
+         n_bootstraps=1000,
+         n_jobs=1,
+         tail_direction="upper",
+      )
+
+      df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
+         correction_method="bonf", use_bootstrap=False, n_jobs=1
       )
 
       # NOTE: Takes a while to run.
-      # Run AMOVA with the regionmap and other parameters.
-      # The regionmap is a dictionary that maps populations to regions/ groups.
       amova_results = pgs.amova(
          regionmap={
-               "EA": "Eastern",
-               "GU": "Eastern",
-               "TT": "Eastern",
-               "TC": "Eastern",
-               "ON": "Ornate",
+            "EA": "Eastern",
+            "GU": "Eastern",
+            "TT": "Eastern",
+            "TC": "Eastern",
                "DS": "Ornate",
          },
          n_bootstraps=10,
-         n_jobs=8,
+         n_jobs=1,
          random_seed=42,
       )
 
-      print(summary_stats)
-      print(amova_results)
-      print(df_fst_outliers.head())
-      print(df_fst_outlier_pvalues.head())
-
-      nei_dist_df = pgs.neis_genetic_distance()
-
-      print(nei_dist_df)
-
-      taj_d = pgs.tajimas_d()
-
-      print(taj_d)
+      nei_dist_df, nei_pvals_df = pgs.neis_genetic_distance(n_bootstraps=1000)
 
       dstats_df, overall_results = pgs.calculate_d_statistics(
          method="patterson",
@@ -82,12 +79,9 @@ Below is the code for the script:
          population3="TT",
          outgroup="ON",
          num_bootstraps=10,
-         n_jobs=10,
+         n_jobs=1,
          max_individuals_per_pop=6,
       )
-
-      print(dstats_df.head())
-      pprint.pprint(overall_results, indent=4)
 
       # # Run PCA and make missingness report plots.
       plotting = Plotting(genotype_data=gd)
@@ -136,10 +130,6 @@ Below is the code for the script:
       df012 = pd.DataFrame(gt_012)
       dfint = pd.DataFrame(gt_int)
 
-      print(df012.head())
-      print(gt_onehot[:5])
-      print(dfint.head())
-
       tp = TreeParser(
          genotype_data=gd_filt,
          treefile="snpio/example_data/trees/test.tre",
@@ -152,20 +142,8 @@ Below is the code for the script:
       # # Get a toytree object by reading the tree file.
       tree = tp.read_tree()
 
-      # # Get the tree stats. Returns a dictionary of tree stats.
-      print(tp.tree_stats())
-
       # # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
       tp.reroot_tree("~EA")
-
-      # # Get a distance matrix between all nodes in the tree.
-      print(tp.get_distance_matrix())
-
-      # # Get the Rate Matrix Q from the Qmatrix file.
-      print(tp.qmat)
-
-      # # Get the Site Rates from the Site Rates file.
-      print(tp.site_rates)
 
       # # Get a subtree with only the samples containing 'EA' in the sampleID.
       subtree = tp.get_subtree("~EA")
@@ -173,13 +151,9 @@ Below is the code for the script:
       # # Prune the tree to remove samples containing 'ON' in the sampleID.
       pruned_tree = tp.prune_tree("~ON")
 
-      # Write the subtree and pruned tree. Returns a Newick string if
-      # 'save_path' is None.
-      print(tp.write_tree(subtree, save_path=None))
-      print(tp.write_tree(pruned_tree, save_path=None))
-
 
    if __name__ == "__main__":
       main()
+
 
 

@@ -33,7 +33,7 @@ html_context = {
     "github_repo": "SNPio",  # GitHub repo
     "github_version": "master",  # Branch to use
     "conf_py_path": "/docs/source/",  # Path to docs in the repo
-    "current_version": "v1.1.0",  # Project version
+    "current_version": "v1.2.2",  # Project version
     "display_version": True,  # Display version number in the theme
     "latest_version": "master",  # Define the latest stable version
     "display_edit_on_github": True,  # Add 'Edit on GitHub' link

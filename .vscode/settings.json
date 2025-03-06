@@ -16,5 +16,12 @@
   "python.testing.unittestEnabled": false,
   "python.defaultInterpreterPath": "C:/Users/evobi/Documents/SNPio/.snpio-dev/bin/python",
   "python.REPL.enableREPLSmartSend": false,
-  "pasteAndIndent.selectAfter": true
+  "pasteAndIndent.selectAfter": true,
+  "yaml.schemas": {
+    "https://raw.githubusercontent.com/weaveworks/eksctl/main/pkg/apis/eksctl.io/v1alpha5/assets/schema.json": "*.eksctl.yaml",
+    "https://json.schemastore.org/yamllint.json": [
+      "file:///Users/btm002/Documents/research/SNPio/snpio/docs/metadata.yaml"
+    ],
+    "https://raw.githubusercontent.com/conda-forge/conda-smithy/main/conda_smithy/data/conda-forge.json": "file:///Users/btm002/Documents/research/SNPio/recipes/snpio/meta.yaml"
+  }
 }

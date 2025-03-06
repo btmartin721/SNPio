@@ -1,4 +1,4 @@
-title: "SNPio: A Python API for Population Genetic File Processing, Filtering, and Encoding"
+title: "SNPio: A Python API for Population Genetic File Processing, Filtering, and Analysis"
 subtitle: "Getting Started with SNPio"
 author: "Drs. Bradley T. Martin and Tyler K. Chafin"
 date: "03-06-2025"
@@ -33,15 +33,13 @@ titlepage-rule-height: 4
 logo: "snpio/img/snpio_logo.png"
 logo-width: 60%
 page-background: "FFFFFF"
-page-background-opacity:
 links-as-notes: false
 lot: false
 lof: true
 listings-disable-line-numbers: true
-listings-no-page-break: false
+listings-no-page-break: true
 disable-header-and-footer: false
 header-left: "Drs. Bradley T. Martin and Tyler K. Chafin"
-header-center:
 header-right: "SNPio User Manual"
 footer-left: "License: GNU Public License v3 (GPL3)"
 footer-center:

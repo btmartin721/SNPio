@@ -5,33 +5,25 @@ Changelog
 This document outlines the changes made to the project with each release.
 
 Version 1.2.1 (2025-01-06)
+----------------------------
 
 Features
 ~~~~~~~~~
 
-- Improved the `PopGenStatistics` class to include new functionality to calculate genetic distances between populations and Tajima's D per locus:
+- Improved the `PopGenStatistics` class to include new functionality to calculate genetic distances between populations:
     -  calculate genetic distances between populations using the `neis_genetic_distance()` method. The method calculates Nei's genetic distance between populations and returns a pandas DataFrame with the genetic distances.
-    -   Tajima's D per locus using the `tajimas_d` method. The method calculates Tajima's D per locus and returns a pandas Series with the Tajima's D values.
 
-- The `PopGenStatistics` class now has the following public methods:
-    - `neis_genetic_distance()`
-    - `tajimas_d()`
-    - `calculate_d_statistics()`
-    - `detect_fst_outliers()`
-    - `observed_heterozygosity()`
-    - `expected_heterozygosity()`
-    - `observed_heterozygosity_per_population()`
-    - `expected_heterozygosity_per_population()`
-    - `nucleotide_diversity()`
-    - `nucleotide_diversity_per_population()`
-    - `summary_statistics()`
-    - `amova()`
-    - `weir_cockerham_fst_between_populations()`
-    - `plot_d_statistics()`
+- The `PopGenStatistics` class now has the following public (user-facing) methods:
+    - `neis_genetic_distance`
+    - `calculate_d_statistics`
+    - `detect_fst_outliers`
+    - `summary_statistics`
+    - `amova`
 
-- The AMOVA method now returns a dictionary with the AMOVA results. Its functionality has been greatly extended to follow Excoffier et al. (1992) and Excoffier et al. (1999) methods. 
-    - The method now calculates the variance components (within populations, within regions among popoulations, and among regions), Phi-statistics, and p-values via bootstrapping for the AMOVA analysis.
-    - A `regionmap` dictionary is now required to map populations to regions/groups.
+- The AMOVA method now returns a dictionary with the AMOVA results. Its functionality has been greatly extended to follow Excoffier et al. (1992) and Excoffier et al. (1999) methods. The method now calculates the variance components (within populations, within regions among popoulations, and among regions), Phi-statistics, and p-values via bootstrapping for the AMOVA analysis. A `regionmap` dictionary is now required to map populations to regions/groups. The method also has the following new parameters:
+    - `n_bootstraps`: The number of bootstraps to perform.
+    - `n_jobs`: The number of jobs to run in parallel.
+    - `random_seed`: The random seed for reproducibility.
 
 Enhancements
 ~~~~~~~~~~~~
@@ -39,19 +31,28 @@ Enhancements
 - Improved the `PopGenStatistics` class to include new functionality to calculate observed and expected heterozygosity per population and nucleotide diversity per population.
 - Improved the `PopGenStatistics` class to include new functionality to calculate Weir and Cockerham's Fst between populations.
 - Improved aesthetics of the Fst heatmap plot.
-- Improved the `PopGenStatistics` class to include new functionality to plot D-statistics.
+- Improved the `PopGenStatistics` class to include new functionality to plot D-statistics (Patterson's, Partitioned, and D-foil) and save them as CSV files.
+- Improved the `PopGenStatistics` class to include new functionality to calculate Nei's genetic distance between populations.
+- Improved the `PopGenStatistics` class to include new functionality to plot Nei's distance matrix between populations.
 - Improved the `PopGenStatistics` class to include new functionality to plot Fst outliers.
     - Two ways:
         - DBSCAN clustering method
         - Bootstrapping method
-- Improved the `PopGenStatistics` class to include new functionality to plot summary statistics.
+- Improved the `PopGenStatistics` class to include new functionality to plot summary statistics. The method now returns a dictionary with the summary statistics.
+- Improved the `PopGenStatistics` class to include new functionality to calculate AMOVA results. The method now returns a dictionary with the AMOVA results.
+- Improved the `PopGenStatistics` class to include new functionality to calculate genetic distances between populations. The method calculates Nei's genetic distance between populations and returns a pandas DataFrame with the genetic distances.
+
+Changes
+~~~~~~~~
+
+- Much of the code has been refactored to improve readability and maintainability. This includes moving the `neis_genetic_distance()` method to the `genetic_distance` module, the `amova()` method to the `amova` module, and the `fst_outliers()` method to the `fst_outliers` module. The `summary_statistics()` method has been moved to the `summary_statistics` module, and the D-statistics methods have been moved to the `d_statistics` module.
 
 Deprecations
 ~~~~~~~~~~~~
 
 The following method have been deprecated:
 
-- `wrights_fst()`: Use `weir_cockerham_fst_between_populations()` instead.
+- `wrights_fst()`: Uses `weir_cockerham_fst_between_populations()` instead.
 
 Bug Fixes
 ~~~~~~~~~~

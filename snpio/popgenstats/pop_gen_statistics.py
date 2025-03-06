@@ -1,23 +1,21 @@
-import itertools
-import multiprocessing
-from concurrent.futures import ThreadPoolExecutor
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import numpy as np
 import pandas as pd
-from kneed import KneeLocator
-from scipy.stats import norm
-from sklearn.cluster import DBSCAN
-from sklearn.neighbors import NearestNeighbors
-from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
 from snpio import GenotypeEncoder, Plotting
 from snpio.popgenstats.amova import AMOVA
 from snpio.popgenstats.d_statistics import DStatistics
+from snpio.popgenstats.fst_outliers import FstOutliers
+from snpio.popgenstats.genetic_distance import GeneticDistance
+from snpio.popgenstats.summary_statistics import SummaryStatistics
 from snpio.utils.logging import LoggerManager
+from snpio.utils.results_exporter import ResultsExporter
+
+exporter = ResultsExporter(output_dir="snpio_output")
 
 
 class PopGenStatistics:
@@ -70,6 +68,9 @@ class PopGenStatistics:
         self.encoder = GenotypeEncoder(self.genotype_data)
         self.alignment_012: np.ndarray = self.encoder.genotypes_012.astype(np.float64)
 
+        exporter.output_dir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+
+    @exporter.capture_results
     def calculate_d_statistics(
         self,
         method: str,
@@ -283,13 +284,13 @@ class PopGenStatistics:
 
     def detect_fst_outliers(
         self,
-        correction_method: Optional[str] = None,
+        correction_method: Literal["bonf", "fdr"] | None = None,
         alpha: float = 0.05,
         use_bootstrap: bool = False,
         n_bootstraps: int = 1000,
         n_jobs: int = 1,
-        save_plot: bool = True,
-    ):
+        tail_direction: Literal["both", "upper", "lower"] = "both",
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Detect Fst outliers from SNP data using bootstrapping or DBSCAN.
 
         This method detects Fst outliers from SNP data using bootstrapping or DBSCAN clustering. Outliers are identified based on the distribution of Fst values between population pairs. The method returns a DataFrame containing the Fst outliers and contributing population pairs, as well as a DataFrame containing the adjusted or unadjusted P-values, depending on whether a multiple testing correction method was specified.
@@ -300,18 +301,22 @@ class PopGenStatistics:
             use_bootstrap (bool): Whether to use bootstrapping to estimate variance of Fst per SNP. If False, DBSCAN clustering is used instead. Defaults to False.
             n_bootstraps (int): Number of bootstrap replicates to use for estimating variance of Fst per SNP. Defaults to 1000.
             n_jobs (int): Number of CPU threads to use for parallelization. If set to -1, all available CPU threads are used. Defaults to 1.
-            save_plot (bool): Whether to save the heatmap plot of Fst outliers. Defaults to True.
+            tail_direction (str): Direction of the test for Fst outliers. "both" for two-tailed, "upper" for testing higher than expected, and "lower" for lower than expected. Defaults to "both".
 
         Returns:
             Tuple[pd.DataFrame, pd.DataFrame]: A DataFrame containing the Fst outliers and contributing population pairs, and a DataFrame containing the adjusted P-values if ``correction_method`` was provided or the un-adjusted P-values otherwise.
         """
         self.logger.info("Detecting Fst outliers...")
 
-        if correction_method:
+        fo = FstOutliers(
+            self.genotype_data, self.alignment_012, self.logger, self.plotter
+        )
+
+        if correction_method is not None:
             correction_method = correction_method.lower()
             if correction_method not in {"bonf", "fdr"}:
                 msg: str = (
-                    f"Invalid correction_method. Supported options: 'bonferroni', 'fdr', but got: {correction_method}"
+                    f"Invalid correction_method. Supported options: 'bonf', 'fdr', but got: {correction_method}"
                 )
                 self.logger.error(msg)
                 raise ValueError(msg)
@@ -423,179 +428,29 @@ class PopGenStatistics:
             random_seed=random_seed,
         )
 
-    def tajimas_d(self) -> pd.Series:
-        """
-        Calculate Tajima's D for each locus.
-
-        Tajima's D is a measure of the difference between two estimates of genetic diversity: the average number of pairwise differences (π) and Watterson's θ (based on segregating sites). A significant deviation of Tajima's D from zero suggests non-neutral evolution.
-
-        Returns:
-            pd.Series: Tajima's D values for each locus.
-        """
-        self.logger.info("Calculating Tajima's D...")
-
-        # Step 1: Set up alignment data
-        alignment = self.alignment_012.astype(float).copy()
-        alignment[alignment == -9] = np.nan  # Replace missing data with NaN
-
-        # Step 2: Calculate nucleotide diversity (π)
-        pi = self.nucleotide_diversity()
-
-        # Step 3: Calculate the number of segregating sites (S)
-        S = np.array(
-            [np.sum(np.unique(col[~np.isnan(col)]) > 0) for col in alignment.T]
-        )
-
-        # Step 4: Calculate Watterson's theta
-        n_samples = np.sum(~np.isnan(alignment), axis=0)
-
-        # Filter out loci with all missing data
-        a1 = np.array(
-            [np.sum(1.0 / np.arange(1, n + 1)) if n > 0 else 0 for n in n_samples]
-        )
-        a2 = np.array(
-            [
-                np.sum(1.0 / (np.arange(1, n + 1) ** 2)) if n > 0 else 0
-                for n in n_samples
-            ]
-        )
-        a1 = np.array(
-            [np.sum(1.0 / np.arange(1, n + 1)) if n > 0 else 0 for n in n_samples]
-        )
-        a2 = np.array(
-            [
-                np.sum(1.0 / (np.arange(1, n + 1) ** 2)) if n > 0 else 0
-                for n in n_samples
-            ]
-        )
-
-        theta = np.divide(S, a1, where=a1 > 0)
-        theta[a1 == 0] = np.nan  # Handle invalid cases
-
-        # Step 5: Calculate variance and constants for Tajima's D
-        b1 = (n_samples - 1) / (2 * n_samples)
-        b2 = (n_samples - 1) * (2 * n_samples + 1) / (6 * n_samples**2)
-        c1 = b1 - (1 / a1)
-        c2 = b2 - (n_samples + 2) / (a1 * n_samples) + a2 / (a1**2)
-
-        e1 = np.divide(c1, a1, where=a1 > 0)
-        e2 = np.divide(c2, a1**2 + a2, where=(a1**2 + a2) > 0)
-
-        # Step 6: Calculate Tajima's D
-        variance_term = e1 * S + e2 * S * (S - 1)
-        variance = np.sqrt(variance_term)
-
-        # Set variance to NaN where S is zero or one
-        variance[(S == 0) | (S == 1)] = np.nan
-        tajimas_d = np.divide(pi - theta, variance, where=variance > 0)
-
-        # Handle invalid cases
-        tajimas_d[(variance == 0) | (n_samples <= 1)] = np.nan
-        # Handle invalid cases
-        tajimas_d[(variance == 0) | (n_samples <= 1)] = np.nan
-
-        tajimas_d = pd.Series(tajimas_d, name="Tajima's D")
-
-        self.logger.info("Tajima's D calculation complete!")
-
-        return tajimas_d
-
-    def neis_genetic_distance(self) -> pd.DataFrame:
+    @exporter.capture_results
+    def neis_genetic_distance(
+        self,
+        n_bootstraps: int = 0,
+        palette: str = "coolwarm",
+        supress_plot: bool = False,
+    ) -> pd.DataFrame | Tuple[pd.DataFrame, pd.DataFrame]:
         """Calculate Nei's genetic distance between all pairs of populations.
 
-        Nei's genetic distance is a measure of genetic divergence between populations. It is calculated based on the allele frequencies at each locus. A higher value indicates greater genetic distance, or differentiation, between populations.
+        Optionally computes bootstrap-based p-values for each population pair if n_bootstraps > 0.
 
-        Returns:
-            pd.DataFrame: A DataFrame where each cell (i, j) represents Nei's genetic distance between populations i and j.
-        """
-        # Step 1: Get allele frequencies per population
-        allele_freqs_per_pop = self._calculate_allele_frequencies()
-
-        # Step 2: Initialize DataFrame to store Nei's genetic distance for each population pair
-        populations = list(allele_freqs_per_pop.keys())
-        dist_matrix = pd.DataFrame(index=populations, columns=populations, dtype=float)
-
-        # Step 3: Calculate Nei's genetic distance for each pair of populations
-        for i, pop1 in enumerate(populations):
-            freqs_pop1 = allele_freqs_per_pop[pop1]
-
-            # Compare each population with every other population, including itself
-            for j, pop2 in enumerate(populations):
-                if i == j:
-                    dist_matrix.loc[pop1, pop2] = (
-                        0.0  # Genetic distance with itself is zero
-                    )
-                else:
-                    freqs_pop2 = allele_freqs_per_pop[pop2]
-
-                    # Calculate Nei's genetic distance across loci
-                    neis_distance = self._calculate_neis_distance_between_pops(
-                        freqs_pop1, freqs_pop2
-                    )
-
-                    # Set distance symmetrically
-                    dist_matrix.loc[pop1, pop2] = neis_distance
-                    dist_matrix.loc[pop2, pop1] = neis_distance
-
-        # Ensure all expected indices are in the DataFrame
-        dist_matrix = dist_matrix.reindex(index=populations, columns=populations)
-
-        return dist_matrix
-
-    def _calculate_allele_frequencies(self) -> dict:
-        """
-        Helper method to calculate allele frequencies for each population at each locus.
-
-        Returns:
-            dict: A dictionary where keys are population IDs and values are arrays of allele
-            frequencies per locus.
-        """
-        pop_indices = self.genotype_data.get_population_indices()
-        allele_freqs_per_pop = {}
-
-        for pop_id, indices in pop_indices.items():
-            # Subset alignment for population
-            pop_alignment = self.alignment_012[indices, :].astype(float).copy()
-            pop_alignment[pop_alignment == -9] = np.nan  # Replace missing data
-
-            # Calculate allele frequencies
-            # Since diploid
-            total_alleles = 2 * np.sum(~np.isnan(pop_alignment), axis=0)
-            alt_allele_counts = np.nansum(pop_alignment, axis=0)
-
-            # Avoid division by zero
-            freqs = np.divide(alt_allele_counts, total_alleles, where=total_alleles > 0)
-
-            allele_freqs_per_pop[pop_id] = freqs
-
-        return allele_freqs_per_pop
-
-    def _calculate_neis_distance_between_pops(
-        self, freqs_pop1: np.ndarray, freqs_pop2: np.ndarray
-    ) -> float:
-        """
-        Helper method to calculate Nei's genetic distance between two populations based on
-        their allele frequencies.
+        Nei's genetic distance is defined as ``D = -ln( Ī )``, where Ī is the ratio of the average genetic identity to the geometric mean of the average homozygosities.
 
         Args:
-            freqs_pop1 (np.ndarray): Allele frequencies of population 1.
-            freqs_pop2 (np.ndarray): Allele frequencies of population 2.
+            n_bootstraps (int): Number of bootstrap replicates to compute p-values. Defaults to 0 (only distances are returned).
+            palette (str): Color palette for the distance matrix plot. Can use any matplotlib gradient-based palette. Some frequently used options include: "coolwarm", "viridis", "magma", and "inferno". Defaults to 'coolwarm'.
+            supress_plot (bool): If True, suppresses the plotting of the distance matrix. Defaults to False.
 
         Returns:
-            float: Nei's genetic distance between the two populations.
+            pd.DataFrame: If n_bootstraps == 0, returns a DataFrame of Nei's distances.
+            Tuple[pd.DataFrame, pd.DataFrame]: If n_bootstraps > 0, returns a tuple of (distance matrix, p-value matrix).
         """
-        # Step 1: Calculate mean allele frequencies (p-bar) across populations
-        mean_freqs = (freqs_pop1 + freqs_pop2) / 2
-
-        # Step 2: Calculate gene diversity within each population
-        h_pop1 = 1 - np.nansum(freqs_pop1**2 + (1 - freqs_pop1) ** 2)
-        h_pop2 = 1 - np.nansum(freqs_pop2**2 + (1 - freqs_pop2) ** 2)
-
-        # Step 3: Calculate mean gene diversity across populations
-        h_mean = 1 - np.nansum(mean_freqs**2 + (1 - mean_freqs) ** 2)
-
-        # Step 4: Calculate Nei's genetic distance
-        with np.errstate(divide="ignore", invalid="ignore"):
-            nei_distance = -np.log((h_pop1 + h_pop2) / (2 * h_mean))
-
-        return nei_distance
+        gd = GeneticDistance(
+            self.genotype_data, self.alignment_012, self.logger, self.plotter
+        )
+        return gd.calculate_neis_distance(n_bootstraps, palette, supress_plot)
