@@ -1,3 +1,7 @@
+import itertools
+import multiprocessing as mp
+from concurrent.futures import ThreadPoolExecutor
+
 import numpy as np
 import pandas as pd
 
@@ -30,18 +34,17 @@ class GeneticDistance:
     ):
         """Calculate Nei's genetic distance between all pairs of populations.
 
-        Optionally computes bootstrap-based p-values for each population pair if n_bootstraps > 0.
-
-        Nei's genetic distance is defined as D = -ln( Ī ), where Ī is the ratio of the average genetic identity to the geometric mean of the average homozygosities.
+        When n_bootstraps is greater than 0, a permutation approach is used to compute p-values for each population pair. Individuals are randomly reassigned to populations (preserving original sample sizes) to generate a null distribution of Nei's distances. The p-value for a given pair is defined as the proportion of permutation replicates with a distance greater than or equal to the observed distance.
 
         Args:
-            n_bootstraps (int): Number of bootstrap replicates to compute p-values. Defaults to 0 (only distances are returned).
-            palette (str): Color palette for the distance matrix plot. Can use any matplotlib gradient-based palette. Some frequently used options include: "coolwarm", "viridis", "magma", and "inferno". Defaults to 'coolwarm'.
-            supress_plot (bool): If True, suppresses the plotting of the distance matrix. Defaults to False.
+            n_bootstraps (int): Number of permutation replicates to compute p-values. Defaults to 0 (only distances are returned).
+            palette (str): Color palette for the distance matrix plot. Defaults to 'coolwarm'.
+            supress_plot (bool): If True, suppresses plotting of the distance matrix. Defaults to False.
 
         Returns:
-            pd.DataFrame: If n_bootstraps == 0, returns a DataFrame of Nei's distances.
-            Tuple[pd.DataFrame, pd.DataFrame]: If n_bootstraps > 0, returns a tuple of (distance matrix, p-value matrix).
+            pd.DataFrame or Tuple[pd.DataFrame, pd.DataFrame]:
+                If n_bootstraps == 0, returns a DataFrame of Nei's distances.
+                If n_bootstraps > 0, returns a tuple of (distance matrix, p-value matrix).
         """
         self.logger.info("Calculating Nei's genetic distance...")
 
@@ -49,18 +52,18 @@ class GeneticDistance:
         allele_freqs_per_pop = self._calculate_allele_frequencies()
         populations = list(allele_freqs_per_pop.keys())
 
-        # Initialize the distance matrix and, if needed, the p-value matrix.
+        # Initialize the observed distance matrix.
         dist_matrix = pd.DataFrame(
             np.nan, index=populations, columns=populations, dtype=float
         )
-
+        # Also initialize the p-value matrix if replicates are requested.
         pval_matrix = (
             pd.DataFrame(np.nan, index=populations, columns=populations, dtype=float)
             if n_bootstraps > 0
             else None
         )
 
-        # Step 2: Loop over all pairs.
+        # Step 2: Loop over all population pairs to compute observed Nei's distances.
         for i, pop1 in enumerate(populations):
             freqs_pop1 = allele_freqs_per_pop[pop1]
             for j, pop2 in enumerate(populations):
@@ -69,93 +72,94 @@ class GeneticDistance:
                     if pval_matrix is not None:
                         pval_matrix.loc[pop1, pop2] = np.nan
                 elif j < i:
-                    # Use symmetry: copy from the other half.
+                    # Use symmetry: copy the value from the other half.
                     dist_matrix.loc[pop1, pop2] = dist_matrix.loc[pop2, pop1]
                     if pval_matrix is not None:
                         pval_matrix.loc[pop1, pop2] = pval_matrix.loc[pop2, pop1]
                 else:
                     freqs_pop2 = allele_freqs_per_pop[pop2]
-                    # Calculate observed Nei's distance.
                     D_obs = self._calculate_neis_distance_between_pops(
                         freqs_pop1, freqs_pop2
                     )
                     dist_matrix.loc[pop1, pop2] = D_obs
                     dist_matrix.loc[pop2, pop1] = D_obs
 
-                    # If bootstrapping is requested, compute a p-value.
-                    if n_bootstraps > 0:
-                        # Identify loci with valid data.
-                        valid = (
-                            ~np.isnan(freqs_pop1)
-                            & ~np.isnan(freqs_pop2)
-                            & ~np.isinf(freqs_pop1)
-                            & ~np.isinf(freqs_pop2)
-                        )
-                        if np.sum(valid) == 0:
-                            pval = np.nan
-                        else:
-                            p1_valid = freqs_pop1[valid]
-                            q_valid = freqs_pop2[valid]
-                            # Clip allele frequencies to [0, 1] to avoid numerical issues.
-                            p1_valid = np.clip(p1_valid, 0, 1)
-                            q_valid = np.clip(q_valid, 0, 1)
-                            L = len(p1_valid)
-                            boot_dists = []
-                            for b in range(n_bootstraps):
-                                sample_idx = np.random.choice(L, size=L, replace=True)
-                                p_boot = p1_valid[sample_idx]
-                                q_boot = q_valid[sample_idx]
+        # Step 3: If permutation replicates are requested, compute p-values.
+        if n_bootstraps > 0:
+            # Dictionary to store permutation replicate distances.
+            permuted_distances = {
+                (pop1, pop2): np.zeros(n_bootstraps, dtype=np.float64)
+                for pop1, pop2 in itertools.combinations(populations, 2)
+            }
+            # Get original population indices.
+            pop_indices = self.genotype_data.get_population_indices()
+            all_inds = np.concatenate([pop_indices[pop] for pop in populations])
+            seeds = np.random.default_rng().integers(0, int(1e9), size=n_bootstraps)
+            n_jobs = mp.cpu_count()
 
-                                # Compute bootstrap replicate of Nei's distance.
-                                I_locus = p_boot * q_boot + (1 - p_boot) * (1 - q_boot)
+            def permutation_replicate(seed):
+                """Perform one permutation replicate by reassigning individuals to populations.
 
-                                I_bar = np.mean(I_locus)
+                Args:
+                    seed (int): Random seed.
+                Returns:
+                    dict: Keys are population pairs; values are Nei's distance computed from the permuted assignments.
+                """
+                rng = np.random.default_rng(seed)
+                permuted = rng.permutation(all_inds)
+                new_assignments = {}
+                start = 0
+                for pop in populations:
+                    n_pop = len(pop_indices[pop])
+                    new_assignments[pop] = permuted[start : start + n_pop]
+                    start += n_pop
+                # Compute allele frequencies for each permuted population.
+                perm_allele_freqs = {}
+                for pop in populations:
+                    pop_alignment = self.alignment_012[new_assignments[pop], :].astype(
+                        float
+                    )
+                    # Replace missing data (assuming missing is indicated by -9).
+                    pop_alignment[pop_alignment == -9] = np.nan
+                    total_alleles = 2 * np.sum(~np.isnan(pop_alignment), axis=0)
+                    alt_allele_counts = np.nansum(pop_alignment, axis=0)
+                    freqs = np.divide(
+                        alt_allele_counts, total_alleles, where=total_alleles > 0
+                    )
+                    perm_allele_freqs[pop] = freqs
+                replicate_results = {}
+                for pop1, pop2 in itertools.combinations(populations, 2):
+                    D_perm = self._calculate_neis_distance_between_pops(
+                        perm_allele_freqs[pop1], perm_allele_freqs[pop2]
+                    )
+                    replicate_results[(pop1, pop2)] = D_perm
+                return replicate_results
 
-                                homo1 = p_boot**2 + (1 - p_boot) ** 2
-                                homo2 = q_boot**2 + (1 - q_boot) ** 2
+            with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                permutation_results = list(executor.map(permutation_replicate, seeds))
+            for b, replicate in enumerate(permutation_results):
+                for pop_pair, D_perm in replicate.items():
+                    permuted_distances[pop_pair][b] = D_perm
 
-                                avg_homo1 = np.mean(homo1)
-                                avg_homo2 = np.mean(homo2)
+            # Compute one-tailed p-values: p-value is the proportion of permutation replicates with
+            # Nei's distance greater than or equal to the observed value.
+            for pop_pair, perm_array in permuted_distances.items():
+                D_obs = dist_matrix.loc[pop_pair[0], pop_pair[1]]
+                p_val = np.mean(perm_array >= D_obs)
+                pval_matrix.loc[pop_pair[0], pop_pair[1]] = p_val
+                pval_matrix.loc[pop_pair[1], pop_pair[0]] = p_val
 
-                                denom = np.sqrt(avg_homo1 * avg_homo2)
-
-                                if denom <= 0:
-                                    boot_d = np.nan
-                                else:
-                                    I_ratio = I_bar / denom
-                                    if I_ratio <= 0:
-                                        boot_d = np.inf
-                                    else:
-                                        boot_d = -np.log(I_ratio)
-                                boot_dists.append(boot_d)
-
-                            boot_dists = np.array(boot_dists)
-                            valid_boot = ~np.isnan(boot_dists)
-
-                            if np.sum(valid_boot) == 0:
-                                pval = np.nan
-                            else:
-                                # One-tailed p-value: proportion of bootstrap replicates with distance >= observed.
-                                pval = np.mean(boot_dists[valid_boot] >= D_obs)
-
-                        pval_matrix.loc[pop1, pop2] = pval
-                        pval_matrix.loc[pop2, pop1] = pval
-
-        # Replace any infinite values with NaN.
-        dist_matrix.replace(np.inf, np.nan, inplace=True)
-        if pval_matrix is not None:
-            pval_matrix.replace(np.inf, np.nan, inplace=True)
             args = (dist_matrix, pval_matrix)
         else:
             args = dist_matrix
 
+        # Step 4: Plot the distance matrix (and p-value matrix if available).
         if not supress_plot:
             self.plotter.plot_dist_matrix(
                 *args, palette=palette, title="Nei's Genetic Distance"
             )
 
         self.logger.info("Nei's genetic distance calculation complete!")
-
         return args
 
     def _calculate_neis_distance_between_pops(
@@ -163,17 +167,17 @@ class GeneticDistance:
     ) -> float:
         """Calculate Nei's genetic distance between two populations using averaged per-locus values.
 
-        The function computes the per-locus genetic identity `(I = p*q + (1-p)*(1-q)) and then averages over loci. Nei's genetic distance is then defined as D = -ln( Ī ), where Ī is the ratio of the average identity to the geometric mean of the average homozygosities.
+        The function computes the per-locus genetic identity (``I = p*q + (1-p)*(1-q)``) and then averages over loci.
+
+        Nei's genetic distance is defined as ``D = -ln(Ī)``, where Ī is the ratio of the average identity to the geometric  mean of the average homozygosities.
 
         Args:
             freqs_pop1 (np.ndarray): Allele frequencies for population 1.
             freqs_pop2 (np.ndarray): Allele frequencies for population 2.
 
         Returns:
-            float: Nei's genetic distance. Returns np.nan if no valid loci exist, or np.inf if the
-                identity ratio is non-positive.
+            float: Nei's genetic distance. Returns np.nan if no valid loci exist, or np.inf if the identity ratio is non-positive.
         """
-        # Identify loci with valid data.
         valid = (
             ~np.isnan(freqs_pop1)
             & ~np.isnan(freqs_pop2)
@@ -183,23 +187,17 @@ class GeneticDistance:
         if np.sum(valid) == 0:
             return np.nan
 
-        p = freqs_pop1[valid]
-        q = freqs_pop2[valid]
-        # Clip values to ensure they lie within [0, 1].
-        p = np.clip(p, 0, 1)
-        q = np.clip(q, 0, 1)
+        p = np.clip(freqs_pop1[valid], 0, 1)
+        q = np.clip(freqs_pop2[valid], 0, 1)
 
-        # Compute per-locus genetic identity.
         I_locus = p * q + (1 - p) * (1 - q)
         I_bar = np.mean(I_locus)
 
-        # Compute homozygosities.
         homo1 = p**2 + (1 - p) ** 2
         homo2 = q**2 + (1 - q) ** 2
         avg_homo1 = np.mean(homo1)
         avg_homo2 = np.mean(homo2)
 
-        # Compute the geometric mean of average homozygosities.
         denom = np.sqrt(avg_homo1 * avg_homo2)
         if denom <= 0:
             return np.nan
@@ -212,50 +210,18 @@ class GeneticDistance:
         return nei_distance
 
     def _calculate_allele_frequencies(self) -> dict:
-        """
-        Helper method to calculate allele frequencies for each population at each locus.
-
-        Returns:
-            dict: A dictionary where keys are population IDs and values are arrays of allele
-            frequencies per locus.
-        """
-        pop_indices = self.genotype_data.get_population_indices()
-        allele_freqs_per_pop = {}
-
-        for pop_id, indices in pop_indices.items():
-            # Subset alignment for population
-            pop_alignment = self.alignment_012[indices, :].astype(float).copy()
-            pop_alignment[pop_alignment == -9] = np.nan  # Replace missing data
-
-            # Calculate allele frequencies
-            # Since diploid
-            total_alleles = 2 * np.sum(~np.isnan(pop_alignment), axis=0)
-            alt_allele_counts = np.nansum(pop_alignment, axis=0)
-
-            # Avoid division by zero
-            freqs = np.divide(alt_allele_counts, total_alleles, where=total_alleles > 0)
-
-            allele_freqs_per_pop[pop_id] = freqs
-
-        return allele_freqs_per_pop
-
-    def _calculate_allele_frequencies(self):
         """Calculate allele frequencies for each population.
 
-        This method calculates allele frequencies for each population in the genotype data. The allele frequencies are calculated as the proportion of alternate alleles at each locus.
-
         Returns:
-            dict: Dictionary of allele frequencies for each population.
+            dict: A dictionary where keys are population IDs and values are arrays of allele frequencies per locus.
         """
         pop_indices = self.genotype_data.get_population_indices()
         allele_freqs_per_pop = {}
-
         for pop_id, indices in pop_indices.items():
             pop_alignment = self.alignment_012[indices, :].astype(float).copy()
-            pop_alignment[pop_alignment == -9] = np.nan
+            pop_alignment[pop_alignment == -9] = np.nan  # Replace missing data
             total_alleles = 2 * np.sum(~np.isnan(pop_alignment), axis=0)
             alt_allele_counts = np.nansum(pop_alignment, axis=0)
             freqs = np.divide(alt_allele_counts, total_alleles, where=total_alleles > 0)
             allele_freqs_per_pop[pop_id] = freqs
-
         return allele_freqs_per_pop

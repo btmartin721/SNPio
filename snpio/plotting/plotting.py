@@ -467,113 +467,133 @@ class Plotting:
 
         plt.close()
 
-    def _plot_fst_heatmap(self, fst_between_pops: Dict[tuple, pd.Series]) -> None:
+    def _plot_fst_heatmap(
+        self, fst_between_pops: Dict[tuple, pd.Series], use_pvalues: bool = False
+    ) -> None:
         """Plot a heatmap of Fst values between populations.
 
-        This method calculates the mean Fst for each population pair and plots a heatmap of the mean Fst values between populations. The heatmap is sorted by the mean Fst values across rows and columns, and only the lower triangle is displayed.
+        If bootstrapping was performed:
+        - When use_pvalues is False, the heatmap shows the mean overall Fst with 95% confidence intervals.
+        - When use_pvalues is True, the heatmap displays the mean overall Fst and the corresponding p-value
+            (rounded to three decimals) below the Fst value in each cell.
+        When no bootstrapping is performed, it uses the per-locus Fst values to compute a mean and standard error-based CI.
 
         Args:
-            fst_between_pops (Dict[tuple, pd.Series]): Dictionary containing Fst values between populations. The keys are population pairs, and the values are Series of Fst values.
+            fst_between_pops (dict): Dictionary of Fst results for each population pair.
+                - If bootstrapping was not performed, values are pandas Series of per-locus Fst.
+                - If bootstrapping was performed without p-values, values are numpy arrays (1D) of overall Fst values.
+                - If bootstrapping was performed with p-values, values are dicts with keys "fst" (numpy array) and "pvalue" (pandas Series).
+            use_pvalues (bool, optional): If True, display the p-value beneath the Fst values in each cell.
         """
+        # Use the same constants as in plot_dist_matrix.
+        fig_size = (48, 48)
+        title_fontsize = 72
+        tick_fontsize = 72
+        annot_fontsize = 38
+        cbar_fontsize = 72
 
-        # Calculate mean Fst and 95% CI for each population pair
-        if isinstance(fst_between_pops.values(), pd.Series):
-            # values are Series of Fst values of shape (n_loci,)
-            fst_stats = {
-                pop_pair: (
-                    fst_series.mean(),
-                    fst_series.mean()
-                    - 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
-                    fst_series.mean()
-                    + 1.96 * fst_series.std() / np.sqrt(len(fst_series)),
-                )
-                for pop_pair, fst_series in fst_between_pops.items()
-            }
-        else:  # numpy array of shape (n_loci, n_bootstraps)
-            fst_stats = {
-                pop_pair: (
-                    np.nanmean(
-                        bootstrap_means
-                    ),  # Mean of the bootstrap means ignoring NaNs
-                    np.nanpercentile(
-                        bootstrap_means, 2.5
-                    ),  # Lower 95% CI bound ignoring NaNs
-                    np.nanpercentile(
-                        bootstrap_means, 97.5
-                    ),  # Upper 95% CI bound ignoring NaNs
-                )
-                for pop_pair, fst_array in fst_between_pops.items()
-                for bootstrap_means in [
-                    np.nanmean(fst_array, axis=0)
-                ]  # Mean across loci for each bootstrap replicate
-            }
+        # Determine mode based on the type of one example value.
+        example_val = next(iter(fst_between_pops.values()))
+        if isinstance(example_val, pd.Series):
+            mode = "raw"
+        elif isinstance(example_val, np.ndarray):
+            mode = "bootstrap"
+        elif isinstance(example_val, dict) and "fst" in example_val:
+            mode = "bootstrap_with_p"
+        elif use_pvalues:
+            if not isinstance(example_val, dict):
+                msg = "Invalid format for Fst when use_pvalues is True."
+                self.logger.error(msg)
+                raise ValueError(msg)
+            mode = "bootstrap_with_p"
+        else:
+            raise ValueError("Unrecognized format for fst_between_pops.")
 
-        # Extract unique population names and initialize an empty Fst matrix
-        populations = sorted({pop for pair in fst_stats.keys() for pop in pair})
-        fst_matrix = pd.DataFrame(index=populations, columns=populations, data=np.nan)
+        stats = {}
+        for pop_pair, val in fst_between_pops.items():
+            if mode == "raw":
+                mean_val = val.mean()
+                se = val.std() / np.sqrt(len(val))
+                lower = mean_val - 1.96 * se
+                upper = mean_val + 1.96 * se
+                annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
+            elif mode == "bootstrap":
+                mean_val = np.nanmean(val)
+                lower = np.nanpercentile(val, 2.5)
+                upper = np.nanpercentile(val, 97.5)
+                annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
+            elif mode == "bootstrap_with_p":
+                fst_array = val["fst"]
+                p_series = val["pvalue"]
+                mean_val = np.nanmean(fst_array)
+                lower = np.nanpercentile(fst_array, 2.5)
+                upper = np.nanpercentile(fst_array, 97.5)
+                p_val = p_series.iloc[0]
+                if use_pvalues:
+                    annotation = f"{mean_val:.2f}\nP: {p_val:.3f}"
+                else:
+                    annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
+            stats[pop_pair] = (mean_val, lower, upper, annotation)
+
+        populations = sorted({pop for pair in stats.keys() for pop in pair})
+        stat_matrix = pd.DataFrame(index=populations, columns=populations, data=np.nan)
         annotation_matrix = pd.DataFrame(
             index=populations, columns=populations, data=""
         )
 
-        # Populate the matrices with mean Fst and formatted CI annotations
-        for (pop1, pop2), (mean_fst, lower_ci, upper_ci) in fst_stats.items():
-            fst_matrix.loc[pop1, pop2] = mean_fst
-            fst_matrix.loc[pop2, pop1] = mean_fst
-            annotation_matrix.loc[pop1, pop2] = (
-                f"{mean_fst:.2f}\n[{lower_ci:.2f}, {upper_ci:.2f}]"
-            )
-            annotation_matrix.loc[pop2, pop1] = (
-                f"{mean_fst:.2f}\n[{lower_ci:.2f}, {upper_ci:.2f}]"
-            )
+        for (pop1, pop2), (mean_val, lower, upper, annotation) in stats.items():
+            stat_matrix.loc[pop1, pop2] = mean_val
+            stat_matrix.loc[pop2, pop1] = mean_val
+            annotation_matrix.loc[pop1, pop2] = annotation
+            annotation_matrix.loc[pop2, pop1] = annotation
 
-        # Calculate the mean Fst for sorting across rows and columns
-        mean_fst_per_population = fst_matrix.mean(axis=1).sort_values(ascending=False)
-        sorted_populations = mean_fst_per_population.index
-
-        # Reorder the matrix to apply consistent sorting on both rows and columns
-        fst_matrix = fst_matrix.loc[sorted_populations, sorted_populations]
+        sorted_populations = stat_matrix.mean(axis=1).sort_values(ascending=False).index
+        stat_matrix = stat_matrix.loc[sorted_populations, sorted_populations]
         annotation_matrix = annotation_matrix.loc[
             sorted_populations, sorted_populations
         ]
 
-        # Apply a mask to show only the lower triangle, including the diagonal
-        mask = np.triu(np.ones_like(fst_matrix, dtype=bool))
+        mask = np.triu(np.ones_like(stat_matrix, dtype=bool))
 
-        # Plot the heatmap
-        plt.figure(figsize=(48, 48))
+        plt.figure(figsize=fig_size)
         ax = sns.heatmap(
-            fst_matrix,
-            annot=annotation_matrix,  # Use custom annotations for mean ± CI
-            annot_kws={"fontsize": 38},
-            fmt="",  # String format for annotations
+            stat_matrix,
+            annot=annotation_matrix,
+            annot_kws={"fontsize": annot_fontsize},
+            fmt="",
             cmap="magma",
-            mask=mask,  # Mask upper triangle
+            mask=mask,
             linewidths=0,
             vmin=0,
             cbar=True,
             square=True,
         )
-
-        # Reverse the X-axis to ensure proper alignment
-        ax.invert_xaxis()  # Reverse X-axis
-
-        # Add title and adjust labels
-        ax.set_title("Mean Fst Between Populations (95% CI)", fontsize=72)
+        ax.invert_xaxis()
+        title_str = (
+            "Mean Fst Between Populations (95% CI)"
+            if mode != "bootstrap_with_p" or not use_pvalues
+            else "Mean Fst and Permuted P-values"
+        )
+        cbar_label = (
+            "Mean Fst"
+            if mode != "bootstrap_with_p" or not use_pvalues
+            else "Fst; P-values shown in cell"
+        )
+        ax.set_title(title_str, fontsize=title_fontsize)
         ax.set_xticks(ax.get_xticks())
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha="right", fontsize=72)
+        ax.set_xticklabels(
+            ax.get_xticklabels(), rotation=45, ha="right", fontsize=tick_fontsize
+        )
         ax.set_yticks(ax.get_yticks())
-        ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=72)
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=tick_fontsize)
         cbar = ax.collections[0].colorbar
-        cbar.ax.tick_params(labelsize=72)
-        cbar.set_label("Mean Fst", fontsize=72)
+        cbar.ax.tick_params(labelsize=cbar_fontsize)
+        cbar.set_label(cbar_label, fontsize=cbar_fontsize)
 
-        # Save the plot
-        of: str = f"fst_between_populations_heatmap.{self.plot_format}"
-        plt.savefig(self.output_dir_analysis / of)
-
+        out_file = f"fst_between_populations_heatmap.{self.plot_format}"
+        plt.savefig(self.output_dir_analysis / out_file)
         if self.show:
             plt.show()
-
         plt.close()
 
     def plot_d_statistics(self, df: pd.DataFrame) -> None:
@@ -877,13 +897,16 @@ class Plotting:
 
         plt.close()
 
-    def plot_summary_statistics(self, summary_statistics: dict) -> None:
+    def plot_summary_statistics(
+        self, summary_statistics: dict, use_pvalues: bool = False
+    ) -> None:
         """Plot summary statistics per sample and per population.
 
         This method plots summary statistics per sample and per population on the same figure. The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst). The method also plots summary statistics per sample and per population using Seaborn PairGrid plots. The method saves the plots to the output directory and displays them if ``show`` is True.
 
         Args:
             summary_statistics (dict): Dictionary containing summary statistics for plotting.
+            use_pvalues (bool, optional): If True, display p-values for Fst values. Defaults to False.
         """
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=False)
 
@@ -906,7 +929,9 @@ class Plotting:
         plt.close()
 
         # Plot Fst heatmap
-        self._plot_fst_heatmap(summary_statistics["Fst_between_populations"])
+        self._plot_fst_heatmap(
+            summary_statistics["Fst_between_populations"], use_pvalues=use_pvalues
+        )
 
     def plot_pca(
         self, pca: PCA, alignment: np.ndarray, popmap: pd.DataFrame, dimensions: int = 2
@@ -2349,26 +2374,17 @@ class Plotting:
     ) -> None:
         """Plot a distance matrix.
 
-        This method plots a distance matrix. A distance matrix is a heatmap plot that shows the pairwise distances between populations. The plot is saved to a file.
+        If a p-value matrix is provided, each cell's annotation displays the distance and the corresponding
+        p-value (rounded to three decimals) on separate lines. Otherwise, only the distance is annotated.
 
         Args:
             df (pd.DataFrame): The input dataframe containing the distance matrix data.
-            pvals (pd.DataFrame | None): The input dataframe containing the p-values for the distance matrix data. If not provided, the p-values will not be plotted. Defaults to None.
-            palette (str): The color palette to use for the heatmap plot. Defaults to "coolwarm".
-            title (str): The title of the plot. Defaults to "Distance Matrix".
+            pvals (pd.DataFrame | None): The input dataframe containing the p-values.
+            palette (str): The color palette to use for the heatmap plot.
+            title (str): The title of the plot.
 
         Returns:
-            None: A plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the input dataframes are empty.
-
-        Note:
-            - The input dataframe must contain the distance matrix data.
-            - The input dataframe must contain the p-values for the distance matrix data.
-            - The plot will be saved in the '<prefix>_output/gtdata/plots' directory.
-            - Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
-            - The distance matrix is a heatmap plot that shows the pairwise distances between populations.
+            None: The plot is saved to a file.
         """
         plot_dir = Path(f"{self.prefix}_output", "analysis", "plots")
         plot_dir.mkdir(parents=True, exist_ok=True)
@@ -2377,54 +2393,71 @@ class Plotting:
             msg = "The input distance matrix is empty."
             self.logger.error(msg)
             raise ValueError(msg)
-
         if pvals is not None and pvals.empty:
             msg = "The input p-values dataframe is empty."
             self.logger.error(msg)
             raise ValueError(msg)
 
-        # Compute row sums to determine sorting order
+        # Use identical constants for figure and font sizes.
+        fig_size = (48, 48)
+        title_fontsize = 72
+        tick_fontsize = 72
+        annot_fontsize = 38
+        cbar_fontsize = 72
+
+        # Determine sort order based on row sums.
         sort_order = df.sum(axis=1).sort_values(ascending=False).index
-
-        # Reorder both rows and columns using the same order
         df = df.loc[sort_order, sort_order]
-
         if pvals is not None:
             pvals = pvals.loc[sort_order, sort_order]
 
-        # Create a mask for the upper triangle (excluding diagonal)
+        # Create a mask for the lower triangle (to show only the upper triangle).
         mask = np.tril(np.ones(df.shape, dtype=bool), k=-1)
 
-        sns.set_style(style="white")
+        sns.set_style("white")
+        fig, ax = plt.subplots(1, 1, figsize=fig_size)
 
-        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        # Build the annotation matrix.
+        if pvals is not None:
+            annotation_matrix = pd.DataFrame(
+                index=df.index, columns=df.columns, data=""
+            )
+            for i in range(df.shape[0]):
+                for j in range(df.shape[1]):
+                    if mask[i, j]:
+                        annotation_matrix.iloc[i, j] = ""
+                    else:
+                        d = df.iloc[i, j]
+                        p = pvals.iloc[i, j]
+                        if np.isnan(p):
+                            annotation_matrix.iloc[i, j] = f"{d:.3f}"
+                        else:
+                            annotation_matrix.iloc[i, j] = f"{d:.3f}\nP: {p:.3f}"
+        else:
+            annotation_matrix = True
 
         sns.heatmap(
             df,
-            annot=True,
-            fmt=".3f",
+            annot=annotation_matrix,
+            fmt="",
             cmap=palette,
             cbar_kws={"label": "Distance"},
             robust=True,
             mask=mask,
+            annot_kws={"fontsize": annot_fontsize},
             ax=ax,
         )
-
         ax.invert_yaxis()
-
-        if pvals is not None:
-            for i in range(df.shape[0]):
-                for j in range(df.shape[1]):
-                    if pvals.iloc[i, j] < 0.05:
-                        ax.text(j + 0.5, i + 0.5, "*", ha="center", va="center")
-
-        ax.set_title(string.capwords(title))
-        ax.set_xlabel("Population")
-        ax.set_ylabel("Population")
+        ax.set_title(string.capwords(title), fontsize=title_fontsize)
+        ax.set_xlabel("Population", fontsize=tick_fontsize)
+        ax.set_ylabel("Population", fontsize=tick_fontsize)
+        ax.tick_params(labelsize=tick_fontsize)
+        cbar = ax.collections[0].colorbar
+        cbar.ax.tick_params(labelsize=cbar_fontsize)
+        cbar.set_label("Distance", fontsize=cbar_fontsize)
 
         fn = "_".join(title.lower().split())
         fig.savefig(plot_dir / f"{fn}.{self.plot_format}")
-
         if self.show:
             plt.show()
         plt.close()

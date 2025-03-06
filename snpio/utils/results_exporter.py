@@ -1,8 +1,9 @@
 import functools
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Union
+from typing import Any, Callable, Dict
 
+import numpy as np
 import pandas as pd
 
 
@@ -34,7 +35,7 @@ class ResultsExporter:
             filename_prefix (str): Base name for output files.
 
         Returns:
-            Dict: Processed data suitable for JSON (excluding DataFrames).
+            dict: Processed data suitable for JSON (excluding DataFrames).
         """
         json_data = {}  # Holds non-DataFrame values for JSON export
 
@@ -50,6 +51,12 @@ class ResultsExporter:
             if isinstance(value, (pd.DataFrame, pd.Series)):
                 # Save DataFrame or Series as CSV
                 value.to_csv(self.output_dir / f"{full_key}.csv", index=False)
+
+            elif isinstance(value, np.ndarray):
+                # Save numpy array as CSV
+                pd.DataFrame(value).to_csv(
+                    self.output_dir / f"{full_key}.csv", index=False
+                )
 
             elif isinstance(value, dict):
                 # Recursively process sub-dictionaries

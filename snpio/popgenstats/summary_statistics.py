@@ -102,28 +102,35 @@ class SummaryStatistics:
         return pi
 
     def calculate_summary_statistics(
-        self, n_bootstraps=0, n_jobs=1, save_plots: bool = True
+        self,
+        n_bootstraps=0,
+        n_jobs=1,
+        save_plots: bool = True,
+        use_pvalues: bool = False,
     ):
         """Calculate a suite of summary statistics for SNP data.
 
-        This method calculates a suite of summary statistics for SNP data, including observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and Fst between populations. Summary statistics are calculated both overall and per population.
+        Computes overall and per-population observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi),
+        and pairwise Fst between populations. When bootstrapping is used for Fst, the bootstrap replicates (and optionally p-values)
+        are included in the summary.
 
         Args:
-            n_bootstraps (int): Number of bootstrap replicates to use for estimating variance of Fst per SNP. If 0, then bootstrapping is not used and confidence intervals are estimated from the data. Defaults to 0.
-            n_jobs (int): Number of parallel jobs. If set to -1, all available CPU threads are used. Defaults to 1.
-            save_plots (bool): Whether to save plots of the summary statistics. In any case, a dictionary of summary statistics is returned. Defaults to True.
+            n_bootstraps (int): Number of bootstrap replicates for estimating variance of Fst per SNP. Defaults to 0.
+            n_jobs (int): Number of parallel jobs. If -1, all available cores are used. Defaults to 1.
+            save_plots (bool): Whether to save plots of the summary statistics. Defaults to True.
+            use_pvalues (bool): If True, compute p-values for pairwise Fst comparisons. Defaults to False.
 
         Returns:
             dict: A dictionary containing summary statistics per population and overall.
         """
         self.logger.info("Calculating summary statistics...")
 
-        # Overall statistics
+        # Overall statistics.
         ho_overall = pd.Series(self.observed_heterozygosity())
         he_overall = pd.Series(self.expected_heterozygosity())
         pi_overall = pd.Series(self.nucleotide_diversity())
 
-        # Per-population statistics
+        # Per-population statistics.
         ho_per_population = self.observed_heterozygosity_per_population()
         he_per_population = self.expected_heterozygosity_per_population()
         pi_per_population = self.nucleotide_diversity_per_population()
@@ -144,17 +151,16 @@ class SummaryStatistics:
                 }
             )
 
-        # Fst between populations
+        # Fst between populations.
         fst_between_pops = self.weir_cockerham_fst(
-            n_bootstraps=n_bootstraps, n_jobs=n_jobs
+            n_bootstraps=n_bootstraps, n_jobs=n_jobs, return_pvalues=use_pvalues
         )
         summary_stats["Fst_between_populations"] = fst_between_pops
 
         if save_plots:
-            self.plotter.plot_summary_statistics(summary_stats)
+            self.plotter.plot_summary_statistics(summary_stats, use_pvalues=use_pvalues)
 
         self.logger.info("Summary statistics calculation complete!")
-
         return summary_stats
 
     def observed_heterozygosity_per_population(self):
@@ -261,24 +267,41 @@ class SummaryStatistics:
 
         return pi_per_population
 
-    def weir_cockerham_fst(self, n_bootstraps: int = 0, n_jobs: int = -1):
-        """Calculate pairwise per-population Weir and Cockerham's Fst.
+    def weir_cockerham_fst(
+        self, n_bootstraps: int = 0, n_jobs: int = 1, return_pvalues: bool = False
+    ):
+        """Calculate Weir and Cockerham's Fst between populations.
 
-        This method calculates pairwise Weir and Cockerham's Fst between populations. Fst is a measure of population differentiation due to genetic structure. Fst values range from 0 to 1, where 0 indicates no genetic differentiation and 1 indicates complete differentiation. Bootstrapping can be used to estimate the variance of Fst per SNP.
+        When bootstrapping (n_bootstraps > 0) and return_pvalues is False, the function computes an overall Fst
+        (by averaging per-locus Fst values) for each bootstrap replicate using resampling of loci.
+
+        When return_pvalues is True, a permutation approach is used instead. Individuals are randomly reassigned
+        to populations (preserving sample sizes) to generate a null distribution of overall Fst values. The observed
+        overall Fst (computed from the original assignments) is then compared to this null distribution to obtain
+        a one-tailed p-value for each population pair.
 
         Args:
-            n_bootstraps (int): Number of bootstrap replicates. Default is 0 (no bootstrapping).
-            n_jobs (int): Number of parallel jobs for bootstrapping. Default is -1 (use all available cores).
+            n_bootstraps (int): Number of replicates. If 0, no resampling is done and per-locus Fst is returned.
+            n_jobs (int): Number of parallel jobs. Use -1 to use all available cores.
+            return_pvalues (bool): If True, use the permutation approach to compute p-values.
+                If False, return the raw bootstrap replicate overall Fst values (using loci resampling).
 
         Returns:
-            dict: If n_bootstraps is 0, returns a dictionary where keys are population pairs and values are pandas Series of Fst values per locus. If n_bootstraps > 0, returns a dictionary where keys are population pairs and values are numpy arrays with shape (n_loci, n_bootstraps).
+            dict:
+            - If n_bootstraps == 0, returns a dictionary where keys are population pairs and values are pandas Series
+                of per-locus Fst values.
+            - If n_bootstraps > 0 and return_pvalues is False, returns a dictionary where keys are population pairs and
+                values are numpy arrays of overall Fst values (length n_bootstraps) obtained via bootstrap.
+            - If n_bootstraps > 0 and return_pvalues is True, returns a dictionary where keys are population pairs and
+                values are dicts with keys "fst" (the observed overall Fst) and "pvalue" (a pandas Series of the computed
+                p-value repeated for each replicate).
         """
-        # Prepare population indices and get number of loci
+        # Get population indices and number of loci.
         pop_indices = self.genotype_data.get_population_indices()
         populations = list(pop_indices.keys())
         n_loci = self.alignment_012.shape[1]
 
-        # Precompute alignments for each population; convert missing data (< 0) to np.nan
+        # Precompute alignments for each population; convert missing data (< 0) to np.nan.
         pop_alignments = {
             pop: self.alignment_012[indices, :].astype(float)
             for pop, indices in pop_indices.items()
@@ -296,7 +319,7 @@ class SummaryStatistics:
             Returns:
                 np.ndarray: Fst values for each locus.
             """
-            # Count non-missing calls per locus for each population.
+            # Count non-missing calls per locus.
             n1 = np.count_nonzero(~np.isnan(alignment1), axis=0)
             n2 = np.count_nonzero(~np.isnan(alignment2), axis=0)
             n_total = n1 + n2
@@ -306,28 +329,28 @@ class SummaryStatistics:
             alt2 = np.nansum(alignment2, axis=0, dtype=np.float64)
             total_alt = alt1 + alt2
 
-            # Compute allele frequencies where valid.
+            # Compute allele frequencies.
             p1 = np.divide(alt1, 2 * n1, where=(n1 > 0))
             p2 = np.divide(alt2, 2 * n2, where=(n2 > 0))
             p_total = np.divide(total_alt, 2 * n_total, where=(n_total > 0))
 
             with warnings.catch_warnings():
-                # Suppress RuntimeWarning for NaN values.
                 warnings.simplefilter("ignore", category=RuntimeWarning)
                 # Calculate variance in allele frequencies (unbiased estimator).
                 s2 = (n1 * (p1 - p_total) ** 2 + n2 * (p2 - p_total) ** 2) / np.where(
                     n_total > 1, (n_total - 1), np.nan
                 )
 
-            # Expected heterozygosity in the total population.
+            # Expected heterozygosity.
             he_total = 2 * p_total * (1 - p_total)
 
-            # Compute Fst as the ratio of variance to total heterozygosity.
+            # Compute Fst as ratio of variance to total heterozygosity.
             fst = np.full_like(he_total, np.nan, dtype=np.float64)
             valid = (he_total > 0) & (n_total > 1)
             fst[valid] = s2[valid] / he_total[valid]
             return fst
 
+        # Case 1: No resampling requested.
         if n_bootstraps == 0:
             fst_per_population_pair = {}
             for pop1, pop2 in itertools.combinations(populations, 2):
@@ -338,43 +361,131 @@ class SummaryStatistics:
                     fst_values, index=np.arange(n_loci), name=f"Fst {pop1}-{pop2}"
                 )
             return fst_per_population_pair
-        else:
-            # Prepare dictionary for bootstrap results.
-            fst_bootstrap_per_population_pair = {
-                (pop1, pop2): np.zeros((n_loci, n_bootstraps), dtype=np.float64)
+
+        # Case 2: Resampling is requested.
+        if return_pvalues:
+            # Use permutation approach.
+            # First, compute the observed overall Fst for each population pair.
+            observed_overall = {}
+            for pop1, pop2 in itertools.combinations(populations, 2):
+                alignment1 = pop_alignments[pop1]
+                alignment2 = pop_alignments[pop2]
+                observed_overall[(pop1, pop2)] = np.nanmean(
+                    compute_fst_pair(alignment1, alignment2)
+                )
+
+            # Prepare dictionary to store permutation replicates overall Fst.
+            fst_permutation_overall = {
+                (pop1, pop2): np.zeros(n_bootstraps, dtype=np.float64)
                 for pop1, pop2 in itertools.combinations(populations, 2)
             }
 
-            def bootstrap_replicate(seed):
-                """Compute Fst per SNP between two populations for one bootstrap replicate.
+            def permutation_replicate(seed):
+                """Perform one permutation replicate by randomly reassigning individuals to populations.
 
                 Args:
                     seed (int): Random seed for reproducibility.
 
                 Returns:
-                    dict: Dictionary with keys as population pairs and values as Fst arrays per locus.
+                    dict: Keys are population pairs and values are overall Fst values (averaged over loci)
+                        computed from the permuted assignments.
+                """
+                rng = np.random.default_rng(seed)
+                # Combine all individual indices.
+                all_inds = np.concatenate([pop_indices[pop] for pop in populations])
+                # Permute all indices.
+                permuted = rng.permutation(all_inds)
+                new_assignments = {}
+                start = 0
+                # Assign individuals to populations preserving original sample sizes.
+                for pop in populations:
+                    n_pop = len(pop_indices[pop])
+                    new_assignments[pop] = permuted[start : start + n_pop]
+                    start += n_pop
+
+                replicate_results = {}
+                for pop1, pop2 in itertools.combinations(populations, 2):
+                    # Extract new alignments from the overall genotype matrix.
+                    alignment1_perm = self.alignment_012[
+                        new_assignments[pop1], :
+                    ].astype(float)
+                    alignment2_perm = self.alignment_012[
+                        new_assignments[pop2], :
+                    ].astype(float)
+                    alignment1_perm[alignment1_perm < 0] = np.nan
+                    alignment2_perm[alignment2_perm < 0] = np.nan
+                    fst_values_perm = compute_fst_pair(alignment1_perm, alignment2_perm)
+                    overall_fst_perm = np.nanmean(fst_values_perm)
+                    replicate_results[(pop1, pop2)] = overall_fst_perm
+                return replicate_results
+
+            seeds = np.random.default_rng().integers(0, int(1e9), size=n_bootstraps)
+            n_jobs = n_jobs if n_jobs != -1 else mp.cpu_count()
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+                permutation_results = list(executor.map(permutation_replicate, seeds))
+
+            # Collate permutation replicates.
+            for b, replicate in enumerate(permutation_results):
+                for pop_pair, overall_fst in replicate.items():
+                    fst_permutation_overall[pop_pair][b] = overall_fst
+
+            # Compute one-tailed p-values for each population pair.
+            results = {}
+            for pop_pair, perm_array in fst_permutation_overall.items():
+                obs = observed_overall[pop_pair]
+                # p-value: proportion of permutation replicates with overall Fst >= observed.
+                p_val = (np.sum(perm_array >= obs) + 1) / (n_bootstraps + 1)
+                # Return a dict containing the observed Fst and a p-value repeated (for compatibility with plotting).
+                results[pop_pair] = {
+                    "fst": np.array([obs]),  # Observed overall Fst.
+                    "pvalue": pd.Series(
+                        [p_val] * n_bootstraps,
+                        name=f"P-value {pop_pair[0]}-{pop_pair[1]}",
+                    ),
+                }
+            return results
+
+        else:
+            # Use bootstrap (loci resampling) approach.
+            fst_bootstrap_overall = {
+                (pop1, pop2): np.zeros(n_bootstraps, dtype=np.float64)
+                for pop1, pop2 in itertools.combinations(populations, 2)
+            }
+
+            def bootstrap_replicate(seed):
+                """Compute overall Fst between two populations for one bootstrap replicate by resampling loci.
+
+                Args:
+                    seed (int): Random seed for reproducibility.
+
+                Returns:
+                    dict: Keys are population pairs and values are overall Fst values.
                 """
                 rng = np.random.default_rng(seed)
                 resample_indices = rng.choice(n_loci, size=n_loci, replace=True)
-                replicate_results = {}
+                replicate_overall = {}
                 for pop1, pop2 in itertools.combinations(populations, 2):
                     alignment1 = pop_alignments[pop1][:, resample_indices]
                     alignment2 = pop_alignments[pop2][:, resample_indices]
                     fst_values = compute_fst_pair(alignment1, alignment2)
-                    replicate_results[(pop1, pop2)] = fst_values
-                return replicate_results
+                    overall_fst = np.nanmean(fst_values)
+                    replicate_overall[(pop1, pop2)] = overall_fst
+                return replicate_overall
 
-            seeds = np.random.default_rng().integers(0, 1e9, size=n_bootstraps)
+            seeds = np.random.default_rng().integers(0, int(1e9), size=n_bootstraps)
             n_jobs = n_jobs if n_jobs != -1 else mp.cpu_count()
+            from concurrent.futures import ThreadPoolExecutor
+
             with ThreadPoolExecutor(max_workers=n_jobs) as executor:
                 bootstrap_results = list(executor.map(bootstrap_replicate, seeds))
 
-            # Collate bootstrap replicates.
             for b, replicate in enumerate(bootstrap_results):
-                for pop_pair, fst_values in replicate.items():
-                    fst_bootstrap_per_population_pair[pop_pair][:, b] = fst_values
+                for pop_pair, overall_fst in replicate.items():
+                    fst_bootstrap_overall[pop_pair][b] = overall_fst
 
-            return fst_bootstrap_per_population_pair
+            return fst_bootstrap_overall
 
     def _prepare_alignment_and_individuals(self):
         """Prepare alignment and count non-missing individuals per locus.

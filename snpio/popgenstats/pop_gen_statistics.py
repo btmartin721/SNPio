@@ -360,7 +360,13 @@ class PopGenStatistics:
         return fo.detect_fst_outliers_dbscan(correction_method, alpha, n_jobs)
 
     @exporter.capture_results
-    def summary_statistics(self, n_bootstraps=0, n_jobs=1, save_plots: bool = True):
+    def summary_statistics(
+        self,
+        n_bootstraps=0,
+        n_jobs=1,
+        save_plots: bool = True,
+        use_pvalues: bool = False,
+    ):
         """Calculate a suite of summary statistics for SNP data.
 
         This method calculates a suite of summary statistics for SNP data, including observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and Fst between populations. Summary statistics are calculated both overall and per population.
@@ -369,6 +375,7 @@ class PopGenStatistics:
             n_bootstraps (int): Number of bootstrap replicates to use for estimating variance of Fst per SNP. If 0, then bootstrapping is not used and confidence intervals are estimated from the data. Defaults to 0.
             n_jobs (int): Number of parallel jobs. If set to -1, all available CPU threads are used. Defaults to 1.
             save_plots (bool): Whether to save plots of the summary statistics. In any case, a dictionary of summary statistics is returned. Defaults to True.
+            use_pvalues (bool): Whether to calculate p-values for Fst. Otherwise calculates 95% confidence intervals. Defaults to False.
 
         Returns:
             dict: A dictionary containing summary statistics per population and overall.
@@ -377,7 +384,10 @@ class PopGenStatistics:
             self.genotype_data, self.alignment_012, self.logger, self.plotter
         )
         return summary_stats.calculate_summary_statistics(
-            n_bootstraps=n_bootstraps, n_jobs=n_jobs, save_plots=save_plots
+            n_bootstraps=n_bootstraps,
+            n_jobs=n_jobs,
+            save_plots=save_plots,
+            use_pvalues=use_pvalues,
         )
 
     @exporter.capture_results
