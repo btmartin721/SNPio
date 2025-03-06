@@ -1,8 +1,29 @@
 title: "SNPio: A Python API for Population Genetic File Processing, Filtering, and Encoding"
 subtitle: "Getting Started with SNPio"
 author: "Drs. Bradley T. Martin and Tyler K. Chafin"
-date: "2024-10-11"
-keywords: ["bioinformatics", "SNP", "VCF", "PHYLIP", "STRUCTURE", "io", "file conversion", "filter", "filtering", "genomics", "missing data", "minor allele", "singletons", "monomorphic", "biallelic"]
+date: "03-06-2025"
+keywords:
+  [
+    "bioinformatics",
+    "SNP",
+    "VCF",
+    "PHYLIP",
+    "STRUCTURE",
+    "io",
+    "file conversion",
+    "filter",
+    "filtering",
+    "genomics",
+    "missing data",
+    "minor allele",
+    "singletons",
+    "monomorphic",
+    "biallelic",
+    "summary statistics",
+    "population genetics",
+    "analysis",
+    "data processing",
+  ]
 geometry: "margin=1in"
 titlepage: false
 titlepage-color: "FFFFFF"
@@ -10,7 +31,7 @@ titlepage-text-color: "000000"
 titlepage-rule-color: "CCCCCC"
 titlepage-rule-height: 4
 logo: "snpio/img/snpio_logo.png"
-logo-width: 60% 
+logo-width: 60%
 page-background: "FFFFFF"
 page-background-opacity:
 links-as-notes: false
@@ -23,10 +44,10 @@ header-left: "Drs. Bradley T. Martin and Tyler K. Chafin"
 header-center:
 header-right: "SNPio User Manual"
 footer-left: "License: GNU Public License v3 (GPL3)"
-footer-center: 
-footer-right: 
+footer-center:
+footer-right:
 subparagraph: true
-lang: en-US 
+lang: en-US
 fontsize: 12pt
 classoption: 12pt
 documenttype: article
@@ -40,4 +61,3 @@ colorlinks: true
 toc-title: "Table of Contents"
 toc-own-page: true
 toc-depth: 2
-

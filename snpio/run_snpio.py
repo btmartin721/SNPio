@@ -2,6 +2,7 @@ import pprint
 
 import pandas as pd
 
+import snpio
 from snpio import (
     GenotypeEncoder,
     NRemover2,
@@ -17,6 +18,9 @@ from snpio import (
 
 
 def main():
+
+    print("Using snpio version:", snpio.__version__)
+
     # Read the alignment, popmap, and tree files.
     gd = VCFReader(
         filename="snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
