@@ -21,29 +21,50 @@ def main():
 
     # Read the alignment, popmap, and tree files.
     gd = VCFReader(
-        filename="snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
+        filename="snpio/example_data/vcf_files/phylogen_subset14K.vcf.gz",
         popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
         force_popmap=True,  # Remove samples not in the popmap, or vice versa.
         chunk_size=5000,
-        exclude_pops=["OG"],
+        exclude_pops=["OG", "DS"],
         plot_format="pdf",
+        prefix="analysis_compare",
     )
 
-    pgs = PopGenStatistics(gd, verbose=True)
+    gd.snp_data
 
-    summary_stats = pgs.summary_statistics(save_plots=True)
+    nrm = NRemover2(gd)
 
-    df_fst_outliers_boot, df_fst_outlier_pvalues_boot = pgs.detect_fst_outliers(
-        correction_method="bonf",
-        use_bootstrap=True,
-        n_bootstraps=1000,
-        n_jobs=1,
-        tail_direction="upper",
+    gd_filt = (
+        nrm.filter_missing_sample(0.75)
+        .filter_missing(0.75)
+        .filter_missing_pop(0.75)
+        .filter_mac(2)
+        .filter_monomorphic(exclude_heterozygous=False)
+        .filter_singletons(exclude_heterozygous=False)
+        .filter_biallelic(exclude_heterozygous=False)
+        .resolve()
     )
 
-    df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
-        correction_method="bonf", use_bootstrap=False, n_jobs=1
+    gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
+    gd_filt.write_popmap("snpio/example_data/popmaps/nremover_test.popmap")
+
+    pgs = PopGenStatistics(gd_filt, verbose=True)
+
+    summary_stats = pgs.summary_statistics(
+        save_plots=True, n_bootstraps=100, n_jobs=8, use_pvalues=False
     )
+
+    # df_fst_outliers_boot, df_fst_outlier_pvalues_boot = pgs.detect_fst_outliers(
+    #     correction_method="bonf",
+    #     use_bootstrap=True,
+    #     n_bootstraps=1000,
+    #     n_jobs=-1,
+    #     tail_direction="upper",
+    # )
+
+    # df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
+    #     correction_method="bonf", use_bootstrap=False, n_jobs=1
+    # )
 
     # NOTE: Takes a while to run.
     # amova_results = pgs.amova(
@@ -60,25 +81,23 @@ def main():
     #     random_seed=42,
     # )
 
-    nei_dist_df, nei_pvals_df = pgs.neis_genetic_distance(n_bootstraps=1000)
+    # nei_dist_df, nei_pvals_df = pgs.neis_genetic_distance(n_bootstraps=1000)
 
-    dstats_df, overall_results = pgs.calculate_d_statistics(
-        method="patterson",
-        population1="EA",
-        population2="GU",
-        population3="TT",
-        outgroup="ON",
-        num_bootstraps=10,
-        n_jobs=1,
-        max_individuals_per_pop=6,
-    )
+    # dstats_df, overall_results = pgs.calculate_d_statistics(
+    #     method="patterson",
+    #     population1="EA",
+    #     population2="GU",
+    #     population3="TT",
+    #     outgroup="ON",
+    #     num_bootstraps=10,
+    #     n_jobs=1,
+    #     max_individuals_per_pop=6,
+    # )
 
     # # Run PCA and make missingness report plots.
-    plotting = Plotting(genotype_data=gd)
-    gd_components, gd_pca = plotting.run_pca()
-    gd.missingness_reports()
-
-    nrm = NRemover2(gd)
+    # plotting = Plotting(genotype_data=gd)
+    # gd_components, gd_pca = plotting.run_pca()
+    # gd.missingness_reports()
 
     # nrm.search_thresholds(
     #     thresholds=[0.25, 0.5, 0.75, 1.0],
@@ -90,56 +109,46 @@ def main():
     # NOTE: For development purposes. Comment out for normal use.
     # Benchmark.plot_performance(nrm.genotype_data, nrm.genotype_data.resource_data)
 
-    gd_filt = (
-        nrm.filter_missing_sample(0.75)
-        .filter_missing(0.75)
-        .filter_missing_pop(0.75)
-        .filter_mac(2)
-        .filter_monomorphic(exclude_heterozygous=False)
-        .filter_singletons(exclude_heterozygous=False)
-        .filter_biallelic(exclude_heterozygous=False)
-        .resolve()
-    )
-
-    nrm.plot_sankey_filtering_report()
+    # nrm.plot_sankey_filtering_report()
 
     # # Make missingness report plots.
-    plotting2 = Plotting(genotype_data=gd_filt)
-    filt_components, filt_pca = plotting2.run_pca()
-    gd_filt.missingness_reports(prefix="filtered")
+    # plotting2 = Plotting(genotype_data=gd_filt)
+    # filt_components, filt_pca = plotting2.run_pca()
+    # gd_filt.missingness_reports(prefix="filtered")
 
     # # Write the filtered VCF file.
-    gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
+    # gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
+    # gd_filt.write_popmap("snpio/example_data/popmaps/nremover_test.popmap")
 
     # # Encode the genotypes into 012, one-hot, and integer formats.
-    ge = GenotypeEncoder(gd_filt)
-    gt_012 = ge.genotypes_012
-    gt_onehot = ge.genotypes_onehot
-    gt_int = ge.genotypes_int
+    # ge = GenotypeEncoder(gd_filt)
+    # gt_012 = ge.genotypes_012
+    # gt_onehot = ge.genotypes_onehot
+    # gt_int = ge.genotypes_int
 
-    df012 = pd.DataFrame(gt_012)
-    dfint = pd.DataFrame(gt_int)
+    # df012 = pd.DataFrame(gt_012)
+    # dfint = pd.DataFrame(gt_int)
 
-    tp = TreeParser(
-        genotype_data=gd_filt,
-        treefile="snpio/example_data/trees/test.tre",
-        qmatrix="snpio/example_data/trees/test.iqtree",
-        siterates="snpio/example_data/trees/test14K.rate",
-        verbose=True,
-        debug=False,
-    )
+    # tp = TreeParser(
+    #     genotype_data=gd_filt,
+    #     treefile="snpio/example_data/trees/test.tre",
+    #     qmatrix="snpio/example_data/trees/test.iqtree",
+    #     siterates="snpio/example_data/trees/test14K.rate",
+    #     verbose=True,
+    #     debug=False,
+    # )
 
-    # # Get a toytree object by reading the tree file.
-    tree = tp.read_tree()
+    # # # Get a toytree object by reading the tree file.
+    # tree = tp.read_tree()
 
-    # # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
-    tp.reroot_tree("~EA")
+    # # # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
+    # tp.reroot_tree("~EA")
 
-    # # Get a subtree with only the samples containing 'EA' in the sampleID.
-    subtree = tp.get_subtree("~EA")
+    # # # Get a subtree with only the samples containing 'EA' in the sampleID.
+    # subtree = tp.get_subtree("~EA")
 
-    # # Prune the tree to remove samples containing 'ON' in the sampleID.
-    pruned_tree = tp.prune_tree("~ON")
+    # # # Prune the tree to remove samples containing 'ON' in the sampleID.
+    # pruned_tree = tp.prune_tree("~ON")
 
 
 if __name__ == "__main__":
