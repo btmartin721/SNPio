@@ -175,3 +175,4 @@ tasks.json
 
 MAS_*
 .venv*
+analysis_compare*_output/
