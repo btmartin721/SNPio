@@ -169,8 +169,8 @@ class FstOutliers:
             if np.count_nonzero(valid_vals) > 0:
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", category=RuntimeWarning)
-                    mean_vals = np.nanmean(fst_bootstrap, axis=1)
-                    std_vals = np.nanstd(fst_bootstrap, axis=1)
+                    mean_vals = np.nanmean(fst_bootstrap, axis=-1)
+                    std_vals = np.nanstd(fst_bootstrap, axis=-1)
                 fst_means[pop_pair] = mean_vals
                 fst_stds[pop_pair] = np.maximum(std_vals, 1e-3)
             else:
