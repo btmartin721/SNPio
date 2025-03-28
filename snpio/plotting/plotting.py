@@ -468,59 +468,50 @@ class Plotting:
         plt.close()
 
     def _plot_fst_heatmap(
-        self, fst_between_pops: Dict[tuple, pd.Series], use_pvalues: bool = False
+        self, fst_between_pops: Dict[tuple, Any], use_pvalues: bool = False
     ) -> None:
-        """Plot a heatmap of Fst values between populations.
-
-        If bootstrapping was performed:
-        - When use_pvalues is False, the heatmap shows the mean overall Fst with 95% confidence intervals.
-        - When use_pvalues is True, the heatmap displays the mean overall Fst and the corresponding p-value
-            (rounded to three decimals) below the Fst value in each cell.
-        When no bootstrapping is performed, it uses the per-locus Fst values to compute a mean and standard error-based CI.
-
-        Args:
-            fst_between_pops (dict): Dictionary of Fst results for each population pair.
-                - If bootstrapping was not performed, values are pandas Series of per-locus Fst.
-                - If bootstrapping was performed without p-values, values are numpy arrays (1D) of overall Fst values.
-                - If bootstrapping was performed with p-values, values are dicts with keys "fst" (numpy array) and "pvalue" (pandas Series).
-            use_pvalues (bool, optional): If True, display the p-value beneath the Fst values in each cell.
         """
-        # Use the same constants as in plot_dist_matrix.
+        Plot a heatmap of Fst values (or p-values).
+        """
         fig_size = (48, 48)
         title_fontsize = 72
         tick_fontsize = 72
         annot_fontsize = 38
         cbar_fontsize = 72
 
-        # Determine mode based on the type of one example value.
         example_val = next(iter(fst_between_pops.values()))
-        if isinstance(example_val, pd.Series):
-            mode = "raw"
+        if isinstance(example_val, dict) and "abc_values" in example_val:
+            mode = "variance_components"
         elif isinstance(example_val, np.ndarray):
             mode = "bootstrap"
         elif isinstance(example_val, dict) and "fst" in example_val:
             mode = "bootstrap_with_p"
-        elif use_pvalues:
-            if not isinstance(example_val, dict):
-                msg = "Invalid format for Fst when use_pvalues is True."
-                self.logger.error(msg)
-                raise ValueError(msg)
-            mode = "bootstrap_with_p"
         else:
-            raise ValueError("Unrecognized format for fst_between_pops.")
+            raise ValueError(
+                "Unrecognized format for fst_between_pops in `_plot_fst_heatmap`"
+            )
 
         stats = {}
         for pop_pair, val in fst_between_pops.items():
-            if mode == "raw":
-                mean_val = val.mean()
-                se = val.std() / np.sqrt(len(val))
-                lower = mean_val - 1.96 * se
-                upper = mean_val + 1.96 * se
-                annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
+            if mode == "variance_components":
+                a_arr, b_arr, c_arr = val["abc_values"]
+                A = np.nansum(a_arr)
+                B = np.nansum(b_arr)
+                C = np.nansum(c_arr)
+                denom = A + B + C
+                if denom <= 0:
+                    multi_locus_fst = np.nan
+                else:
+                    multi_locus_fst = A / denom
+                annotation = f"{multi_locus_fst:.3f}"
+                mean_val = multi_locus_fst
+                lower = np.nan
+                upper = np.nan
             elif mode == "bootstrap":
-                mean_val = np.nanmean(val)
-                lower = np.nanpercentile(val, 2.5)
-                upper = np.nanpercentile(val, 97.5)
+                arr = val
+                mean_val = np.nanmean(arr)
+                lower = np.nanpercentile(arr, 2.5)
+                upper = np.nanpercentile(arr, 97.5)
                 annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
             elif mode == "bootstrap_with_p":
                 fst_array = val["fst"]
@@ -533,8 +524,10 @@ class Plotting:
                     annotation = f"{mean_val:.2f}\nP: {p_val:.3f}"
                 else:
                     annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
+
             stats[pop_pair] = (mean_val, lower, upper, annotation)
 
+        # Build the matrix and annotation
         populations = sorted({pop for pair in stats.keys() for pop in pair})
         stat_matrix = pd.DataFrame(index=populations, columns=populations, data=np.nan)
         annotation_matrix = pd.DataFrame(
@@ -547,13 +540,10 @@ class Plotting:
             annotation_matrix.loc[pop1, pop2] = annotation
             annotation_matrix.loc[pop2, pop1] = annotation
 
-        sorted_populations = stat_matrix.mean(axis=1).sort_values(ascending=False).index
-        stat_matrix = stat_matrix.loc[sorted_populations, sorted_populations]
-        annotation_matrix = annotation_matrix.loc[
-            sorted_populations, sorted_populations
-        ]
-
+        # Mask upper triangle
         mask = np.triu(np.ones_like(stat_matrix, dtype=bool))
+        lower_df = stat_matrix.mask(mask)
+        lower_df.to_csv(self.output_dir_analysis / "pairwise_WC_fst.csv", index=True)
 
         plt.figure(figsize=fig_size)
         ax = sns.heatmap(
@@ -569,22 +559,21 @@ class Plotting:
             square=True,
         )
         ax.invert_xaxis()
-        title_str = (
-            "Mean Fst Between Populations (95% CI)"
-            if mode != "bootstrap_with_p" or not use_pvalues
-            else "Mean Fst and Permuted P-values"
-        )
-        cbar_label = (
-            "Mean Fst"
-            if mode != "bootstrap_with_p" or not use_pvalues
-            else "Fst; P-values shown in cell"
-        )
+
+        if mode == "variance_components":
+            title_str = "Weir & Cockerham multi-locus Fst (ratio-of-sums)"
+            cbar_label = "Multi-locus Fst"
+        elif mode == "bootstrap_with_p" and use_pvalues:
+            title_str = "Mean Fst and Permuted P-values"
+            cbar_label = "Fst; P-values shown in cell"
+        else:
+            title_str = "Mean Fst Between Populations (95% CI)"
+            cbar_label = "Mean Fst"
+
         ax.set_title(title_str, fontsize=title_fontsize)
-        ax.set_xticks(ax.get_xticks())
         ax.set_xticklabels(
             ax.get_xticklabels(), rotation=45, ha="right", fontsize=tick_fontsize
         )
-        ax.set_yticks(ax.get_yticks())
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=tick_fontsize)
         cbar = ax.collections[0].colorbar
         cbar.ax.tick_params(labelsize=cbar_fontsize)
