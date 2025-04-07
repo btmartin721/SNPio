@@ -467,11 +467,63 @@ class Plotting:
 
         plt.close()
 
+    def plot_permutation_dist(
+        self, obs_fst, dist, pop1_label, pop2_label, dist_type="fst"
+    ):
+
+        sns.set_style("white")
+        sns.despine()
+
+        sns.histplot(
+            dist,
+            bins=30,
+            kde=True,
+            color="darkorchid",
+            alpha=0.7,
+            label="Permutation Distribution",
+            fill=True,
+            legend=True,
+        )
+        plt.axvline(obs_fst, color="orange", linestyle="--", label="Observed Fst")
+        plt.axvline(
+            dist.mean(), color="limegreen", linestyle="--", label="Mean Permuted Fst"
+        )
+        plt.title(f"Permutation Dist: {pop1_label} vs {pop2_label}")
+        plt.xlabel("Fst")
+        plt.ylabel("Frequency")
+        plt.legend(loc="center", bbox_to_anchor=(0.5, -0.4), shadow=True, fancybox=True)
+
+        out_file = (
+            f"{dist_type}_permutation_dist_{pop1_label}_{pop2_label}.{self.plot_format}"
+        )
+        plt.savefig(self.output_dir_analysis / out_file)
+        if self.show:
+            plt.show()
+        plt.close()
+
     def _plot_fst_heatmap(
-        self, fst_between_pops: Dict[tuple, Any], use_pvalues: bool = False
+        self,
+        df_fst_mean: Dict[tuple, Any] | pd.DataFrame,
+        *,
+        df_fst_lower: pd.DataFrame | None = None,
+        df_fst_upper: pd.DataFrame | None = None,
+        df_fst_pvals: pd.DataFrame | None = None,
+        use_pvalues: bool = False,
+        palette: str = "magma",
+        title: str = "Mean Fst Between Populations",
+        dist_type: str = "fst",
     ) -> None:
-        """
-        Plot a heatmap of Fst values (or p-values).
+        """Plot a heatmap of Fst values (or p-values).
+
+        Args:
+            df_fst_mean (dict | pd.DataFrame): Dictionary or DataFrame containing mean Fst values.
+            df_fst_lower (pd.DataFrame, optional): DataFrame containing lower confidence intervals (optional).
+            df_fst_upper (pd.DataFrame, optional): DataFrame containing upper confidence intervals (optional).
+            df_fst_pvals (pd.DataFrame, optional): DataFrame containing p-values for Fst values (optional).
+            use_pvalues (bool): Whether to use p-values instead of Fst values for the heatmap.
+            palette (str): Color palette for the heatmap.
+            title (str): Title for the heatmap.
+            dist_type (str): Type of distance metric used (default: "fst"). Other option: "nei".
         """
         fig_size = (48, 48)
         title_fontsize = 72
@@ -479,79 +531,53 @@ class Plotting:
         annot_fontsize = 38
         cbar_fontsize = 72
 
-        example_val = next(iter(fst_between_pops.values()))
-        if isinstance(example_val, dict) and "abc_values" in example_val:
-            mode = "variance_components"
-        elif isinstance(example_val, np.ndarray):
+        # Create a mask for the upper triangle
+        mask = np.triu(np.ones_like(df_fst_mean, dtype=bool))
+        np.fill_diagonal(df_fst_mean.values, np.nan)
+        df_fst_mean = df_fst_mean.mask(mask)  # Mask upper triangle
+        df_fst_mean = df_fst_mean.round(3)
+
+        mode = "fst"
+
+        if df_fst_lower is not None and df_fst_upper is not None:
+            # Set the diagonal to NaN to avoid displaying self-comparisons
+            np.fill_diagonal(df_fst_lower.values, np.nan)
+            np.fill_diagonal(df_fst_upper.values, np.nan)
+            df_fst_lower = df_fst_lower.mask(mask)  # Mask upper triangle
+            df_fst_upper = df_fst_upper.mask(mask)  # Mask upper triangle
             mode = "bootstrap"
-        elif isinstance(example_val, dict) and "fst" in example_val:
+        if df_fst_pvals is not None:
+            # Set the diagonal to NaN to avoid displaying self-comparisons
+            np.fill_diagonal(df_fst_pvals.values, np.nan)
+            df_fst_pvals = df_fst_pvals.mask(mask)
             mode = "bootstrap_with_p"
-        else:
-            raise ValueError(
-                "Unrecognized format for fst_between_pops in `_plot_fst_heatmap`"
+
+        df_annot = df_fst_mean.copy()
+        df_annot = df_annot.mask(mask)  # Mask upper triangle
+        df_annot = df_annot.astype(str)
+
+        if df_fst_pvals is not None and use_pvalues:
+            df_annot = df_annot + "\n" + df_fst_pvals.round(3).astype(str)
+
+        elif df_fst_lower is not None and df_fst_upper is not None:
+            df_annot = (
+                df_annot
+                + "\n["
+                + df_fst_lower.round(3).astype(str)
+                + ", "
+                + df_fst_upper.round(3).astype(str)
+                + "]"
             )
 
-        stats = {}
-        for pop_pair, val in fst_between_pops.items():
-            if mode == "variance_components":
-                a_arr, b_arr, c_arr = val["abc_values"]
-                A = np.nansum(a_arr)
-                B = np.nansum(b_arr)
-                C = np.nansum(c_arr)
-                denom = A + B + C
-                if denom <= 0:
-                    multi_locus_fst = np.nan
-                else:
-                    multi_locus_fst = A / denom
-                annotation = f"{multi_locus_fst:.3f}"
-                mean_val = multi_locus_fst
-                lower = np.nan
-                upper = np.nan
-            elif mode == "bootstrap":
-                arr = val
-                mean_val = np.nanmean(arr)
-                lower = np.nanpercentile(arr, 2.5)
-                upper = np.nanpercentile(arr, 97.5)
-                annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
-            elif mode == "bootstrap_with_p":
-                fst_array = val["fst"]
-                p_series = val["pvalue"]
-                mean_val = np.nanmean(fst_array)
-                lower = np.nanpercentile(fst_array, 2.5)
-                upper = np.nanpercentile(fst_array, 97.5)
-                p_val = p_series.iloc[0]
-                if use_pvalues:
-                    annotation = f"{mean_val:.2f}\nP: {p_val:.3f}"
-                else:
-                    annotation = f"{mean_val:.2f}\n[{lower:.2f}, {upper:.2f}]"
-
-            stats[pop_pair] = (mean_val, lower, upper, annotation)
-
-        # Build the matrix and annotation
-        populations = sorted({pop for pair in stats.keys() for pop in pair})
-        stat_matrix = pd.DataFrame(index=populations, columns=populations, data=np.nan)
-        annotation_matrix = pd.DataFrame(
-            index=populations, columns=populations, data=""
-        )
-
-        for (pop1, pop2), (mean_val, lower, upper, annotation) in stats.items():
-            stat_matrix.loc[pop1, pop2] = mean_val
-            stat_matrix.loc[pop2, pop1] = mean_val
-            annotation_matrix.loc[pop1, pop2] = annotation
-            annotation_matrix.loc[pop2, pop1] = annotation
-
-        # Mask upper triangle
-        mask = np.triu(np.ones_like(stat_matrix, dtype=bool))
-        lower_df = stat_matrix.mask(mask)
-        lower_df.to_csv(self.output_dir_analysis / "pairwise_WC_fst.csv", index=True)
+        annotation_matrix = df_annot.to_numpy()
 
         plt.figure(figsize=fig_size)
         ax = sns.heatmap(
-            stat_matrix,
+            df_fst_mean,
             annot=annotation_matrix,
             annot_kws={"fontsize": annot_fontsize},
             fmt="",
-            cmap="magma",
+            cmap=palette,
             mask=mask,
             linewidths=0,
             vmin=0,
@@ -560,15 +586,15 @@ class Plotting:
         )
         ax.invert_xaxis()
 
-        if mode == "variance_components":
-            title_str = "Weir & Cockerham multi-locus Fst (ratio-of-sums)"
-            cbar_label = "Multi-locus Fst"
+        if mode == "fst":
+            title_str = f"Multi-locus {dist_type.capitalize()}"
+            cbar_label = f"Multi-locus {dist_type.capitalize()}"
         elif mode == "bootstrap_with_p" and use_pvalues:
-            title_str = "Mean Fst and Permuted P-values"
-            cbar_label = "Fst; P-values shown in cell"
+            title_str = f"Mean {dist_type.capitalize()} and Permuted P-values"
+            cbar_label = f"{dist_type.capitalize()}; P-values shown in cell"
         else:
-            title_str = "Mean Fst Between Populations (95% CI)"
-            cbar_label = "Mean Fst"
+            title_str = f"{title} (95% CI)"
+            cbar_label = f"Mean {dist_type.capitalize()}"
 
         ax.set_title(title_str, fontsize=title_fontsize)
         ax.set_xticklabels(
@@ -579,7 +605,7 @@ class Plotting:
         cbar.ax.tick_params(labelsize=cbar_fontsize)
         cbar.set_label(cbar_label, fontsize=cbar_fontsize)
 
-        out_file = f"fst_between_populations_heatmap.{self.plot_format}"
+        out_file = f"{dist_type}_between_populations_heatmap.{self.plot_format}"
         plt.savefig(self.output_dir_analysis / out_file)
         if self.show:
             plt.show()
@@ -919,7 +945,11 @@ class Plotting:
 
         # Plot Fst heatmap
         self._plot_fst_heatmap(
-            summary_statistics["Fst_between_populations"], use_pvalues=use_pvalues
+            summary_statistics["Fst_between_populations_obs"],
+            df_fst_lower=summary_statistics["Fst_between_populations_lower"],
+            df_fst_upper=summary_statistics["Fst_between_populations_upper"],
+            df_fst_pvals=summary_statistics["Fst_between_populations_pvalues"],
+            use_pvalues=use_pvalues,
         )
 
     def plot_pca(
@@ -2357,96 +2387,27 @@ class Plotting:
     def plot_dist_matrix(
         self,
         df: pd.DataFrame,
+        *,
         pvals: pd.DataFrame | None = None,
         palette: str = "coolwarm",
         title: str = "Distance Matrix",
+        dist_type: str = "fst",
     ) -> None:
-        """Plot a distance matrix.
+        """Plot distance matrix.
 
-        If a p-value matrix is provided, each cell's annotation displays the distance and the corresponding
-        p-value (rounded to three decimals) on separate lines. Otherwise, only the distance is annotated.
+        This method plots a distance matrix using seaborn's heatmap function. The distance matrix is calculated from the input DataFrame. The plot is saved to a file.
 
         Args:
-            df (pd.DataFrame): The input dataframe containing the distance matrix data.
-            pvals (pd.DataFrame | None): The input dataframe containing the p-values.
-            palette (str): The color palette to use for the heatmap plot.
-            title (str): The title of the plot.
-
-        Returns:
-            None: The plot is saved to a file.
+            df (pd.DataFrame): The input DataFrame containing the distance matrix data.
+            pvals (pd.DataFrame, optional): The p-values for the distance matrix. Defaults to None.
+            palette (str, optional): The color palette to use for the heatmap. Defaults to "coolwarm".
+            title (str, optional): The title of the plot. Defaults to "Distance Matrix".
         """
-        plot_dir = Path(f"{self.prefix}_output", "analysis", "plots")
-        plot_dir.mkdir(parents=True, exist_ok=True)
-
-        if df.empty:
-            msg = "The input distance matrix is empty."
-            self.logger.error(msg)
-            raise ValueError(msg)
-        if pvals is not None and pvals.empty:
-            msg = "The input p-values dataframe is empty."
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        # Use identical constants for figure and font sizes.
-        fig_size = (48, 48)
-        title_fontsize = 72
-        tick_fontsize = 72
-        annot_fontsize = 38
-        cbar_fontsize = 72
-
-        # Determine sort order based on row sums.
-        sort_order = df.sum(axis=1).sort_values(ascending=False).index
-        df = df.loc[sort_order, sort_order]
-        if pvals is not None:
-            pvals = pvals.loc[sort_order, sort_order]
-
-        # Create a mask for the lower triangle (to show only the upper triangle).
-        mask = np.tril(np.ones(df.shape, dtype=bool), k=-1)
-
-        sns.set_style("white")
-        fig, ax = plt.subplots(1, 1, figsize=fig_size)
-
-        # Build the annotation matrix.
-        if pvals is not None:
-            annotation_matrix = pd.DataFrame(
-                index=df.index, columns=df.columns, data=""
-            )
-            for i in range(df.shape[0]):
-                for j in range(df.shape[1]):
-                    if mask[i, j]:
-                        annotation_matrix.iloc[i, j] = ""
-                    else:
-                        d = df.iloc[i, j]
-                        p = pvals.iloc[i, j]
-                        if np.isnan(p):
-                            annotation_matrix.iloc[i, j] = f"{d:.3f}"
-                        else:
-                            annotation_matrix.iloc[i, j] = f"{d:.3f}\nP: {p:.3f}"
-        else:
-            annotation_matrix = True
-
-        sns.heatmap(
+        self._plot_fst_heatmap(
             df,
-            annot=annotation_matrix,
-            fmt="",
-            cmap=palette,
-            cbar_kws={"label": "Distance"},
-            robust=True,
-            mask=mask,
-            annot_kws={"fontsize": annot_fontsize},
-            ax=ax,
+            df_fst_pvals=pvals,
+            use_pvalues=True,
+            palette=palette,
+            title=title,
+            dist_type=dist_type,
         )
-        ax.invert_yaxis()
-        ax.set_title(string.capwords(title), fontsize=title_fontsize)
-        ax.set_xlabel("Population", fontsize=tick_fontsize)
-        ax.set_ylabel("Population", fontsize=tick_fontsize)
-        ax.tick_params(labelsize=tick_fontsize)
-        cbar = ax.collections[0].colorbar
-        cbar.ax.tick_params(labelsize=cbar_fontsize)
-        cbar.set_label("Distance", fontsize=cbar_fontsize)
-
-        fn = "_".join(title.lower().split())
-        fig.savefig(plot_dir / f"{fn}.{self.plot_format}")
-        if self.show:
-            plt.show()
-        plt.close()
