@@ -359,7 +359,7 @@ class PopGenStatistics:
 
         return fo.detect_fst_outliers_dbscan(correction_method, alpha, n_jobs)
 
-    @exporter.capture_results
+    # @exporter.capture_results
     def summary_statistics(
         self,
         n_bootstraps=0,
@@ -381,8 +381,13 @@ class PopGenStatistics:
             dict: A dictionary containing summary statistics per population and overall.
         """
         summary_stats = SummaryStatistics(
-            self.genotype_data, self.alignment_012, self.logger, self.plotter
+            self.genotype_data,
+            self.alignment_012,
+            self.plotter,
+            verbose=self.verbose,
+            debug=self.debug,
         )
+
         return summary_stats.calculate_summary_statistics(
             n_bootstraps=n_bootstraps,
             n_jobs=n_jobs,
@@ -432,7 +437,9 @@ class PopGenStatistics:
     def neis_genetic_distance(
         self,
         n_bootstraps: int = 0,
-        palette: str = "coolwarm",
+        n_jobs: int = 1,
+        return_pvalues: bool = False,
+        palette: str = "magma",
         supress_plot: bool = False,
     ) -> pd.DataFrame | Tuple[pd.DataFrame, pd.DataFrame]:
         """Calculate Nei's genetic distance between all pairs of populations.
@@ -443,6 +450,8 @@ class PopGenStatistics:
 
         Args:
             n_bootstraps (int): Number of bootstrap replicates to compute p-values. Defaults to 0 (only distances are returned).
+            n_jobs (int): Number of parallel jobs. -1 uses all cores. Defaults to 1.
+            return_pvalues (bool): If True, returns a tuple of (distance matrix, p-value matrix). Defaults to False.
             palette (str): Color palette for the distance matrix plot. Can use any matplotlib gradient-based palette. Some frequently used options include: "coolwarm", "viridis", "magma", and "inferno". Defaults to 'coolwarm'.
             supress_plot (bool): If True, suppresses the plotting of the distance matrix. Defaults to False.
 
@@ -451,6 +460,29 @@ class PopGenStatistics:
             Tuple[pd.DataFrame, pd.DataFrame]: If n_bootstraps > 0, returns a tuple of (distance matrix, p-value matrix).
         """
         gd = GeneticDistance(
-            self.genotype_data, self.alignment_012, self.logger, self.plotter
+            self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
         )
-        return gd.calculate_neis_distance(n_bootstraps, palette, supress_plot)
+        self.logger.info("Calculating Nei's genetic distance...")
+        self.logger.info(f"Number of bootstraps: {n_bootstraps}")
+
+        nei_results = gd.nei_distance(
+            n_bootstraps=n_bootstraps, n_jobs=n_jobs, return_pvalues=return_pvalues
+        )
+
+        df_obs, df_lower, df_upper, df_pval = gd.parse_nei_result(nei_results)
+
+        if not supress_plot:
+            self.plotter.plot_dist_matrix(
+                df_obs,
+                pvals=df_pval if return_pvalues else None,
+                palette=palette,
+                title="Nei's Genetic Distance",
+                dist_type="nei",
+            )
+
+        self.logger.info("Nei's genetic distance calculation complete!")
+
+        if return_pvalues:
+            return df_obs, df_pval
+        else:
+            return df_obs
