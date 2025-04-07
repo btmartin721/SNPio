@@ -4,6 +4,7 @@ library("poppr")
 library("hierfstat")
 library("ggplot2")
 library("pheatmap")
+library("assigner")
 
 
 # Load the data
@@ -19,8 +20,10 @@ genpop <- genind2genpop(gen)
 # Run the adegenet analysis
 nei <- dist.genpop(genpop, method = "pairwise")
 
-boot.ppfst(dat=gen, nboot = 100)
-wcfst <- pairwise.WCfst(gen)
+wcfst <- boot.ppfst(dat=gen, nboot = 100)
+wcfst.dist <- genet.dist(gen, method="WC84")
+?pairwise.WCfst
+
 
 hf <- genind2hierfstat(gen)
 
