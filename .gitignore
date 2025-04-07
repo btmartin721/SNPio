@@ -173,6 +173,18 @@ header.txt
 keybindings.json
 tasks.json
 
-MAS_*
 .venv*
+
+# Analysis/ Validation files
+MAS_*
 analysis_compare*_output/
+real_data*_output/
+real_data2/
+Ranalysis/
+grouped_simulated_genotypes.txt
+simulated_genotypes.txt
+SNPio_HierFstat_*
+simulated_comparison*_output/
+simulated_comparison_*/
+scripts/simulated_data_*
+scripts/simulated_data.*
