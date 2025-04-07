@@ -314,6 +314,9 @@ class GenotypeData(BaseGenotypeData):
 
         self.iupac = IUPAC()
 
+        # Ensure the load_aln method is called.
+        _ = self.snp_data
+
     def _iupac_from_gt_tuples(self) -> Dict[Tuple[str, str], str]:
         """Returns the IUPAC code mapping.
 
