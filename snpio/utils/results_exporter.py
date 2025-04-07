@@ -61,6 +61,13 @@ class ResultsExporter:
             elif isinstance(value, dict):
                 # Recursively process sub-dictionaries
                 nested_json_data = self._flatten_and_save(value, full_key)
+
+                if isinstance(nested_json_data, np.ndarray):
+                    # Save numpy array as CSV
+                    pd.DataFrame(nested_json_data).to_csv(
+                        self.output_dir / f"{full_key}.csv", index=False
+                    )
+
                 if nested_json_data:  # Avoid empty dicts in JSON
                     json_data[key] = nested_json_data
 
@@ -124,7 +131,7 @@ class ResultsExporter:
                 if "detect_fst_outliers" in filename:
                     part_names = ("fst", "pvalues")
                 elif "neis_genetic_distance" in filename:
-                    part_names = ("distances", "pvalues")
+                    part_names = ("observed", "pvalues")
                 elif "calculate_d_statistics" in filename:
                     part_names = ("per_sample_dstats", "summarized_dstats")
                 elif "tajimas_d" in filename:
