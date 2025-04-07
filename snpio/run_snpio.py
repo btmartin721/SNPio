@@ -21,38 +21,22 @@ def main():
 
     # Read the alignment, popmap, and tree files.
     gd = VCFReader(
-        filename="snpio/example_data/vcf_files/phylogen_subset14K.vcf.gz",
-        popmapfile="snpio/example_data/popmaps/phylogen_nomx.popmap",
+        filename="snpio/example_data/vcf_files/nremover_test.vcf.gz",
+        popmapfile="snpio/example_data/popmaps/nremover_test.popmap",
         force_popmap=True,  # Remove samples not in the popmap, or vice versa.
         chunk_size=5000,
-        exclude_pops=["OG", "DS"],
+        exclude_pops=["DS", "OG"],
         plot_format="pdf",
-        prefix="analysis_compare",
+        prefix="real_data5",
     )
 
-    gd.snp_data
-
-    nrm = NRemover2(gd)
-
-    gd_filt = (
-        nrm.filter_missing_sample(0.75)
-        .filter_missing(0.75)
-        .filter_missing_pop(0.75)
-        .filter_mac(2)
-        .filter_monomorphic(exclude_heterozygous=False)
-        .filter_singletons(exclude_heterozygous=False)
-        .filter_biallelic(exclude_heterozygous=False)
-        .resolve()
-    )
-
-    gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
-    gd_filt.write_popmap("snpio/example_data/popmaps/nremover_test.popmap")
-
-    pgs = PopGenStatistics(gd_filt, verbose=True)
+    pgs = PopGenStatistics(gd, verbose=True)
 
     summary_stats = pgs.summary_statistics(
-        save_plots=True, n_bootstraps=100, n_jobs=8, use_pvalues=False
+        save_plots=True, n_bootstraps=1000, n_jobs=8, use_pvalues=True
     )
+
+    nei = pgs.neis_genetic_distance(n_bootstraps=100, n_jobs=8, return_pvalues=True)
 
     # df_fst_outliers_boot, df_fst_outlier_pvalues_boot = pgs.detect_fst_outliers(
     #     correction_method="bonf",
@@ -70,7 +54,7 @@ def main():
     # amova_results = pgs.amova(
     #     regionmap={
     #         "EA": "Eastern",
-    #         "GU": "Eastern",
+    #         "GU": "Eastern",_only
     #         "TT": "Eastern",
     #         "TC": "Eastern",
     #         "ON": "Ornate",
@@ -80,8 +64,6 @@ def main():
     #     n_jobs=1,
     #     random_seed=42,
     # )
-
-    # nei_dist_df, nei_pvals_df = pgs.neis_genetic_distance(n_bootstraps=1000)
 
     # dstats_df, overall_results = pgs.calculate_d_statistics(
     #     method="patterson",
