@@ -26,8 +26,8 @@ def main():
         force_popmap=True,  # Remove samples not in the popmap, or vice versa.
         chunk_size=5000,
         exclude_pops=["DS", "OG"],
-        plot_format="pdf",
-        prefix="real_data5",
+        plot_format="png",
+        prefix="BOX_analysis",
     )
 
     pgs = PopGenStatistics(gd, verbose=True)
