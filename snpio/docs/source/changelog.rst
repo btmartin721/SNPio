@@ -4,6 +4,15 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.2.3 (2025-04-08)
+----------------------------
+
+Bug Fixes
+~~~~~~~~~
+
+- Fixed issues with `summary_statistics()` where the Weir and Cockerham (1984) Fst calculation was not being performed correctly. The method now calculates pairwise Weir and Cockerham (1984) Fst between populations, saves a heatmap with the Fst values, and saves the pairwise table as a CSV file. The method also returns a pandas DataFrame with the Fst values.
+- Fixed issues with `neis_genetic_distance()` where the Nei's genetic distance calculation was not being performed correctly. The method now calculates pairwise Nei's genetic distance between populations, saves a heatmap with the genetic distances, and saves the pairwise table as a CSV file. The method also returns a pandas DataFrame with the genetic distances.`
+
 Version 1.2.1 (2025-01-06)
 ----------------------------
 
