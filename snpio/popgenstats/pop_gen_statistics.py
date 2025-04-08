@@ -438,7 +438,7 @@ class PopGenStatistics:
         self,
         n_bootstraps: int = 0,
         n_jobs: int = 1,
-        return_pvalues: bool = False,
+        use_pvalues: bool = False,
         palette: str = "magma",
         supress_plot: bool = False,
     ) -> pd.DataFrame | Tuple[pd.DataFrame, pd.DataFrame]:
@@ -451,7 +451,7 @@ class PopGenStatistics:
         Args:
             n_bootstraps (int): Number of bootstrap replicates to compute p-values. Defaults to 0 (only distances are returned).
             n_jobs (int): Number of parallel jobs. -1 uses all cores. Defaults to 1.
-            return_pvalues (bool): If True, returns a tuple of (distance matrix, p-value matrix). Defaults to False.
+            use_pvalues (bool): If True, returns a tuple of (distance matrix, p-value matrix). Defaults to False.
             palette (str): Color palette for the distance matrix plot. Can use any matplotlib gradient-based palette. Some frequently used options include: "coolwarm", "viridis", "magma", and "inferno". Defaults to 'coolwarm'.
             supress_plot (bool): If True, suppresses the plotting of the distance matrix. Defaults to False.
 
@@ -466,7 +466,7 @@ class PopGenStatistics:
         self.logger.info(f"Number of bootstraps: {n_bootstraps}")
 
         nei_results = gd.nei_distance(
-            n_bootstraps=n_bootstraps, n_jobs=n_jobs, return_pvalues=return_pvalues
+            n_bootstraps=n_bootstraps, n_jobs=n_jobs, return_pvalues=use_pvalues
         )
 
         df_obs, df_lower, df_upper, df_pval = gd.parse_nei_result(nei_results)
@@ -474,15 +474,11 @@ class PopGenStatistics:
         if not supress_plot:
             self.plotter.plot_dist_matrix(
                 df_obs,
-                pvals=df_pval if return_pvalues else None,
+                pvals=df_pval if use_pvalues else None,
                 palette=palette,
                 title="Nei's Genetic Distance",
                 dist_type="nei",
             )
 
         self.logger.info("Nei's genetic distance calculation complete!")
-
-        if return_pvalues:
-            return df_obs, df_pval
-        else:
-            return df_obs
+        return (df_obs, df_pval) if use_pvalues else df_obs
