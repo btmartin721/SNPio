@@ -160,7 +160,11 @@ class SummaryStatistics:
                 }
             )
 
-        self.logger.info("Calculating pairwise Fst...")
+        self.logger.info("Calculating pairwise Weir & Cockerham Fst...")
+        self.logger.info(f"Number of bootstraps: {n_bootstraps}")
+        self.logger.info(f"Number of CPU threads: {n_jobs}")
+        self.logger.info(f"Use p-values: {use_pvalues}")
+        self.logger.info(f"Save plots: {save_plots}")
 
         # Pairwise Fst between populations.
         fst = FstDistance(
@@ -183,7 +187,9 @@ class SummaryStatistics:
         if save_plots:
             self.plotter.plot_summary_statistics(summary_stats, use_pvalues=use_pvalues)
 
+        self.logger.info("Fst calculation complete!")
         self.logger.info("Summary statistics calculation complete!")
+
         return summary_stats
 
     def observed_heterozygosity_per_population(self):
