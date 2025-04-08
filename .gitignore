@@ -193,3 +193,4 @@ validation/
 *.RData
 *.Rhistory
 *.R
+BOX_analysis_output/
