@@ -188,3 +188,8 @@ simulated_comparison*_output/
 simulated_comparison_*/
 scripts/simulated_data_*
 scripts/simulated_data.*
+adegenet_analysis.R
+validation/
+*.RData
+*.Rhistory
+*.R
