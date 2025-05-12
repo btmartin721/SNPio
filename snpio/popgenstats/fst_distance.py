@@ -2,10 +2,12 @@ import itertools
 import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Literal, Tuple
 
 import numpy as np
 import pandas as pd
 
+from snpio.utils.benchmarking import Benchmark
 from snpio.utils.logging import LoggerManager
 
 phased_encoding = {
@@ -379,6 +381,8 @@ class FstDistance:
             >>> print(fst_value)
             0.5
         """
+        full_matrix = full_matrix.copy()
+
         if locus_subset is None:
             locus_subset = range(n_loci)
 
@@ -532,7 +536,7 @@ class FstDistance:
         # ----------------------------------------------------
         if n_bootstraps == 0 and not return_pvalues:
             return self._compute_pw_fst_no_bootstrap(
-                full_matrix, num_populations, pop_keys, pop_indices, n_loci
+                full_matrix.copy(), num_populations, pop_keys, pop_indices, n_loci
             )
 
         # --------------------------------------------------
@@ -548,7 +552,7 @@ class FstDistance:
                 pop2_inds = pop_indices[pop2_name]
 
                 obs_fst, p_val, perm_dist = self._pairwise_permutation_test(
-                    pop1_inds, pop2_inds, full_matrix, n_bootstraps=n_bootstraps
+                    pop1_inds, pop2_inds, full_matrix.copy(), n_bootstraps=n_bootstraps
                 )
 
                 result_dict[(pop1_name, pop2_name)] = {
@@ -569,7 +573,7 @@ class FstDistance:
         else:  # n_bootstraps > 0 and not return_pvalues
             # Does confidence interval calculation.
             return self._compute_pw_fst_with_bootstrap(
-                full_matrix,
+                full_matrix.copy(),
                 pop_indices,
                 n_loci,
                 num_populations,
@@ -625,7 +629,7 @@ class FstDistance:
                 pop1_name = pop_keys[ia]
                 pop2_name = pop_keys[ib]
                 fst_val = self._compute_multilocus_fst(
-                    full_matrix,
+                    full_matrix.copy(),
                     pop_indices,
                     n_loci,
                     pop1_name,
@@ -689,7 +693,7 @@ class FstDistance:
             pop1_name = pop_keys[ia]
             pop2_name = pop_keys[ib]
             observed_fst[(pop1_name, pop2_name)] = self._compute_multilocus_fst(
-                full_matrix, pop_indices, n_loci, pop1_name, pop2_name
+                full_matrix.copy(), pop_indices, n_loci, pop1_name, pop2_name
             )
 
         # 2b) Gather all individuals from all pops, keep track
@@ -717,7 +721,7 @@ class FstDistance:
                 perm_val = self._compute_multilocus_fst_direct(
                     new_pop_indices[pop1_name],
                     new_pop_indices[pop2_name],
-                    full_matrix,
+                    full_matrix.copy(),
                 )
                 perm_fst_vals[(pop1_name, pop2_name)] = perm_val
             return perm_fst_vals
@@ -790,7 +794,7 @@ class FstDistance:
             pop2_name = pop_keys[ib]
 
             fst_val = self._compute_multilocus_fst(
-                full_matrix, pop_indices, n_loci, pop1_name, pop2_name
+                full_matrix.copy(), pop_indices, n_loci, pop1_name, pop2_name
             )
             genmat[ia, ib] = fst_val
             genmat[ib, ia] = fst_val
@@ -1104,7 +1108,7 @@ class FstDistance:
             Tuple: (observed Fst, empirical p-value, np.ndarray of permuted Fst)
         """
         a_vals, d_vals = self.fst_variance_components_per_locus(
-            pop1_inds, pop2_inds, full_matrix
+            pop1_inds, pop2_inds, full_matrix.copy()
         )
         valid = ~np.isnan(a_vals) & ~np.isnan(d_vals)
         a_vals = a_vals[valid]
@@ -1130,3 +1134,125 @@ class FstDistance:
         p_val = (np.sum(dist >= obs_fst) + 1) / (len(dist) + 1)
 
         return obs_fst, p_val, dist
+
+    def weir_cockerham_fst_bootstrap_per_locus(
+        self,
+        n_bootstraps: int = 1000,
+        seed: int = 42,
+        alternative: Literal["both", "upper", "lower"] = "upper",
+        outdir: Path | None = None,
+    ) -> dict[Tuple[str, str], pd.DataFrame]:
+        """
+        Compute per-locus Weir & Cockerham's Fst, empirical p-values, Z-scores, and bootstraps for each population pair.
+
+        Args:
+            n_bootstraps (int): Number of bootstrap replicates.
+            seed (int): Random seed for reproducibility.
+            alternative (str): Type of test: "both" (two-tailed), "upper", or "lower".
+            outdir (Path): Optional path to save outlier plots and CSV summaries. If None, no files are saved. Defaults to None.
+
+        Returns:
+            dict: Keys are (pop1, pop2), values are DataFrames with columns:
+                - 'Locus': Locus index (int)
+                - 'Fst': Observed Fst
+                - 'Pval': Empirical P-value from bootstraps
+                - 'Z': Z-score (standardized Fst from bootstrap distribution)
+                - 'Bootstraps': List of bootstrap values for the locus
+        """
+        rng = np.random.default_rng(seed)
+        full_matrix = self.genotype_data.snp_data.astype(str)
+        popmap = self.genotype_data.popmap_inverse
+        sample_names = self.genotype_data.samples
+        sample_to_idx = {name: i for i, name in enumerate(sample_names)}
+        pop_indices = {
+            pop_name: np.array([sample_to_idx[s] for s in samples], dtype=int)
+            for pop_name, samples in popmap.items()
+        }
+
+        n_loci = full_matrix.shape[1]
+        result = {}
+
+        for pop1, pop2 in itertools.combinations(popmap.keys(), 2):
+            inds1 = pop_indices[pop1]
+            inds2 = pop_indices[pop2]
+
+            a_vals, d_vals = self.fst_variance_components_per_locus(
+                inds1, inds2, full_matrix.copy()
+            )
+            with np.errstate(divide="ignore", invalid="ignore"):
+                observed_fst = np.where(d_vals > 0, a_vals / d_vals, np.nan)
+
+            bootstraps = np.full((n_loci, n_bootstraps), np.nan)
+            for b in range(n_bootstraps):
+                loci_sample = rng.choice(n_loci, size=n_loci, replace=True)
+                a_sample = a_vals[loci_sample]
+                d_sample = d_vals[loci_sample]
+
+                for loc in range(n_loci):
+                    mask = loci_sample == loc
+                    if not np.any(mask):
+                        continue
+                    num = np.sum(a_sample[mask])
+                    den = np.sum(d_sample[mask])
+                    if den > 0:
+                        bootstraps[loc, b] = num / den
+
+            pvals = np.full(n_loci, np.nan)
+            z_scores = np.full(n_loci, np.nan)
+            bootstrap_lists = []
+
+            for i in range(n_loci):
+                boot = bootstraps[i, :]
+                boot = boot[~np.isnan(boot)]
+                bootstrap_lists.append(boot.copy())
+                if len(boot) == 0 or np.isnan(observed_fst[i]):
+                    continue
+
+                mean_boot = np.mean(boot)
+                std_boot = np.std(boot)
+                z_scores[i] = (
+                    (observed_fst[i] - mean_boot) / std_boot if std_boot > 0 else np.nan
+                )
+
+                if alternative == "both":
+                    pvals[i] = (
+                        np.count_nonzero(
+                            np.abs(boot - mean_boot) >= abs(observed_fst[i] - mean_boot)
+                        )
+                        + 1
+                    ) / (len(boot) + 1)
+                elif alternative == "upper":
+                    pvals[i] = (np.count_nonzero(boot >= observed_fst[i]) + 1) / (
+                        len(boot) + 1
+                    )
+                elif alternative == "lower":
+                    pvals[i] = (np.count_nonzero(boot <= observed_fst[i]) + 1) / (
+                        len(boot) + 1
+                    )
+                else:
+                    raise ValueError(
+                        "Invalid alternative. Choose from 'both', 'upper', or 'lower'."
+                    )
+
+            df = pd.DataFrame(
+                {
+                    "Locus": np.arange(n_loci),
+                    "Fst": observed_fst,
+                    "Pval": pvals,
+                    "Z": z_scores,
+                    "Bootstraps": bootstrap_lists,
+                }
+            )
+
+            result[(pop1, pop2)] = df
+
+            # Plot and save only outliers
+            outliers = df[df["Pval"] < 0.05]
+            if not outliers.empty and outdir:
+                # Save outlier table
+                fname_csv = f"fst_outliers_{pop1}_{pop2}.csv"
+                outliers.drop(columns=["Bootstraps"]).to_csv(
+                    outdir / fname_csv, index=False
+                )
+
+        return result
