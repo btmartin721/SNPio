@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import List
 
 import numpy as np
 
@@ -17,7 +17,7 @@ from snpio.utils.logging import LoggerManager
 class PhylipReader(GenotypeData):
     """Class to read and write PHYLIP files.
 
-    This class provides methods to read and write PHYLIP files. The PHYLIP format is a simple text format for representing multiple sequence alignments. The first line of a PHYLIP file contains the number of samples and the number of loci. Each subsequent line contains the sample ID followed by the sequence data. The sequence data can be in any format, but it is typically a string of nucleotides or amino acids.
+    This class inherits from the GenotypeData class and provides methods to read and write PHYLIP files. The PHYLIP format is a simple text format for representing multiple sequence alignments. The first line of a PHYLIP file contains the number of samples and the number of loci. Each subsequent line contains the sample ID followed by the sequence data.
 
     Example:
         >>> from snpio import PhylipReader
@@ -76,47 +76,43 @@ class PhylipReader(GenotypeData):
 
     def __init__(
         self,
-        filename: Optional[str] = None,
-        popmapfile: Optional[str] = None,
+        filename: str | None = None,
+        popmapfile: str | None = None,
         force_popmap: bool = False,
-        exclude_pops: Optional[List[str]] = None,
-        include_pops: Optional[List[str]] = None,
-        plot_format: Optional[str] = "png",
+        exclude_pops: List[str] | None = None,
+        include_pops: List[str] | None = None,
+        plot_format: str | None = "png",
         prefix: str = "snpio",
         verbose: bool = False,
         debug: bool = False,
     ) -> None:
         """Initialize the PhylipReader class.
 
-        This class inherits from the GenotypeData class and provides methods to read and write PHYLIP files. The PHYLIP format is a simple text format for representing multiple sequence alignments. The first line of a PHYLIP file contains the number of samples and the number of loci. Each subsequent line contains the sample ID followed by the sequence data. The sequence data can be in any format, but it is typically a string of nucleotides or amino acids.
+        This method sets up the logger and initializes the list of missing values. It also takes a filename and a population map file to read the data. The PHYLIP format is a simple text format for representing multiple sequence alignments. The first line of a PHYLIP file contains the number of samples and the number of loci. Each subsequent line contains the sample ID followed by the sequence data.
+
+            For example:
+
+            ```
+            4 4
+            Sample1 ATTA
+            Sample2 CGGC
+            Sample3 ATTA
+            Sample4 CGGC
+            ```
 
         Args:
-            filename (str, optional): Name of the PHYLIP file. Defaults to None.
-            popmapfile (str, optional): Name of the population map file. Defaults to None.
-            force_popmap (bool, optional): If True, the population map file is required. Defaults to False.
-            exclude_pops (List[str], optional): List of populations to exclude. Defaults to None.
-            include_pops (List[str], optional): List of populations to include. Defaults to None.
-            plot_format (str, optional): Format for saving plots. Default is 'png'. Defaults to 'png'.
-            prefix (str, optional): Prefix for output files. Defaults to 'snpio'.
-            verbose (bool, optional): If True, status updates are printed. Defaults to False.
-            debug (bool, optional): If True, debug messages are printed. Defaults to False.
-
-        Raises:
-            AlignmentFormatError: If the PHYLIP file has an invalid format.
-            AlignmentFileNotFoundError: If the PHYLIP file is not found.
+            filename (str | None): Name of the PHYLIP file. Defaults to None.
+            popmapfile (str | None): Name of the population map file. Defaults to None.
+            force_popmap (bool): If True, the population map file is required. Defaults to False.
+            exclude_pops (List[str] | None): List of populations to exclude. Defaults to None.
+            include_pops (List[str] | None): List of populations to include. Defaults to None.
+            plot_format (str | None): Format for saving plots. Default is 'png'. Defaults to 'png'.
+            prefix (str): Prefix for output files. Defaults to 'snpio'.
+            verbose (bool): If True, status updates are printed. Defaults to False.
+            debug (bool): If True, debug messages are printed. Defaults to False.
 
         Note:
-            The PHYLIP file format is a simple text format for representing multiple sequence alignments.
-
-            The first line of a PHYLIP file contains the number of samples and the number of loci.
-
-            Each subsequent line contains the sample ID followed by the sequence data.
-
-            The sequence data can be in any format, but it is typically a string of nucleotides or amino acids.
-
-            The PHYLIP file must have the correct number of samples and loci.
-
-            The sequence data must have the same length for each sample.
+            The PHYLIP format is a simple text format for representing multiple sequence alignments. The first line of a PHYLIP file contains the number of samples and the number of loci. Each subsequent line contains the sample ID followed by the sequence data.
         """
         kwargs = {"prefix": prefix, "verbose": verbose, "debug": debug}
         logman = LoggerManager(name=__name__, **kwargs)
@@ -124,6 +120,8 @@ class PhylipReader(GenotypeData):
 
         self.verbose = verbose
         self.debug = debug
+
+        self.resource_data = {}
 
         # Initialize the parent class GenotypeData
         super().__init__(
@@ -148,13 +146,17 @@ class PhylipReader(GenotypeData):
         Raises:
             AlignmentFileNotFoundError: If the PHYLIP file is not found.
             AlignmentFormatError: If the PHYLIP file has an invalid format.
+            SequenceLengthError: If the sequence length does not match the expected length.
+            PhylipAlignmentSampleMismatch: If the number of samples in the PHYLIP file does not match the number of samples in the population map file.
         """
         if not self.filename or self.filename is None:
             msg = "No filename provided for PHYLIP file."
             self.logger.error(msg)
-            raise AlignmentFormatError(msg)
+            raise AlignmentFileNotFoundError(msg)
 
-        if not Path(self.filename).is_file():
+        if not Path(self.filename).is_file() or not Path(self.filename).exists():
+            msg = f"PHYLIP file {self.filename} not found."
+            self.logger.error(msg)
             raise AlignmentFileNotFoundError(self.filename)
 
         self.logger.info(f"Reading PHYLIP file {self.filename}...")
@@ -164,9 +166,9 @@ class PhylipReader(GenotypeData):
             with open(self.filename, "r") as fin:
                 header = fin.readline().strip()
                 if not header:
-                    msg = "PHYLIP file header is missing or empty."
+                    msg = "PHYLIP file header is missing or the file is empty."
                     self.logger.error(msg)
-                    raise AlignmentFormatError(msg)
+                    raise AlignmentFileNotFoundError(msg)
 
                 try:
                     n_samples, n_loci = map(int, header.split())
@@ -227,85 +229,3 @@ class PhylipReader(GenotypeData):
             raise e
 
         self._validate_seq_lengths()
-
-    def write_phylip(
-        self,
-        output_file: str,
-        genotype_data: Any = None,
-        snp_data: Optional[List[List[str]]] = None,
-        samples: Optional[List[str]] = None,
-    ) -> None:
-        """Write the stored alignment as a PHYLIP file.
-
-        This method writes the stored alignment as a PHYLIP file. The PHYLIP format is a simple text format for representing multiple sequence alignments. The first line of a PHYLIP file contains the number of samples and the number of loci. Each subsequent line contains the sample ID followed by the sequence data.
-
-        Args:
-            output_file (str): Name of the output PHYLIP file.
-            genotype_data (GenotypeData, optional): GenotypeData instance.
-            snp_data (List[List[str]], optional): SNP data. Must be provided if genotype_data is None.
-            samples (List[str], optional): List of sample IDs. Must be provided if snp_data is not None.
-
-        Raises:
-            TypeError: If genotype_data and snp_data are both provided.
-            TypeError: If samples are not provided when snp_data is provided.
-            ValueError: If samples and snp_data are not the same length.
-
-        Note:
-            If genotype_data is provided, the snp_data and samples are loaded from the GenotypeData instance.
-
-            If snp_data is provided, the samples must also be provided.
-
-            If genotype_data is not provided, the snp_data and samples must be provided.
-
-            The sequence data must have the same length for each sample.
-
-            The PHYLIP file must have the correct number of samples and loci.
-        """
-        self.logger.info(f"Writing to PHYLIP file {output_file}...")
-
-        if genotype_data is not None and snp_data is not None:
-            msg = "'genotype_data' and 'snp_data' cannot both be provided."
-            self.logger.error(msg)
-            raise TypeError(msg)
-        elif genotype_data is None and snp_data is None:
-            snp_data = self.snp_data
-            samples = self.samples
-        elif genotype_data is not None and snp_data is None:
-            snp_data = genotype_data.snp_data
-            samples = genotype_data.samples
-        elif genotype_data is None and snp_data is not None:
-            if samples is None:
-                msg = "'samples' must be provided if 'snp_data' is provided."
-                self.logger.error(msg)
-                raise TypeError(msg)
-
-        self._validate_seq_lengths()
-
-        try:
-            with open(output_file, "w") as f:
-                n_samples, n_loci = len(samples), len(snp_data[0])
-                f.write(f"{n_samples} {n_loci}\n")
-                for sample, sample_data in zip(samples, snp_data):
-                    genotype_str = "".join(str(x) for x in sample_data)
-                    f.write(f"{sample}\t{genotype_str}\n")
-
-            self.logger.info(f"Successfully wrote PHYLIP file {output_file}!")
-        except Exception as e:
-            msg = f"An error occurred while writing the PHYLIP file: {e}"
-            self.logger.error(msg)
-            raise
-
-    @property
-    def ref(self) -> List[str]:
-        """List of reference alleles."""
-        return self._ref
-
-    @property
-    def alt(self) -> List[str]:
-        """List of alternate alleles."""
-        return self._alt
-
-    @property
-    def alt2(self) -> List[List[str]]:
-        """List of second alternate alleles."""
-        return self._alt2
