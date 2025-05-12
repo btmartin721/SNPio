@@ -83,7 +83,9 @@ class AMOVA:
         """
         # Input validation
         if not isinstance(n_bootstraps, int) or n_bootstraps < 0:
-            msg = "n_bootstraps must be a non-negative integer."
+            msg = (
+                f"n_bootstraps must be a non-negative integer, but got: {n_bootstraps}."
+            )
             self.logger.error(msg)
             raise ValueError(msg)
 
@@ -573,7 +575,9 @@ class AMOVA:
 
         n_jobs_resolved = n_jobs if n_jobs != -1 else mp.cpu_count()
         if n_jobs_resolved <= 0:
-            raise ValueError("n_jobs must be a positive integer.")
+            msg = f"n_jobs must be a positive integer, but got: {n_jobs_resolved}."
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         original_alignment = self._alignment.copy()
         partial_single_boot = partial(
