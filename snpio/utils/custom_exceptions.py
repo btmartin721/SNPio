@@ -1,4 +1,93 @@
-from typing import List, Optional
+from typing import List
+
+
+class PopmapKeyError(Exception):
+    """Custom exception raised when a key is not found in the population map."""
+
+    def __init__(self, key: str) -> None:
+        """Initialize PopmapKeyError.
+
+        Args:
+            key (str): The key that was not found.
+        """
+        super().__init__(
+            f"Population map sample '{key}' not found in the alignment or population map file."
+        )
+        self.key = key
+
+    def __str__(self) -> str:
+        """String representation of the exception.
+
+        Returns:
+            str: The message associated with the exception.
+        """
+        return f"Population map sample '{self.key}' not found in the alignment or population map file."
+
+    def __repr__(self) -> str:
+        """String representation of the exception for debugging.
+
+        Returns:
+            str: The message associated with the exception.
+        """
+        return f"PopmapKeyError({self.key})"
+
+
+class PopmapFileFormatError(Exception):
+    """Custom exception raised when there is an error reading the population map file."""
+
+    def __init__(self, message: str) -> None:
+        """Initialize PopmapFileFormatError.
+
+        Args:
+            message (str): The error message.
+        """
+        super().__init__(message)
+        self.message = message
+
+    def __str__(self) -> str:
+        """String representation of the exception.
+
+        Returns:
+            str: The message associated with the exception.
+        """
+        return self.message
+
+    def __repr__(self) -> str:
+        """String representation of the exception for debugging.
+
+        Returns:
+            str: The message associated with the exception.
+        """
+        return f"PopmapFileFormatError({self.message})"
+
+
+class PopmapFileNotFoundError(Exception):
+    """Custom exception raised when the population map file is not found."""
+
+    def __init__(self, filename: str) -> None:
+        """Initialize PopmapFileNotFoundError.
+
+        Args:
+            filename (str): The name of the population map file that was not found.
+        """
+        super().__init__(f"Population map file '{filename}' not found.")
+        self.filename = filename
+
+    def __str__(self) -> str:
+        """String representation of the exception.
+
+        Returns:
+            str: The message associated with the exception.
+        """
+        return f"Population map file '{self.filename}' not found."
+
+    def __repr__(self) -> str:
+        """String representation of the exception for debugging.
+
+        Returns:
+            str: The message associated with the exception.
+        """
+        return f"PopmapFileNotFoundError({self.filename})"
 
 
 class UnsupportedFileTypeError(Exception):
@@ -10,9 +99,7 @@ class UnsupportedFileTypeError(Exception):
         supported_types (list): List of supported file types.
     """
 
-    def __init__(
-        self, filetype: str, supported_types: Optional[List[str]] = None
-    ) -> None:
+    def __init__(self, filetype: str, supported_types: List[str] | None = None) -> None:
         """Initialize UnsupportedFileTypeException.
 
         This exception is raised when the given file type is not supported.
