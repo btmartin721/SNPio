@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+import snpio.utils.custom_exceptions as exceptions
 from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data_base import BaseGenotypeData
 from snpio.read_input.popmap_file import ReadPopmap
-from snpio.utils.custom_exceptions import SequenceLengthError, UnsupportedFileTypeError
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
 
@@ -202,7 +202,7 @@ class GenotypeData(BaseGenotypeData):
             debug (bool, optional): If True, display debug messages. Defaults to False.
 
         Raises:
-            UnsupportedFileTypeError: If the filetype is not supported.
+            exceptions.UnsupportedFileTypeError: If the filetype is not supported.
 
         Note:
             If using PHYLIP or STRUCTURE formats, all sites will be forced to be biallelic. If multiple alleles are needed, you must use a VCF file.
@@ -284,7 +284,7 @@ class GenotypeData(BaseGenotypeData):
         if self.filetype not in self.supported_filetypes:
             msg = f"Unsupported filetype provided to GenotypeData: {self.filetype}"
             self.logger.error(msg)
-            raise UnsupportedFileTypeError(
+            raise exceptions.UnsupportedFileTypeError(
                 self.filetype, supported_types=self.supported_filetypes
             )
 
@@ -378,9 +378,9 @@ class GenotypeData(BaseGenotypeData):
         """
         if self.popmapfile is not None:
             if not isinstance(self.popmapfile, str):
-                msg = f"Invalid popmapfile type. Expected str, but got: {type(self.popmapfile)}"
+                msg = f"Invalid popmapfile type provided. Expected str, but got: {type(self.popmapfile)}"
                 self.logger.error(msg)
-                raise TypeError(msg)
+                raise exceptions.PopmapFileNotFoundError(msg)
 
             # Instantiate popmap object and read in the popmap file.
             pm = ReadPopmap(
@@ -430,7 +430,7 @@ class GenotypeData(BaseGenotypeData):
         if not popmap_ok:
             msg = "Popmap validation failed. Check the popmap file and try again."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.PopmapFileFormatError(msg)
 
         # Subset the popmap based on inclusion/exclusion criteria
         my_popmap.subset_popmap(samples, include_pops, exclude_pops)
@@ -452,7 +452,7 @@ class GenotypeData(BaseGenotypeData):
         if not new_samples:
             msg = "No valid samples found after popmap subsetting."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.EmptyIterableError(msg)
 
         # Update the sample indices as a boolean array
         self.sample_indices = np.isin(self.samples, new_samples)
@@ -485,12 +485,12 @@ class GenotypeData(BaseGenotypeData):
         if not self.samples or self.samples is None:
             msg = "'samples attribute is undefined."
             self.logger.error(msg)
-            raise AttributeError(msg)
+            raise exceptions.EmptyIterableError(msg)
 
         if not self.populations or self.populations is None:
             msg = "'populations' attribute is undefined."
             self.logger.error(msg)
-            raise AttributeError(msg)
+            raise exceptions.EmptyIterableError(msg)
 
         with open(filename, "w") as fout:
             for s, p in zip(self.samples, self.populations):
@@ -952,7 +952,8 @@ class GenotypeData(BaseGenotypeData):
 
             # Validate genotype format
             if not isinstance(genotype, str) or "/" not in genotype:
-                raise ValueError(f"Invalid genotype format: {genotype}")
+                self.logger.error(f"Invalid genotype format: {genotype}")
+                raise exceptions.InvalidGenotypeError(f"Invalid format: {genotype}")
 
             gt = iupac_dict.get(genotype, "N")  # Default to 'N' for undefined genotypes
 
@@ -985,7 +986,7 @@ class GenotypeData(BaseGenotypeData):
         if gt is None:
             msg = f"Invalid IUPAC Code: {iupac_code}"
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidGenotypeError(msg)
         return gt
 
     def calc_missing(self, df: pd.DataFrame, use_pops: bool = True) -> Tuple[
@@ -1228,6 +1229,7 @@ class GenotypeData(BaseGenotypeData):
             msg = f"popmap values must be strings or integers"
             self.logger.error(msg)
             raise TypeError(msg)
+
         self._popmap = value
 
     @property
