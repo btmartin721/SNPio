@@ -1,10 +1,11 @@
 import tempfile
 import unittest
 from typing import Dict, List
+from pathlib import Path
+import shutil
 
 import numpy as np
 import pandas as pd
-from pandas.testing import assert_series_equal
 
 from snpio import PhylipReader, PopGenStatistics
 
@@ -276,6 +277,21 @@ class TestPopGenStatistics(unittest.TestCase):
 
         self.assertTrue(0.01 < fst_matrix.loc["pop1", "pop2"] < 0.08)
         self.assertTrue(0.01 < fst_matrix.loc["pop2", "pop3"] < 0.08)
+
+        if Path(phyfile).exists() and Path(phyfile).is_file():
+            Path(phyfile).unlink(missing_ok=True)
+        if Path(popmapfile).exists() and Path(popmapfile).is_file():
+            Path(popmapfile).unlink(missing_ok=True)
+
+        if Path("test_popgen_output").exists() and Path("test_popgen_output").is_dir():
+            shutil.rmtree("test_popgen_output")
+
+        for f in Path(".").glob("tmp*.phy"):
+            if f.is_file():
+                f.unlink(missing_ok=True)
+
+    def tearDown(self):
+        return super().tearDown()
 
 
 if __name__ == "__main__":
