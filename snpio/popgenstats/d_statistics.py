@@ -2,7 +2,7 @@ import logging
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from itertools import product
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import numpy as np
 from scipy.stats import norm
@@ -34,7 +34,7 @@ def bootstrap_iteration(
     sample_ids,
     d_statistic_func,
     include_heterozygous,
-) -> List[Tuple[Tuple[str, str, str, Optional[str], str], Optional[float]]]:
+) -> List[Tuple[Tuple[str, str, str, str | None, str], float | None]]:
     """Standalone function for a single bootstrap iteration to enable tracking sample IDs with D-statistics."""
 
     snp_indices = np.random.choice(
@@ -156,7 +156,7 @@ class DStatistics:
         num_bootstraps=1000,
         method="patterson",
         n_jobs=-1,
-    ) -> List[Tuple[Tuple[str, str, str, Optional[str], str], List[float]]]:
+    ) -> List[Tuple[Tuple[str, str, str, str | None, str], List[float | None]]]:
         """Bootstrap specified D-statistic method over SNP sites, tracking sample combinations."""
 
         method_map = {
@@ -246,17 +246,45 @@ class DStatistics:
     ) -> Tuple[
         List[
             Tuple[
-                Tuple[str, str, str, Optional[str], str],
-                float,
-                Optional[float],
-                Optional[float],
+                Tuple[str, str, str, str | None, str],
+                float | None,
+                float | None,
+                float | None,
             ]
         ],
-        Optional[float],
-        Optional[float],
+        float | None,
+        float | None,
     ]:
-        """Calculate Z-scores and P-values from D-statistic using bootstrapping with sample tracking."""
+        """Calculate Z-scores and P-values from D-statistic using bootstrapping with sample tracking
 
+        Args:
+            d1_inds (List[int]): Indices of individuals in population 1.
+            d2_inds (List[int]): Indices of individuals in population 2.
+            d3_inds (List[int]): Indices of individuals in population 3.
+            outgroup_inds (List[int]): Indices of individuals in the outgroup.
+            d4_inds (List[int], optional): Indices of individuals in population 4. Defaults to None.
+            include_heterozygous (bool): Whether to include heterozygous individuals.
+            num_bootstraps (int): Number of bootstrap iterations.
+            method (str): Method to use for D-statistic calculation. Options are "patterson", "partitioned", or "dfoil".
+            n_jobs (int): Number of parallel jobs to run. Defaults to -1 (use all available cores).
+            debug (bool): Whether to enable debug mode. Defaults to False.
+        Returns:
+            Tuple[
+                List[
+                    Tuple[
+                        Tuple[str, str, str, str | None, str],
+                        float | None,
+                        float | None,
+                        float | None,
+                    ]
+                ],
+                float | None,
+                float | None,
+            ]: Tuple containing:
+                - List of tuples with sample combinations, mean D-statistics, Z-scores, and P-values.
+                - Overall Z-score.
+                - Overall P-value.
+        """
         method = method.lower()
         if method not in {"patterson", "partitioned", "dfoil"}:
             self.logger.error(f"Invalid method specified: {method}")
@@ -344,9 +372,24 @@ class DStatistics:
         outgroup_inds: List[int],
         sample_ids: List[str],
         include_heterozygous: bool = False,
-        snp_indices: Optional[np.ndarray | List[int]] = None,
-    ) -> Optional[float]:
-        """Calculate Patterson's D-statistic for all individual combinations across populations."""
+        snp_indices: np.ndarray | List[int] | None = None,
+    ) -> float | None:
+        """Calculate Patterson's D-statistic for all individual combinations across populations.
+
+        Args:
+            alignment (np.ndarray): SNP data with individuals as rows and SNP sites as columns.
+            d1_inds (List[int]): Indices of individuals in population 1.
+            d2_inds (List[int]): Indices of individuals in population 2.
+            d3_inds (List[int]): Indices of individuals in population 3.
+            outgroup_inds (List[int]): Indices of individuals in the outgroup.
+            sample_ids (List[str]): List of sample IDs.
+            include_heterozygous (bool): Whether to include heterozygous individuals.
+            snp_indices (np.ndarray | List[int] | None): Indices of SNP sites to consider.
+
+        Returns:
+            float | None: List of tuples with sample combinations and D-statistics.
+                If no valid patterns are found, returns None.
+        """
 
         if snp_indices is None:
             snp_indices = np.arange(alignment.shape[1])
@@ -426,8 +469,52 @@ class DStatistics:
         sample_ids: List[str],
         include_heterozygous: bool = False,
         snp_indices: List[int] = None,
-    ) -> Optional[float]:
-        """Calculate the partitioned D-statistic for all individual combinations across populations."""
+    ) -> float | None:
+        """Calculate the partitioned D-statistic for all individual combinations across populations.
+
+        Args:
+            alignment (np.ndarray): SNP data with individuals as rows and SNP sites as columns.
+            d1_inds (List[int]): Indices of individuals in population 1.
+            d2_inds (List[int]): Indices of individuals in population
+                2.
+            d3_inds (List[int]): Indices of individuals in population 3.
+            d4_inds (List[int]): Indices of individuals in population 4.
+            outgroup_inds (List[int]): Indices of individuals in the outgroup.
+            sample_ids (List[str]): List of sample IDs.
+            include_heterozygous (bool): Whether to include heterozygous individuals.
+            snp_indices (List[int] | None): Indices of SNP sites to consider. If None, all SNPs are used.
+
+        Returns:
+            float | None: List of tuples with sample combinations and partitioned D-statistics.
+                If no valid patterns are found, returns None.
+        Note:
+            The partitioned D-statistic is calculated using the formula:
+                .. math:: D = (ABCD - DCBA) / (ABCD + DCBA)
+            where ABCD and DCBA are the counts of the respective patterns.
+            This method is used to detect gene flow between populations.
+            The function returns a list of tuples, each containing the sample combination and the corresponding partitioned D-statistic.
+            If no valid patterns are found for a sample combination, the D-statistic is set to None.
+        Example:
+            >>> import numpy as np
+            >>> alignment = np.array(
+            >>> [["A", "A", "A", "T", "T", "T", "C", "C", "C", "G", "G", "G"],
+            >>> ["A", "A", "A", "T", "T", "T", "C", "C", "C", "G", "G", "G"],
+            >>> ["A", "A", "A", "T", "T", "T", "C", "C", "C", "G", "G", "G"],
+            >>> ["A", "A", "A", "T", "T", "T", "C", "C", "C", "G", "G", "G"],
+            >>> ["A", "A", "A", "T", "T", "T", "C", "C", "C", "G", "G", "G"]]
+            >>> d1_inds = [0, 1, 2]
+            >>> d2_inds = [3, 4, 5]
+            >>> d3_inds = [6, 7, 8]
+            >>> d4_inds = [9, 10, 11]
+            >>> outgroup_inds = [12, 13, 14]
+            >>> sample_ids = ["pop1", "pop2", "pop3", "pop4", "outgroup"]
+            >>> d_statistic = DStatistics(alignment, sample_ids)
+            >>> observed_partitioned_d_statistic = d_statistic.partitioned_d_statistic(
+            >>>     d1_inds, d2_inds, d3_inds, d4_inds, outgroup_inds
+            >>> )
+            >>> print(observed_partitioned_d_statistic)
+            >>> # Expected output: [(("pop1", "pop2", "pop3", "pop4", "outgroup"), 0.0)]
+        """
 
         if snp_indices is None:
             snp_indices = np.arange(alignment.shape[1])
@@ -507,9 +594,52 @@ class DStatistics:
         outgroup_inds: List[int],
         sample_ids: List[str],
         include_heterozygous: bool = False,
-        snp_indices: Optional[np.ndarray | List[int]] = None,
-    ) -> List[Optional[float]]:
-        """Calculate the DFOIL statistic for all individual combinations across populations."""
+        snp_indices: np.ndarray | List[int] | None = None,
+    ) -> List[float | None]:
+        """Calculate the DFOIL statistic for all individual combinations across populations.
+
+        This method calculates the DFOIL statistic for all individual combinations across populations. The DFOIL statistic is a measure of the degree of allele sharing between populations and is used to infer the presence of gene flow between populations.
+
+        Args:
+            alignment (np.ndarray): SNP data with individuals as rows and SNP sites as columns.
+            d1_inds (List[int]): Indices of individuals in population 1.
+            d2_inds (List[int]): Indices of individuals in population 2.
+            d3_inds (List[int]): Indices of individuals in population 3.
+            d4_inds (List[int]): Indices of individuals in population 4.
+            outgroup_inds (List[int]): Indices of individuals in the outgroup.
+            sample_ids (List[str]): List of sample IDs.
+            include_heterozygous (bool): Whether to include heterozygous individuals.
+            snp_indices (np.ndarray | List[int] | None): Indices of SNP sites to consider. If None, all SNPs are used.
+
+        Returns:
+            List[float | None]: List of tuples with sample combinations and DFOIL statistics.
+                If no valid patterns are found, returns None.
+
+        Note:
+            This function calculates the DFOIL statistic for all individual combinations across populations.
+            The DFOIL statistic is a measure of the degree of allele sharing between populations and is used to infer the presence of gene flow between populations.
+            The function returns a list of tuples, each containing the sample combination and the corresponding DFOIL statistic.
+            If no valid patterns are found for a sample combination, the DFOIL statistic is set to None.
+            The DFOIL statistic is calculated using the formula:
+
+                .. math:: DFOIL = (ABBA - BABA + FABA - FOAB) / (ABBA + BABA + FABA + FOAB)
+            where ABBA, BABA, FABA, and FOAB are the counts of the respective patterns.
+            This method is used to detect gene flow between populations.
+        Example:
+            >>> DStatistics.dfoil_statistic(
+            >>>     alignment,
+            >>>     d1_inds,
+            >>>     d2_inds,
+            >>>     d3_inds,
+            >>>     d4_inds,
+            >>>     outgroup_inds,
+            >>>     sample_ids,
+            >>>     include_heterozygous=True,
+            >>>     snp_indices=None,
+            >>> )
+            >>> # Expected output: [(("pop1", "pop2", "pop3", "pop4", "outgroup"), 0.0)]
+            >>> )
+        """
 
         if snp_indices is None:
             snp_indices = np.arange(alignment.shape[1])
