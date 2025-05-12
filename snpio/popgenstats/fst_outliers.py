@@ -1,26 +1,54 @@
-import warnings
+from itertools import combinations
 from pathlib import Path
-from typing import List, Literal, Optional, Tuple
+from typing import Any, Literal, Tuple
 
 import numpy as np
 import pandas as pd
 from kneed import KneeLocator
-from scipy.stats import norm
+from scipy.stats import gaussian_kde
 from sklearn.cluster import DBSCAN
+from sklearn.impute import SimpleImputer
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
-from snpio.popgenstats.summary_statistics import SummaryStatistics
-from snpio.utils.results_exporter import ResultsExporter
+from snpio.popgenstats.fst_distance import FstDistance
+from snpio.utils.logging import LoggerManager
 
-exporter = ResultsExporter()
+# This dictionary is adapted from your original phased_encoding.
+# It maps IUPAC or ambiguous nucleotides to "phased" diploid notation.
+PHASED_ENCODING = {
+    "A": "A/A",
+    "T": "T/T",
+    "C": "C/C",
+    "G": "G/G",
+    "N": "N/N",
+    ".": "N/N",
+    "?": "N/N",
+    "-": "N/N",
+    "W": "A/T",
+    "S": "C/G",
+    "Y": "C/T",
+    "R": "A/G",
+    "K": "G/T",
+    "M": "A/C",
+    "H": "A/C",
+    "B": "A/G",
+    "D": "C/T",
+    "V": "A/G",
+}
 
 
 class FstOutliers:
     """Class for detecting Fst outliers between populations."""
 
-    def __init__(self, genotype_data, alignment_012, logger, plotter):
+    def __init__(
+        self,
+        genotype_data: Any,
+        plotter: Any,
+        verbose: bool = False,
+        debug: bool = False,
+    ):
         """Initialize the FstOutliers object.
 
         Args:
@@ -28,22 +56,45 @@ class FstOutliers:
             logger (logging.Logger): Logger object.
         """
         self.genotype_data = genotype_data
-        self.alignment_012 = alignment_012
-        self.logger = logger
         self.plotter = plotter
+        self.verbose = verbose
+        self.debug = debug
 
-        self.sum_stats = SummaryStatistics(
-            genotype_data, alignment_012, logger, plotter
+        self.fst_dist = FstDistance(
+            genotype_data, plotter, verbose=verbose, debug=debug
         )
 
-        exporter.output_dir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+        outdir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+        outdir.mkdir(parents=True, exist_ok=True)
 
-    @exporter.capture_results
+        logman = LoggerManager(
+            __name__, prefix=self.genotype_data.prefix, verbose=verbose, debug=debug
+        )
+        self.logger = logman.get_logger()
+
+        self.full_matrix = self.genotype_data.snp_data.astype(str)
+
+        self.logger.debug(f"{self.full_matrix.shape=}")
+
+        # Build an index for sample -> row
+        self.sample_to_idx = {s: i for i, s in enumerate(self.genotype_data.samples)}
+
+        # Convert population -> integer indices
+        self.pop_indices = {
+            pop: np.array([self.sample_to_idx[s] for s in sample_list], dtype=int)
+            for pop, sample_list in self.genotype_data.popmap_inverse.items()
+        }
+
+        self.pop_names = sorted(self.pop_indices.keys())
+
     def detect_fst_outliers_dbscan(
         self,
         correction_method: Literal["bonferroni", "fdr_bh"] | None = None,
         alpha: float = 0.05,
         n_jobs: int = 1,
+        n_bootstraps: int = 1000,
+        alternative: Literal["upper", "lower", "both"] = "upper",
+        seed: int = 42,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Detect Fst outliers from SNP data using DBSCAN.
 
@@ -53,222 +104,112 @@ class FstOutliers:
             correction_method (str, optional): Multiple testing correction method that performs P-value adjustment, 'bonf' (Bonferroni) or 'fdr' (FDR B-H). If not specified, no correction or P-value adjustment is applied. Defaults to None.
             alpha (float): Significance level for multiple test correction (with adjusted P-values). Defaults to 0.05.
             n_jobs (int): Number of CPU threads to use for parallelization. If set to -1, all available CPU threads are used. Defaults to 1.
+            n_bootstraps (int): Number of bootstrap replicates for Fst calculation. Defaults to 1000.
+            alternative (str): Type of test ('upper', 'lower', 'both'). Defaults to 'upper' (one-tailed test).
+            seed (int): Random seed for reproducibility. Defaults to 42.
 
         Returns:
             Tuple[pd.DataFrame, pd.DataFrame]: A DataFrame containing the Fst outliers and contributing population pairs, and a DataFrame containing the adjusted P-values if ``correction_method`` was provided or the un-adjusted P-values otherwise.
         """
-        outlier_snps, contributing_pairs, adjusted_pvals_df = self._dbscan_fst(
-            correction_method, alpha, n_jobs
+        outlier_snps, contributing_pairs = self._dbscan_fst(
+            correction_method,
+            alpha,
+            n_jobs,
+            n_bootstraps=n_bootstraps,
+            alternative=alternative,
+            seed=seed,
         )
 
         # Add contributing pairs to the outlier_snps DataFrame
-        outlier_snps["Contributing_Pairs"] = contributing_pairs
+        outlier_snps["Contributing_Pairs"] = outlier_snps["Locus"].map(
+            lambda x: contributing_pairs.get(x, [])
+        )
 
-        self.logger.debug(f"{outlier_snps=}")
+        outlier_snps = outlier_snps[outlier_snps["pval_adj"] <= alpha]
+
+        self.logger.debug(f"outlier_snps DataFrame:\n{outlier_snps}")
 
         if outlier_snps.empty:
-            self.logger.warning("No Fst outliers detected. Skipping correspoding plot.")
+            self.logger.warning("No Fst outliers detected. Skipping Fst outlier plot.")
         else:
-            self.logger.info(f"{len(outlier_snps)} Fst outliers detected.")
+            self.logger.info(
+                f"{len(outlier_snps)} Fst outliers detected using DBSCAN method."
+            )
 
             try:
                 # Plot the outlier SNPs
-                self.plotter.plot_fst_outliers(outlier_snps)
+                self.plotter.plot_fst_outliers(outlier_snps, "dbscan")
+
             except ValueError as e:
-                self.logger.warning(f"Error plotting Fst outliers: {e}. Skipping plot.")
+                self.logger.warning(f"Error plotting Fst outliers: {e}")
+                self.logger.warning("Skipping Fst outlier plot.")
 
-        self.logger.info("Fst outlier detection complete!")
-        return outlier_snps, adjusted_pvals_df
+        self.logger.info("DBSCAN Fst outlier detection complete!")
+        return outlier_snps
 
-    @exporter.capture_results
-    def detect_fst_outliers_bootstrap(
-        self,
-        correction_method: Literal["bonferroni", "fdr_bh"] | None = None,
-        alpha: float = 0.05,
-        n_bootstraps: int = 1000,
-        n_jobs: int = 1,
-        alternative: Literal["two", "upper", "lower"] = "two",
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-        """Detect Fst outliers from SNP data using traditional bootstrapping.
-
-        Outliers are identified based on the distribution of Fst values between population pairs. This method now supports one-tailed tests: specifying 'upper' identifies SNPs with significantly higher Fst than expected, and 'lower' identifies SNPs with significantly lower Fst than expected. The default 'two' option performs a two-tailed test.
+    @staticmethod
+    def _compute_empirical_pvals(
+        fst_df_scaled: pd.DataFrame,
+        outlier_snps: pd.DataFrame,
+        alternative: str = "upper",
+    ) -> pd.DataFrame:
+        """
+        Compute empirical p-values for outliers based on Fst distributions within each population pair.
 
         Args:
-            correction_method (Literal["bonferroni", "fdr_bh"] | None): Multiple testing correction method.
-                If None, no adjustment is applied.
-            alpha (float): Significance level for adjusted P-values. Defaults to 0.05.
-            n_bootstraps (int): Number of bootstrap replicates. Defaults to 1000.
-            n_jobs (int): Number of CPU threads for parallelization. Defaults to 1.
-            alternative (Literal["two", "upper", "lower"]): Type of test to perform.
-                "two" for two-tailed, "upper" for testing higher than expected, and "lower" for lower than expected.
-                Defaults to "two".
+            fst_df_scaled (pd.DataFrame): Long-format DataFrame with Locus, Population_Pair, and Fst (standardized).
+            outlier_snps (pd.DataFrame): Subset of fst_df_scaled with DBSCAN-labeled outliers.
+            alternative (str): 'upper', 'lower', or 'both' for one/two-tailed test.
 
         Returns:
-            Tuple[pd.DataFrame, pd.DataFrame]: A tuple containing a DataFrame of Fst outliers (with contributing
-            population pairs as a column) and a DataFrame of adjusted (or unadjusted) P-values.
+            pd.DataFrame: p-values for each row in `fst_df_scaled`, with NaNs for non-outliers.
         """
-        outlier_snps, contributing_pairs, adjusted_pvals_df = self._boot_fst(
-            correction_method, alpha, n_bootstraps, n_jobs, alternative=alternative
-        )
+        pvals = pd.Series(index=fst_df_scaled.index, dtype=float)
+        for idx, row in outlier_snps.iterrows():
+            pop_pair = row["Population_Pair"]
+            locus_fst = row["Fst"]
 
-        outlier_snps["Contributing_Pairs"] = contributing_pairs
+            # Subset all values for this population pair
+            subset = fst_df_scaled[fst_df_scaled["Population_Pair"] == pop_pair]["Fst"]
+            subset = subset.dropna()
 
-        self.logger.debug(f"{outlier_snps=}")
-
-        if outlier_snps.empty:
-            self.logger.warning(
-                "No Fst outliers detected. Skipping corresponding plot."
-            )
-        else:
-            self.logger.info(f"{len(outlier_snps)} Fst outliers detected.")
-            try:
-                self.plotter.plot_fst_outliers(outlier_snps)
-            except ValueError as e:
-                self.logger.warning(f"Error plotting Fst outliers: {e}. Skipping plot.")
-
-        self.logger.info("Fst outlier detection complete!")
-        return outlier_snps, adjusted_pvals_df
-
-    def _boot_fst(
-        self,
-        correction_method: Optional[str],
-        alpha: float,
-        n_bootstraps: int,
-        n_jobs: int,
-        alternative: Literal["two", "upper", "lower"],
-    ) -> Tuple[pd.DataFrame, List[Tuple[str]], pd.DataFrame]:
-        """Detect Fst outliers using a bootstrapping approach.
-
-        Bootstrap replicates of pairwise Weir and Cockerham's Fst estimates are used to generate a null distribution for each SNP. Observed Fst values are compared against the bootstrap distribution using Z-scores and associated one- or two-tailed P-values. Multiple testing correction is applied if specified. Outliers are identified based on the adjusted P-values.
-
-        Args:
-            correction_method (Optional[str]): Correction method for multiple tests.
-            alpha (float): Significance level.
-            n_bootstraps (int): Number of bootstrap replicates.
-            n_jobs (int): Number of parallel jobs (if -1, all cores are used).
-            alternative (Literal["two", "upper", "lower"]): Type of test to perform.
-                "two" for two-tailed, "upper" for testing higher than expected, and "lower" for lower than expected.
-
-        Returns:
-            Tuple[pd.DataFrame, List[Tuple[str]], pd.DataFrame]:
-                - DataFrame of outlier SNPs (rows) with observed Fst values (columns),
-                - List of contributing population pairs for each outlier SNP,
-                - DataFrame of adjusted (or unadjusted) P-values.
-        """
-        self.logger.info("Detecting Fst outliers using bootstrapping...")
-
-        # Compute bootstrapped Fst estimates.
-        fst_bootstrap_per_population_pair = self.sum_stats.weir_cockerham_fst(
-            n_bootstraps=n_bootstraps, n_jobs=n_jobs
-        )
-
-        fst_means = {}
-        fst_stds = {}
-        for pop_pair, fst_bootstrap in fst_bootstrap_per_population_pair.items():
-            valid_vals = ~np.isnan(fst_bootstrap)
-            if np.count_nonzero(valid_vals) > 0:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore", category=RuntimeWarning)
-                    mean_vals = np.nanmean(fst_bootstrap, axis=-1)
-                    std_vals = np.nanstd(fst_bootstrap, axis=-1)
-                fst_means[pop_pair] = mean_vals
-                fst_stds[pop_pair] = np.maximum(std_vals, 1e-3)
+            if alternative == "upper":
+                pval = np.mean(subset >= locus_fst)
+            elif alternative == "lower":
+                pval = np.mean(subset <= locus_fst)
+            elif alternative == "both":
+                mean_fst = np.mean(subset)
+                diff = np.abs(locus_fst - mean_fst)
+                pval = np.mean(np.abs(subset - mean_fst) >= diff)
             else:
-                self.logger.info(f"No valid bootstrap Fst values for pair {pop_pair}.")
-                n_loci = fst_bootstrap.shape[0]
-                fst_means[pop_pair] = np.full(n_loci, np.nan)
-                fst_stds[pop_pair] = np.full(n_loci, np.nan)
+                raise ValueError(f"Unsupported alternative hypothesis: {alternative}")
 
-        fst_mean_df = pd.DataFrame(fst_means)
-        fst_std_df = pd.DataFrame(fst_stds)
+            pvals.loc[idx] = pval
 
-        valid_rows = fst_mean_df.dropna().index
-        fst_mean_df = fst_mean_df.loc[valid_rows]
-        fst_std_df = fst_std_df.loc[valid_rows]
-
-        self.logger.debug(f"Bootstrap mean DataFrame: {fst_mean_df=}")
-        self.logger.debug(f"Bootstrap std DataFrame: {fst_std_df=}")
-
-        fst_per_population_pair = self.sum_stats.weir_cockerham_fst()
-        fst_df = pd.DataFrame.from_dict(
-            {k: v.values for k, v in fst_per_population_pair.items()},
-            orient="columns",
-        )
-
-        fst_df.index = np.arange(len(fst_df))
-        fst_df = fst_df.loc[valid_rows]
-
-        common_columns = fst_df.columns.intersection(fst_mean_df.columns)
-        fst_df = fst_df[common_columns]
-        fst_mean_df = fst_mean_df[common_columns]
-        fst_std_df = fst_std_df[common_columns]
-
-        fst_df = fst_df.fillna(0.0)
-
-        self.logger.debug(f"Observed Fst DataFrame: {fst_df=}")
-        self.logger.debug(f"Aligned bootstrap mean DataFrame: {fst_mean_df=}")
-        self.logger.debug(f"Aligned bootstrap std DataFrame: {fst_std_df=}")
-
-        # Compute Z-scores: (observed Fst - bootstrap mean) / bootstrap std
-        z_scores = (fst_df - fst_mean_df) / fst_std_df
-
-        # Compute one- or two-tailed P-values based on the alternative hypothesis
-        if alternative == "two":
-            p_values = 2 * (1 - norm.cdf(np.abs(z_scores)))
-        elif alternative == "upper":
-            p_values = 1 - norm.cdf(z_scores)
-        elif alternative == "lower":
-            p_values = norm.cdf(z_scores)
-        else:
-            raise ValueError(
-                "Invalid value for 'alternative'. Choose from 'two', 'upper', or 'lower'."
-            )
-        p_values = pd.DataFrame(
-            p_values, index=z_scores.index, columns=z_scores.columns
-        )
-
-        self.logger.debug(f"Z-scores DataFrame: {z_scores=}")
-        self.logger.debug(f"P-values DataFrame: {p_values=}")
-
-        all_p_values = p_values.values.flatten()
-        valid_idx = ~np.isnan(all_p_values)
-        all_p_values_valid = all_p_values[valid_idx]
-        if correction_method:
-            adjusted_pvals_valid = multipletests(
-                all_p_values_valid, method=correction_method
-            )[1]
-        else:
-            adjusted_pvals_valid = all_p_values_valid
-        adjusted_pvals = np.full(all_p_values.shape, np.nan)
-        adjusted_pvals[valid_idx] = adjusted_pvals_valid
-        adjusted_pvals_df = pd.DataFrame(
-            adjusted_pvals.reshape(p_values.shape),
-            index=p_values.index,
-            columns=p_values.columns,
-        )
-
-        significant = adjusted_pvals_df < alpha
-        outlier_indices = significant.any(axis=1)
-        outlier_snps = fst_df.loc[outlier_indices]
-
-        # Compute contributing pairs only for the outlier SNPs
-        contributing_pairs = self._identify_significant_pairs(
-            alpha, adjusted_pvals_df.loc[outlier_snps.index]
-        )
-
-        return outlier_snps, contributing_pairs, adjusted_pvals_df
+        return pvals.to_frame(name="pval")
 
     def _dbscan_fst(
-        self, correction_method: str | None, alpha: float, n_jobs: int
+        self,
+        correction_method: str | None,
+        alpha: float,
+        n_jobs: int,
+        n_bootstraps: int = 1000,
+        alternative: Literal["upper", "lower", "both"] = "upper",
+        seed: int = 42,
     ) -> Tuple[pd.DataFrame, list, pd.DataFrame]:
         """Detect Fst outliers using DBSCAN clustering.
 
         Outliers are identified based on the distribution of Fst values between population pairs. The method returns a DataFrame of the outlier SNPs, a list of contributing population pairs, and a DataFrame of adjusted (or unadjusted) p-values. The DBSCAN algorithm is used to cluster the Fst values and identify outliers. The optimal eps value is estimated using the k-distance graph method. Contributing population pairs are identified using a z-score approach on the outlier SNPs.
 
         Args:
-            correction_method (Optional[str]): Correction method for multiple tests.
+            correction_method (str | None): Correction method for multiple tests.
             alpha (float): Significance level for adjusted p-values.
             n_jobs (int): Number of CPU threads to use for parallelization.
+            n_bootstraps (int): Number of bootstrap replicates for Fst calculation.
+            alternative (str): Type of test ('upper', 'lower', 'both').
+            Defaults to 'upper' (one-tailed test).
+            seed (int): Random seed for reproducibility.
+            Defaults to 42.
 
         Returns:
             Tuple[pd.DataFrame, list, pd.DataFrame]:
@@ -279,67 +220,122 @@ class FstOutliers:
         self.logger.info("Detecting Fst outliers using DBSCAN...")
 
         # Step 1: Calculate Fst values between population pairs
-        fst_per_population_pair = self.sum_stats.weir_cockerham_fst()
-        fst_df = pd.DataFrame.from_dict(
-            {str(k): v.values for k, v in fst_per_population_pair.items()},
-            orient="columns",
+        fst_dict = self.fst_dist.weir_cockerham_fst_bootstrap_per_locus(
+            n_bootstraps=n_bootstraps,
+            seed=seed,
+            alternative=alternative,
+            outdir=None,
         )
 
-        fst_df.index = np.arange(len(fst_df))
-        fst_df.dropna(inplace=True)
+        dflist = []
+        for (pop1, pop2), df in fst_dict.items():
+            df["Population_Pair"] = f"{pop1}_{pop2}"
+            dflist.append(df)
+
+        # Concatenate all DataFrames into a single DataFrame
+        fst_df = pd.concat(dflist, axis=0, ignore_index=True)
+
+        # Pivot the DataFrame to have population pairs as columns
+        # and loci as rows
+        fst_df = fst_df.pivot(index="Locus", columns="Population_Pair", values="Fst")
 
         # Step 2: Prepare data for DBSCAN
-        fst_values = fst_df.to_numpy()
-        n_population_pairs = fst_values.shape[1]
-        n_data_points = fst_values.shape[0]
-        min_samples = min(max(2, 2 * n_population_pairs), n_data_points - 1)
+        n_population_pairs = len(fst_df.columns)
+        if n_population_pairs < 2:
+            self.logger.warning(
+                "Not enough population pairs to perform DBSCAN clustering."
+            )
+            return pd.DataFrame(), [], pd.DataFrame()
+
+        # NOTE: Set min_samples based on the number of population pairs
+        # Ensure min_samples is at least 2 and not greater than
+        # n_data_points - 1
+        # This is to avoid issues with DBSCAN when the number of
+        # samples is very small
+        # and to ensure that we have at least one sample in each
+        # cluster.
+        # Drop loci with NaN values
+        n_data_points = len(fst_df) - 1
+        min_samples = min(max(2, 2 * n_population_pairs), n_data_points)
+        imputer = SimpleImputer(strategy="median")
         scaler = StandardScaler()
-        fst_values_scaled = scaler.fit_transform(fst_values)
+        # Impute missing values and scale the data
+        # NOTE: This is important for DBSCAN to work properly
+        # and to avoid issues with NaN values
+        # and to ensure that the data is centered and scaled
+        # before clustering.
+        fst_values_imputed = imputer.fit_transform(fst_df)
+        fst_values_scaled = scaler.fit_transform(fst_values_imputed)
+
+        fst_df_scaled = pd.DataFrame(
+            fst_values_scaled, columns=fst_df.columns, index=fst_df.index
+        )
+
+        fst_df_scaled = fst_df_scaled.reset_index()
+        fst_df_scaled = fst_df_scaled.melt(
+            id_vars=["Locus"], var_name="Population_Pair", value_name="Fst"
+        )
 
         # Step 3: Estimate eps and run DBSCAN
-        eps = self._estimate_eps(fst_values_scaled, min_samples)
+        eps = self._estimate_eps(
+            fst_df_scaled["Fst"].values.reshape(-1, 1), min_samples
+        )
         db = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=n_jobs)
-        labels = db.fit_predict(fst_values_scaled)
+        labels = db.fit_predict(fst_df_scaled["Fst"].values.reshape(-1, 1))
         outlier_indices = np.where(labels == -1)[0]
-        outlier_snps = fst_df.iloc[outlier_indices]
+        outlier_snps = fst_df_scaled.iloc[outlier_indices]
 
-        # Step 4: Identify contributing pairs using a z-score approach on the outlier SNPs
-        fst_means = fst_df.mean()
-        fst_stds = fst_df.std().replace(0, np.finfo(float).eps)
-        z_scores = (outlier_snps - fst_means) / fst_stds
-
-        # Compute two-tailed p-values using vectorized operations
-        p_values = 2 * (1 - norm.cdf(np.abs(z_scores)))
-        p_values = pd.DataFrame(
-            p_values, index=z_scores.index, columns=z_scores.columns
+        # Step 4: Compute empirical p-values for outliers
+        pval_df = self._compute_empirical_pvals(
+            fst_df_scaled=fst_df_scaled,
+            outlier_snps=outlier_snps,
+            alternative=alternative,
         )
-        all_p_values = p_values.to_numpy().flatten()
-        valid_idx = ~np.isnan(all_p_values)
-        all_p_values_valid = all_p_values[valid_idx]
+
+        # Step 5: Multiple testing correction
         if correction_method:
-            if all_p_values_valid.size > 0:
-                adjusted_pvals_valid = multipletests(
-                    all_p_values_valid, method=correction_method
-                )[1]
-            else:
-                self.logger.warning("No valid p-values found for DBSCAN outliers.")
-                adjusted_pvals_valid = all_p_values_valid
+            pvals_array = pval_df["pval"].dropna().to_numpy()
+            adjusted_array = multipletests(pvals_array, method=correction_method)[1]
+            pval_df.loc[pval_df["pval"].notna(), "pval_adj"] = adjusted_array
         else:
-            adjusted_pvals_valid = all_p_values_valid
-        adjusted_pvals = np.full(all_p_values.shape, np.nan)
-        adjusted_pvals[valid_idx] = adjusted_pvals_valid
-        adjusted_pvals_df = pd.DataFrame(
-            adjusted_pvals.reshape(p_values.shape),
-            index=p_values.index,
-            columns=p_values.columns,
+            pval_df["pval_adj"] = pval_df["pval"]
+
+        # Merge corrected pvals back to original outlier_snps DataFrame
+        outlier_snps = outlier_snps.copy()
+        outlier_snps["pval"] = pval_df["pval"]
+        outlier_snps["pval_adj"] = pval_df["pval_adj"]
+
+        # Unscale Fst values back to original
+        outlier_snps = self._unscale_fsts(
+            fst_df, scaler, fst_values_scaled, outlier_snps
         )
 
-        # IMPORTANT: Compute contributing pairs only for the outlier SNPs
-        contributing_pairs = self._identify_significant_pairs(
-            alpha, adjusted_pvals_df.loc[outlier_snps.index]
+        # Step 6: Identify contributing pairs
+        contributing_pairs = self._identify_significant_pairs(alpha, outlier_snps)
+
+        return outlier_snps, contributing_pairs
+
+    def _unscale_fsts(self, fst_df, scaler, fst_values_scaled, outlier_snps):
+        fst_values_unscaled = scaler.inverse_transform(fst_values_scaled)
+
+        # Rebuild a long-form DataFrame of unscaled Fst values
+        fst_df_unscaled = pd.DataFrame(
+            fst_values_unscaled, columns=fst_df.columns, index=fst_df.index
+        ).reset_index()
+
+        fst_df_unscaled = fst_df_unscaled.melt(
+            id_vars=["Locus"], var_name="Population_Pair", value_name="Fst_unscaled"
         )
 
-        return outlier_snps, contributing_pairs, adjusted_pvals_df
+        # Merge unscaled values into the outlier_snps DataFrame
+        outlier_snps = outlier_snps.merge(
+            fst_df_unscaled, on=["Locus", "Population_Pair"], how="left"
+        )
+
+        # Overwrite the scaled "Fst" with the unscaled one (and drop
+        # temporary column)
+        outlier_snps["Fst"] = outlier_snps["Fst_unscaled"]
+        return outlier_snps.drop(columns=["Fst_unscaled"])
 
     def _estimate_eps(self, fst_values: pd.DataFrame, min_samples: int) -> float:
         """Estimate the optimal eps value for DBSCAN clustering.
@@ -366,7 +362,7 @@ class FstOutliers:
             self.logger.warning(
                 "Distances all zeros. Setting eps to a small positive value."
             )
-            eps = 0.1  # Adjust as appropriate
+            eps = 0.1
         else:
             # Use KneeLocator to find the knee point
             kneedle = KneeLocator(
@@ -393,20 +389,406 @@ class FstOutliers:
 
     def _identify_significant_pairs(
         self, alpha: float, adjusted_pvals_df: pd.DataFrame
-    ) -> list:
-        """Identify significant population pairs for each SNP in a subset.
+    ) -> dict:
+        """Return a dict mapping locus -> list of significant population pairs."""
+        required_cols = {"Locus", "Population_Pair", "pval_adj"}
+        if not required_cols.issubset(adjusted_pvals_df.columns):
+            raise ValueError(f"Input DataFrame must contain columns: {required_cols}")
+
+        result = {}
+        for locus, subset in adjusted_pvals_df.groupby("Locus"):
+            sig_pairs = subset.loc[
+                subset["pval_adj"] <= alpha, "Population_Pair"
+            ].tolist()
+            result[locus] = sig_pairs
+
+        return result
+
+    def compute_per_locus_fst(
+        self, pop1_inds: np.ndarray, pop2_inds: np.ndarray
+    ) -> np.ndarray:
+        """Compute Weir & Cockerham Fst for each locus between two populations.
 
         Args:
-            alpha (float): Significance level for identifying outliers.
-            adjusted_pvals_subset_df (pd.DataFrame): A DataFrame of adjusted p-values for a subset of SNPs.
+            pop1_inds (np.ndarray): Indices of population 1 individuals.
+            pop2_inds (np.ndarray): Indices of population 2 individuals.
 
         Returns:
-            list: A list of lists, where each inner list contains the population pairs (column names) that are significant (i.e. adjusted p-value < alpha) for the corresponding SNP.
+            np.ndarray: Array of shape (n_loci,) with per-locus Fst values (NaN if invalid).
         """
-        adjusted_pvals_subset_df = adjusted_pvals_df.copy()
-        contributing_pairs = []
-        for snp in adjusted_pvals_subset_df.index:
-            row = adjusted_pvals_subset_df.loc[snp]
-            sig_pairs = row[row < alpha].index.tolist()
-            contributing_pairs.append(sig_pairs)
-        return contributing_pairs
+        full_mat = self.full_matrix.copy()
+        n_loci = full_mat.shape[1]
+        fst_values = np.full(n_loci, np.nan)
+
+        for loc in range(n_loci):
+            g1 = [full_mat[i, loc] for i in pop1_inds]
+            g2 = [full_mat[j, loc] for j in pop2_inds]
+
+            # clean out unknowns
+            g1 = FstDistance._clean_inds(g1)
+            g2 = FstDistance._clean_inds(g2)
+            if not g1 or not g2:
+                continue
+
+            # Convert to phased if needed
+            g1 = [PHASED_ENCODING.get(x, x) for x in g1]
+            g2 = [PHASED_ENCODING.get(x, x) for x in g2]
+
+            # Check for monomorphism:
+            unique_1 = set(g1)
+            unique_2 = set(g2)
+            combined_unique = unique_1.union(unique_2)
+            if len(combined_unique) == 1:
+                # Exactly one allele across both populations => monomorphic
+                fst_values[loc] = np.nan
+                continue
+
+            # compute single-locus numerator, denominator
+            try:
+                a, d = self.fst_dist._two_pop_weir_cockerham_fst(g1, g2)
+                fst_values[loc] = a / d if d > 0 else np.nan
+            except ValueError:
+                fst_values[loc] = np.nan
+
+        return fst_values
+
+    def per_locus_permutation_test(
+        self,
+        pop1_inds: np.ndarray,
+        pop2_inds: np.ndarray,
+        n_perm: int = 1000,
+        seed: int = 42,
+        bandwidth: Literal["silverman", "scott"] | float = "scott",
+        alternative: Literal["upper", "lower", "both"] = "both",
+        mode: Literal["auto", "kde", "empirical"] = "auto",
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Permute sample labels for each locus and compute p-values.
+
+        Args:
+            pop1_inds (np.ndarray): Indices of population 1 individuals.
+            pop2_inds (np.ndarray): Indices of population 2 individuals.
+            n_perm (int): Number of permutation replicates.
+            seed (int): RNG seed.
+            bandwidth (str | float): KDE bandwidth.
+            alternative (str): 'upper', 'lower', or 'both'.
+            mode (str): 'auto', 'kde', or 'empirical'.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Observed Fst and p-values.
+        """
+        rng = np.random.default_rng(seed)
+        full_mat = self.full_matrix.copy()
+        n_loci = full_mat.shape[1]
+        observed_fst = self.compute_per_locus_fst(pop1_inds, pop2_inds)
+
+        all_inds = np.concatenate([pop1_inds, pop2_inds])
+        n1 = len(pop1_inds)
+        p_values = np.full(n_loci, np.nan)
+
+        skipped_loci = {}
+        flat_loci = []
+        few_valids = []
+        for loc in range(n_loci):
+            obs = observed_fst[loc]
+            if np.isnan(obs) or np.isinf(obs):
+                p_values[loc] = 1.0
+                skipped_loci[loc] = "NaN or Inf observed Fst"
+                continue
+
+            perm_dist = np.full(n_perm, np.nan)
+            for i in range(n_perm):
+                perm = rng.permutation(all_inds)
+                new_p1, new_p2 = perm[:n1], perm[n1:]
+
+                g1 = [full_mat[idx, loc] for idx in new_p1]
+                g2 = [full_mat[idx, loc] for idx in new_p2]
+                g1 = FstDistance._clean_inds(g1)
+                g2 = FstDistance._clean_inds(g2)
+
+                if not g1 or not g2:
+                    continue
+
+                g1 = [PHASED_ENCODING.get(x, x) for x in g1]
+                g2 = [PHASED_ENCODING.get(x, x) for x in g2]
+
+                try:
+                    a, d = self.fst_dist._two_pop_weir_cockerham_fst(g1, g2)
+                    perm_dist[i] = a / d if d > 0 else np.nan
+                except ValueError:
+                    continue
+
+            valid_perm = perm_dist[~np.isnan(perm_dist)]
+            if len(valid_perm) < n_perm * 0.5:
+                few_valids.append(loc)
+                continue
+
+            if np.isclose(valid_perm.max(), valid_perm.min()):
+                flat_loci.append(loc)
+                continue
+
+            try:
+                if mode in {"auto", "kde"}:
+                    # Extend KDE range by 20%
+                    buffer = (valid_perm.max() - valid_perm.min()) * 0.2
+                    x_eval = np.linspace(
+                        valid_perm.min() - buffer, valid_perm.max() + buffer, 5000
+                    )
+
+                    kde = gaussian_kde(valid_perm, bw_method=bandwidth)
+                    pdf_vals = kde.evaluate(x_eval)
+                    cdf_vals = np.cumsum(pdf_vals)
+                    cdf_vals /= cdf_vals[-1]
+
+                    # Interpolate robustly
+                    cdf_obs = np.interp(obs, x_eval, cdf_vals, left=0.0, right=1.0)
+
+                    if alternative == "upper":
+                        pval = 1.0 - cdf_obs
+                    elif alternative == "lower":
+                        pval = cdf_obs
+                    elif alternative == "both":
+                        pval = 2.0 * min(cdf_obs, 1.0 - cdf_obs)
+                    else:
+                        msg = f"Invalid alternative: {alternative}"
+                        self.logger.error(msg)
+                        raise ValueError(msg)
+
+                    # Fallback if p is zero/one
+                    if mode == "auto" and (pval < 0.0 or pval > 1.0):
+                        msg = "KDE p-value out-of-bounds"
+                        self.logger.error(msg)
+                        raise ValueError(msg)
+
+                if mode == "empirical" or (mode == "auto" and "pval" not in locals()):
+                    if alternative == "upper":
+                        count_extreme = np.sum(valid_perm >= obs)
+                    elif alternative == "lower":
+                        count_extreme = np.sum(valid_perm <= obs)
+                    elif alternative == "both":
+                        center = np.mean(valid_perm)
+                        count_extreme = np.sum(
+                            np.abs(valid_perm - center) >= np.abs(obs - center)
+                        )
+                    else:
+                        msg = f"Invalid alternative: {alternative}"
+                        self.logger.error(msg)
+                        raise ValueError(msg)
+
+                    pval = (count_extreme + 1) / (len(valid_perm) + 1)
+
+                p_values[loc] = min(max(pval, 0.0), 1.0)
+
+            except Exception as e:
+                skipped_loci[loc] = e
+                continue
+
+        if skipped_loci:
+            for loc in skipped_loci.keys():
+                p_values[loc] = 1.0
+            self.logger.warning(
+                f"Skipped {len(skipped_loci)} loci due to errors. Setting P-values to 1.0."
+            )
+            self.logger.warning(
+                f"The following errors were encountered: {list(set(skipped_loci.values()))}"
+            )
+
+        if flat_loci:
+            for loc in flat_loci:
+                p_values[loc] = 1.0
+            self.logger.warning(
+                f"{len(flat_loci)} loci have flat distributions: {list(set(flat_loci))}. Setting P-values to 1.0."
+            )
+
+        if few_valids:
+            for loc in few_valids:
+                p_values[loc] = 1.0
+            self.logger.warning(
+                f"{len(few_valids)} loci have too few valid permutations: {list(set(few_valids))}. Setting P-values to 1.0."
+            )
+
+        return observed_fst, p_values
+
+    @staticmethod
+    def correct_pvals(pvals: np.ndarray, method: str = "fdr_bh") -> np.ndarray:
+        """Apply multiple-testing correction to an array of p-values.
+
+        Args:
+            pvals (np.ndarray): 1D array of p-values.
+            method (str): Correction method, e.g. 'bonferroni', 'fdr_bh', etc.
+
+        Returns:
+            np.ndarray: Corrected p-values (same shape as input).
+        """
+        mask = ~np.isnan(pvals)
+        adjusted = np.full_like(pvals, np.nan)
+        if np.any(mask):
+            _, adjp, _, _ = multipletests(pvals[mask], method=method)
+            adjusted[mask] = adjp
+        return adjusted
+
+    def detect_all_pairs(
+        self,
+        n_perm: int = 1000,
+        correction_method: Literal["bonferroni", "fdr_bh"] | None = "fdr_bh",
+        alpha: float = 0.05,
+        seed: int = 42,
+        bandwidth: Literal["silverman", "scott"] | float = "scott",
+        alternative: Literal["upper", "lower", "both"] = "both",
+    ) -> pd.DataFrame:
+        """
+        Run per-locus Fst + permutations for all population pairs; return outlier-formatted DataFrame.
+        """
+        results = []
+
+        for pop1, pop2 in combinations(self.pop_names, 2):
+            pop1_inds = self.pop_indices[pop1]
+            pop2_inds = self.pop_indices[pop2]
+
+            observed_fst, raw_pvals = self.per_locus_permutation_test(
+                pop1_inds,
+                pop2_inds,
+                n_perm=n_perm,
+                seed=seed,
+                bandwidth=bandwidth,
+                alternative=alternative,
+                mode="auto",
+            )
+
+            if correction_method is not None:
+                adj_pvals = self.correct_pvals(raw_pvals, method=correction_method)
+            else:
+                adj_pvals = raw_pvals
+
+            for loc_idx, (fst, pval, padj) in enumerate(
+                zip(observed_fst, raw_pvals, adj_pvals)
+            ):
+                results.append(
+                    {
+                        "Locus": loc_idx,
+                        "Population_Pair": f"{pop1}_{pop2}",
+                        "Fst": fst,
+                        "pval": pval,
+                        "pval_adj": padj,
+                        "is_outlier": (not np.isnan(padj)) and padj <= alpha,
+                    }
+                )
+
+        df = pd.DataFrame(results)
+
+        # Identify contributing pairs
+        contributing_map = (
+            df[df["is_outlier"]]
+            .groupby("Locus")["Population_Pair"]
+            .apply(lambda x: list(sorted(set(x))))
+            .to_dict()
+        )
+
+        df["Contributing_Pairs"] = df["Locus"].map(contributing_map)
+
+        df = df[df["pval_adj"] <= alpha]
+
+        # Final column ordering
+        return df[
+            [
+                "Locus",
+                "Population_Pair",
+                "Fst",
+                "pval",
+                "pval_adj",
+                "Contributing_Pairs",
+            ]
+        ].reset_index(drop=True)
+
+    def detect_outliers_permutation(
+        self,
+        n_perm: int = 1000,
+        correction_method: Literal["fdr_bh", "bonferroni"] | None = "fdr_bh",
+        alpha: float = 0.05,
+        seed: int = 42,
+        bandwidth: Literal["silverman", "scott"] | float = "scott",
+        alternative: Literal["upper", "lower", "both"] = "both",
+    ) -> pd.DataFrame:
+        """Convenience method: detect all per-locus outliers in all pairs.
+
+        This method runs the per-locus Fst + permutations for all population pairs and detects outliers based on the specified significance threshold. It returns a DataFrame containing only the outlier SNPs. The DataFrame includes columns for the locus, population pair, Fst value, p-value, and adjusted p-value. The method also includes a column for contributing pairs, which lists all population pairs that contributed to the outlier status of the SNP. The outlier status is determined based on the adjusted p-value and the specified significance threshold.
+
+        Args:
+            n_perm (int): Number of permutations per locus.
+            correction_method (Literal["fdr_bh", "bonferroni"] | None): 'fdr_bh', 'bonferroni', or None.
+            alpha (float): Significance threshold.
+            seed (int): RNG seed for reproducibility. Defaults to 42.
+            bandwidth (float): KDE bandwidth override (optional). Can be either 'silverman', 'scott', or float. Defaults to "scott".
+            alternative (str): Type of test ('upper', 'lower', 'both'). Defaults to 'both' (two-tailed test).
+
+        Returns:
+            pd.DataFrame: Outlier Fst DataFrame with columns: Locus, Pop1, Pop2, Population_Pair, Fst, pval, pval_adj, Contributing_Pairs.
+        """
+        df_fst = self.detect_all_pairs(
+            n_perm=n_perm,
+            correction_method=correction_method,
+            alpha=alpha,
+            seed=seed,
+            bandwidth=bandwidth,
+            alternative=alternative,
+        )
+
+        try:
+            # Plot the outlier SNPs
+            self.plotter.plot_fst_outliers(df_fst, "permutation")
+
+        except Exception as e:
+            self.logger.warning(f"Error plotting Fst outliers: {e}")
+            self.logger.warning("Skipping Fst outlier plot.")
+
+        return df_fst
+
+    def _compute_empirical_pvals_per_pair(
+        self,
+        df: pd.DataFrame,
+        alternative: Literal["upper", "lower", "both"] = "upper",
+        alpha: float = 0.05,
+    ) -> pd.DataFrame:
+        """
+        Compute empirical p-values per population pair using observed Fst and permutation distributions.
+
+        Args:
+            df (pd.DataFrame): DataFrame with Fst, Population_Pair, and Locus.
+            alternative (Literal["upper", "lower", "both"]): 'upper', 'lower', or 'both'.
+            alpha (float): Significance threshold.
+
+        Returns:
+            pd.DataFrame: Input DataFrame with added 'pval', 'pval_adj', 'is_outlier'.
+        """
+        results = []
+
+        for pair, group in df.groupby("Population_Pair"):
+            mean_fst = group["Fst"].mean()
+
+            for _, row in group.iterrows():
+                locus_fst = row["Fst"]
+                dist = group["Fst"].dropna().values
+
+                if alternative == "upper":
+                    pval = np.mean(dist >= locus_fst)
+                elif alternative == "lower":
+                    pval = np.mean(dist <= locus_fst)
+                elif alternative == "both":
+                    diff = np.abs(locus_fst - mean_fst)
+                    pval = np.mean(np.abs(dist - mean_fst) >= diff)
+                else:
+                    raise ValueError(f"Invalid alternative: {alternative}")
+
+                results.append((row["Locus"], pair, locus_fst, pval))
+
+        # Build DataFrame
+        df_pvals = pd.DataFrame(
+            results, columns=["Locus", "Population_Pair", "Fst", "pval"]
+        )
+
+        # Multiple testing correction
+        pvals_array = df_pvals["pval"].to_numpy()
+        _, pvals_adj, _, _ = multipletests(pvals_array, method="fdr_bh")
+        df_pvals["pval_adj"] = pvals_adj
+        df_pvals["is_outlier"] = df_pvals["pval_adj"] <= alpha
+
+        return df_pvals
