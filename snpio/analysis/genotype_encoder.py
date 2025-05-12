@@ -1,6 +1,6 @@
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -273,17 +273,17 @@ class GenotypeEncoder:
 
     def convert_onehot(
         self,
-        snp_data: Union[np.ndarray, List[List[int]]],
-        encodings_dict: Optional[Dict[str, int]] = None,
+        snp_data: np.ndarray | List[List[int]],
+        encodings_dict: Dict[str, int] | None = None,
     ) -> np.ndarray:
         """Convert input data to one-hot encoded format.
 
         This method converts input data to one-hot encoded format.
 
         Args:
-            snp_data (Union[np.ndarray, List[List[int]]]): Input 012-encoded data of shape (n_samples, n_SNPs).
+            snp_data (np.ndarray | List[List[int]]): Input 012-encoded data of shape (n_samples, n_SNPs).
 
-            encodings_dict (Optional[Dict[str, int]]): Encodings to convert structure to phylip format. Defaults to None.
+            encodings_dict (Dict[str, int] | None): Encodings to convert structure to phylip format. Defaults to None.
 
         Returns:
             np.ndarray: One-hot encoded data.
@@ -323,15 +323,15 @@ class GenotypeEncoder:
 
     def inverse_onehot(
         self,
-        onehot_data: Union[np.ndarray, List[List[float]]],
-        encodings_dict: Optional[Dict[str, List[float]]] = None,
+        onehot_data: np.ndarray | List[List[float]],
+        encodings_dict: Dict[str, List[float]] | None = None,
     ) -> np.ndarray:
         """Convert one-hot encoded data back to original format.
 
         Args:
-            onehot_data (Union[np.ndarray, List[List[float]]]): Input one-hot encoded data of shape (n_samples, n_SNPs).
+            onehot_data (np.ndarray | List[List[float]]): Input one-hot encoded data of shape (n_samples, n_SNPs).
 
-            encodings_dict (Optional[Dict[str, List[float]]]): Encodings to convert from one-hot encoding to original format. Defaults to None.
+            encodings_dict (Dict[str, List[float]] | None): Encodings to convert from one-hot encoding to original format. Defaults to None.
 
         Returns:
             np.ndarray: Original format data.
@@ -369,17 +369,17 @@ class GenotypeEncoder:
 
     def convert_int_iupac(
         self,
-        snp_data: Union[np.ndarray, List[List[int]]],
-        encodings_dict: Optional[Dict[str, int]] = None,
+        snp_data: np.ndarray | List[List[int]],
+        encodings_dict: Dict[str, int] | None = None,
     ) -> np.ndarray:
         """Convert input data to integer-encoded format (0-9) based on IUPAC codes.
 
         This method converts input data to integer-encoded format (0-9) based on IUPAC codes. The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9.
 
         Args:
-            snp_data (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input 012-encoded data.
+            snp_data (numpy.ndarray | List[List[int]]): Input 012-encoded data of shape (n_samples, n_SNPs).
 
-            encodings_dict (Dict[str, int] or None): Encodings to convert structure to phylip format.
+            encodings_dict (Dict[str, int] | None): Encodings to convert structure to phylip format.
 
         Returns:
             numpy.ndarray: Integer-encoded data.
@@ -414,17 +414,17 @@ class GenotypeEncoder:
 
     def inverse_int_iupac(
         self,
-        int_encoded_data: Union[np.ndarray, List[List[int]]],
-        encodings_dict: Optional[Dict[str, int]] = None,
+        int_encoded_data: np.ndarray | List[List[int]],
+        encodings_dict: Dict[str, int] | None = None,
     ) -> np.ndarray:
         """Convert integer-encoded data back to original format.
 
         This method converts integer-encoded data back to the original format based on IUPAC codes. The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9.
 
         Args:
-            int_encoded_data (numpy.ndarray of shape (n_samples, n_SNPs) or List[List[int]]): Input integer-encoded data.
+            int_encoded_data (numpy.ndarray | List[List[int]]): Input integer-encoded data of shape (n_samples, n_SNPs).
 
-            encodings_dict (Dict[str, int] or None): Encodings to convert from integer encoding to original format.
+            encodings_dict (Dict[str, int] | None): Encodings to convert from integer encoding to original format.
 
         Returns:
             numpy.ndarray: Original format data.
@@ -662,9 +662,7 @@ class GenotypeEncoder:
         return g012
 
     @genotypes_012.setter
-    def genotypes_012(
-        self, value: Union[np.ndarray, pd.DataFrame, List[List[int]]]
-    ) -> None:
+    def genotypes_012(self, value: np.ndarray | pd.DataFrame | List[List[int]]) -> None:
         """Set the 012 genotypes. They will be decoded back to a 2D list of genotypes as ``snp_data`` object.
 
         012-encoded genotypes are returned as a 2D numpy array of shape (n_samples, n_sites). The encoding is as follows: 0=reference, 1=heterozygous, 2=alternate allele.
@@ -692,14 +690,14 @@ class GenotypeEncoder:
 
     @genotypes_onehot.setter
     def genotypes_onehot(
-        self, value: Union[np.ndarray, List[List[List[int]]], pd.DataFrame]
+        self, value: np.ndarray | List[List[List[int]]] | pd.DataFrame
     ) -> None:
         """Set the onehot-encoded genotypes. They will be decoded back to a 2D list of IUPAC genotypes as ``snp_data``.
 
         One-hot encoded genotypes are returned as a 3D numpy array of shape (n_samples, n_loci, 4).  The one-hot encoding is as follows: A=[1, 0, 0, 0], T=[0, 1, 0, 0], G=[0, 0, 1, 0], C=[0, 0, 0, 1]. Missing values are encoded as [0, 0, 0, 0]. The one-hot encoding is based on the IUPAC ambiguity codes. Heterozygous sites are encoded as 0.5 for each allele.
 
         Args:
-            value (Union[np.ndarray, List[List[List[int]]], pd.DataFrame]): 3D numpy array with one-hot encoded genotypes.
+            value (np.ndarray | List[List[List[int]]] | pd.DataFrame): 3D numpy array with one-hot encoded genotypes.
 
         Raises:
             TypeError: If `value` is not of type pd.DataFrame, np.ndarray, or list.
@@ -725,11 +723,14 @@ class GenotypeEncoder:
 
     @genotypes_int.setter
     def genotypes_int(
-        self, value: Union[pd.DataFrame, np.ndarray, List[List[int]], Any]
+        self, value: pd.DataFrame | np.ndarray | List[List[int]] | Any
     ) -> None:
         """Set the integer-encoded (0-9) genotypes. They will be decoded back to a 2D list of IUPAC genotypes as a ``snp_data`` object.
 
         Integer-encoded genotypes are returned as a 2D numpy array of shape (n_samples, n_sites). The integer encoding is as follows: A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9. Missing values are encoded as -9.
+
+        Args:
+            value (pd.DataFrame | np.ndarray | List[List[int]] | Any): 2D numpy array with integer-encoded genotypes.
         """
         X = misc.validate_input_type(value, return_type="array")
         Xt = self.inverse_int_iupac(X)
