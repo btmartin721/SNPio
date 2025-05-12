@@ -13,9 +13,6 @@ from snpio.popgenstats.fst_outliers import FstOutliers
 from snpio.popgenstats.genetic_distance import GeneticDistance
 from snpio.popgenstats.summary_statistics import SummaryStatistics
 from snpio.utils.logging import LoggerManager
-from snpio.utils.results_exporter import ResultsExporter
-
-exporter = ResultsExporter(output_dir="snpio_output")
 
 
 class PopGenStatistics:
@@ -71,9 +68,7 @@ class PopGenStatistics:
         outdir = Path(f"{self.genotype_data.prefix}_output", "analysis")
         self.output_dir = outdir
         self.output_dir.mkdir(exist_ok=True, parents=True)
-        exporter.output_dir = outdir
 
-    @exporter.capture_results
     def calculate_d_statistics(
         self,
         method: str,
@@ -401,7 +396,6 @@ class PopGenStatistics:
 
         return df_fst_outliers
 
-    # @exporter.capture_results
     def summary_statistics(
         self,
         n_permutations=0,
@@ -437,7 +431,6 @@ class PopGenStatistics:
             use_pvalues=use_pvalues,
         )
 
-    @exporter.capture_results
     def amova(
         self,
         regionmap: Dict[str, str] | None = None,
@@ -475,7 +468,6 @@ class PopGenStatistics:
             random_seed=random_seed,
         )
 
-    @exporter.capture_results
     def neis_genetic_distance(
         self,
         n_permutations: int = 0,
