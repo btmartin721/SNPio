@@ -9,6 +9,7 @@ import numpy.typing as npt
 import pandas as pd
 
 # Custom imports
+import snpio.utils.custom_exceptions as exceptions
 from snpio.utils.custom_exceptions import AlignmentFormatError
 from snpio.utils.misc import IUPAC
 
@@ -84,9 +85,9 @@ class FilteringMethods:
             self.logger.error(msg)
             raise TypeError(msg)
         if threshold < 0.0 or threshold > 1.0:
-            msg = f"Threshold must be between 0.0 and 1.0 inclusive, but got: {threshold:.2f}"
+            msg = f"Threshold must be between [0.0, 1.0], but got: {threshold:.2f}"
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidThresholdError(threshold, msg)
 
         if not np.any(self.nremover.loci_indices):
             self.logger.warning(
@@ -159,7 +160,7 @@ class FilteringMethods:
         if self.nremover.popmap_inverse is None:
             msg = "No population map data found. Cannot filter by population."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.MissingPopulationMapError(msg)
 
         self.nremover.propagate_chain()
 
@@ -749,13 +750,13 @@ class FilteringMethods:
             if size <= 0 or size > total_loci:
                 msg = f"Invalid size={size}. Must be between 1 and {total_loci}."
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(size, msg)
             n_to_keep = size
         elif isinstance(size, float):
             if size <= 0.0 or size > 1.0:
                 msg = "If float, `size` must be in (0, 1]."
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(size, msg)
             n_to_keep = int(np.round(total_loci * size))
             if n_to_keep == 0:
                 msg = (
@@ -763,7 +764,7 @@ class FilteringMethods:
                     "Increase `size` parameter."
                 )
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.EmptyLocusSetError(msg)
         else:
             msg = "Size must be an int or float."
             self.logger.error(msg)
@@ -821,7 +822,7 @@ class FilteringMethods:
         if self.nremover.alignment is None:
             msg = "Alignment must be provided, but got NoneType."
             self.logger.error(msg)
-            raise TypeError(msg)
+            raise exceptions.AlignmentError(msg)
 
         if not np.any(self.nremover.loci_indices):
             self.logger.warning(
@@ -945,9 +946,9 @@ class FilteringMethods:
             ValueError: If the threshold is not in the range [0, 1].
         """
         if not 0 <= threshold <= 1:
-            msg = "Threshold must be in the range [0, 1]."
+            msg = f"Threshold must be in the range [0, 1], but got: {threshold}."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidThresholdError(threshold, msg)
 
         self.logger.info(
             f"Filtering sequences (samples) with missing data proportion > {threshold:.2f}"
