@@ -1,39 +1,50 @@
 import itertools
-from typing import Any, List, Optional
+from typing import TYPE_CHECKING, List
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+if TYPE_CHECKING:
+    import logging
+    from snpio.filtering.nremover2 import NRemover2
+
 
 class FilteringHelper:
-    def __init__(self, nremover_instance: Any) -> None:
-        """
-        Initialize the FilteringHelper class.
+    """A helper class for filtering operations in NRemover2.
+
+    This class provides methods to print filtering reports, search for filtering thresholds, and prepare DataFrames for plotting.
+
+    It is designed to work with the NRemover2 class and its associated methods.
+
+    Attributes:
+        nremover (NRemover2): An instance of the NRemover2 class to access its attributes.
+        logger (Logger): A logger instance for logging messages.
+        missing_vals (List[str]): A list of values considered as missing data.
+    """
+
+    def __init__(self, nremover_instance: "NRemover2") -> None:
+        """Initialize the FilteringHelper class.
+
+        This method sets up the logger and initializes the list of missing values. It also takes an instance of the NRemover2 class to access its attributes.
 
         Args:
             nremover_instance (NRemover2): An instance of the NRemover2 class to access its attributes.
         """
-        self.nremover = nremover_instance
-        self.logger = self.nremover.logger
-        self.missing_vals = ["N", "-", ".", "?"]
+        self.nremover: "NRemover2" = nremover_instance
+        self.logger: logging.Logger = self.nremover.logger
+        self.missing_vals: List[str] = ["N", "-", ".", "?"]
 
     def print_filtering_report(self) -> None:
-        """
-        Print a filtering report to the terminal.
+        """Print a filtering report to the terminal.
 
-        This method generates and prints a report detailing the filtering process, including the number of loci and samples before and after filtering, and the percentage of missing data.
-
-        Returns:
-            None. The report is printed to the terminal.
+        This method generates a report summarizing the filtering process, including the number of loci and samples before and after filtering, the percentage of missing data, and any loci or samples removed during the process.
 
         Raises:
             RuntimeError: If there is no data left after filtering.
 
         Note:
-            This method should be called after filtering is complete.
-
-            If no data is removed during filtering, a warning is logged.
+            This method should be called after filtering is complete. If no data is removed during filtering, a warning is logged.
         """
         self.logger.info("Printing filtering report.")
 
@@ -103,15 +114,14 @@ class FilteringHelper:
 
     def search_thresholds(
         self,
-        thresholds: Optional[List[float]] = None,
-        maf_thresholds: Optional[List[float]] = None,
-        mac_thresholds: Optional[List[int]] = None,
-        filter_order: Optional[List[str]] = None,
+        thresholds: List[float] | None = None,
+        maf_thresholds: List[float] | None = None,
+        mac_thresholds: List[int] | None = None,
+        filter_order: List[str] | None = None,
     ) -> None:
-        """
-        Search across filtering thresholds and plot the filtering proportions.
+        """Search across filtering thresholds and plot the proportions.
 
-        This method searches through various combinations of filtering thresholds and plots the results. The filtering logic is handled by the NRemover2 class, while this method manages the plotting and threshold search.
+        This method iterates through various combinations of filtering thresholds and applies the corresponding filtering methods to the genotype data. It then prepares DataFrames for plotting the results. The filtering methods include missing data thresholds, minor allele frequency (MAF) thresholds, minor allele count (MAC) thresholds, and boolean thresholds. The method also allows for specifying the order in which the filtering methods are applied.
 
         Args:
             thresholds (List[float], optional): A list of missing data thresholds to search. Defaults to None.
@@ -119,8 +129,12 @@ class FilteringHelper:
             mac_thresholds (List[int], optional): A list of minor allele count thresholds to search. Defaults to None.
             filter_order (List[str], optional): A list of filtering methods to apply in order. If None, the default order is: "filter_missing_sample", "filter_missing_pop", "filter_maf", "filter_mac", "filter_monomorphic", "filter_biallelic", "filter_singletons". Defaults to None.
 
-        Returns:
-            None
+        Note:
+            - This method is designed to be used with the NRemover2 class.
+            - The filtering methods are applied in the order specified by the `filter_order` parameter.
+            - If `filter_order` is None, the default order is used.
+            - This method can take a long time to run, depending on the number of combinations of thresholds.
+
         """
         self.logger.info("Searching and plotting filtering thresholds.")
 
