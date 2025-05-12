@@ -1,16 +1,13 @@
-import string
 import warnings
-from ctypes import Union
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Tuple
 
 import holoviews as hv
 import matplotlib as mpl
 
 mpl.use("Agg")
 
-import matplotlib.colors as mpl_colors
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -72,14 +69,14 @@ class Plotting:
     def __init__(
         self,
         genotype_data: Any,
-        show: Optional[bool] = None,
-        plot_format: Optional[str] = None,
-        dpi: Optional[int] = None,
-        plot_fontsize: Optional[int] = None,
-        plot_title_fontsize: Optional[int] = None,
-        despine: Optional[bool] = None,
-        verbose: Optional[bool] = None,
-        debug: Optional[bool] = None,
+        show: bool | None = None,
+        plot_format: str | None = None,
+        dpi: int | None = None,
+        plot_fontsize: int | None = None,
+        plot_title_fontsize: int | None = None,
+        despine: bool | None = None,
+        verbose: bool | None = None,
+        debug: bool | None = None,
     ) -> None:
         """Initialize the Plotting class.
 
@@ -87,17 +84,14 @@ class Plotting:
 
         Args:
             genotype_data (GenotypeData): Initialized GenotypeData object containing necessary data.
-            show (bool, optional): Whether to display the plots. Defaults to `genotype_data.show` if available, otherwise `False`.
-            plot_format (str, optional): The format in which to save the plots (e.g., 'png', 'svg'). Defaults to `genotype_data.plot_format` if available, otherwise `'png'`.
-            dpi (int, optional): The resolution of the saved plots. Unused for vector `plot_format` types. Defaults to `genotype_data.dpi` if available, otherwise `300`.
-            plot_fontsize (int, optional): The font size for the plot labels. Defaults to `genotype_data.plot_fontsize` if available, otherwise `18`.
-            plot_title_fontsize (int, optional): The font size for the plot titles. Defaults to `genotype_data.plot_title_fontsize` if available, otherwise `22`.
-            despine (bool, optional): Whether to remove the top and right plot axis spines. Defaults to `genotype_data.despine` if available, otherwise `True`.
-            verbose (bool, optional): Whether to enable verbose logging. Defaults to `genotype_data.verbose` if available, otherwise `False`.
-            debug (bool, optional): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
-
-        Raises:
-            ValueError: Raised if the input genotype_data object is not provided.
+            show (bool | None): Whether to display the plots. Defaults to `genotype_data.show` if available, otherwise `False`.
+            plot_format (str | None): The format in which to save the plots (e.g., 'png', 'svg'). Defaults to `genotype_data.plot_format` if available, otherwise `'png'`.
+            dpi (int | None): The resolution of the saved plots. Unused for vector `plot_format` types. Defaults to `genotype_data.dpi` if available, otherwise `300`.
+            plot_fontsize (int | None): The font size for the plot labels. Defaults to `genotype_data.plot_fontsize` if available, otherwise `18`.
+            plot_title_fontsize (int | None): The font size for the plot titles. Defaults to `genotype_data.plot_title_fontsize` if available, otherwise `22`.
+            despine (bool | None): Whether to remove the top and right plot axis spines. Defaults to `genotype_data.despine` if available, otherwise `True`.
+            verbose (bool | None): Whether to enable verbose logging. Defaults to `genotype_data.verbose` if available, otherwise `False`.
+            debug (bool | None): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
 
         Note:
             The `genotype_data` attribute must be provided during initialization.
@@ -132,12 +126,9 @@ class Plotting:
         self.debug: bool | None = debug
 
         prefix: str = genotype_data.prefix
-        kwargs: Dict[str, str | bool] = {
-            "prefix": prefix,
-            "verbose": verbose,
-            "debug": debug,
-        }
-        logman = LoggerManager(__name__, **kwargs)
+
+        logman = LoggerManager(__name__, prefix=prefix, debug=debug, verbose=verbose)
+
         self.logger: Logger = logman.get_logger()
 
         self.iupac = IUPAC(logger=self.logger)
@@ -150,8 +141,8 @@ class Plotting:
             "plot_fontsize": 18,
             "plot_title_fontsize": 22,
             "despine": True,
-            "verbose": False,
-            "debug": False,
+            "verbose": verbose,
+            "debug": debug,
         }
 
         # Mapping of attributes to their provided values
@@ -258,7 +249,7 @@ class Plotting:
     def _plot_summary_statistics_per_sample(
         self,
         summary_stats: pd.DataFrame,
-        ax: Optional[plt.Axes] = None,
+        ax: plt.Axes | None = None,
         window: int = 5,
         subsample_rate: int = 50,
     ) -> None:
@@ -315,7 +306,7 @@ class Plotting:
         plt.tight_layout()
 
     def _plot_summary_statistics_per_population(
-        self, per_population_stats: dict, ax: Optional[plt.Axes] = None
+        self, per_population_stats: dict, ax: plt.Axes | None = None
     ) -> None:
         """Plot mean summary statistics per population as grouped bar chart.
 
@@ -323,7 +314,7 @@ class Plotting:
 
         Args:
             per_population_stats (dict): Dictionary containing summary statistics per population.
-            ax (matplotlib.axes.Axes, optional): The matplotlib axis on which to plot the summary statistics.
+            ax (matplotlib.axes.Axes | None, optional): The matplotlib axis on which to plot the summary statistics.
         """
         if ax is None:
             _, ax = plt.subplots()
@@ -405,7 +396,7 @@ class Plotting:
         plt.close()
 
     def _plot_summary_statistics_per_population_grid(
-        self, per_population_stats: dict, ax: Optional[plt.Axes] = None
+        self, per_population_stats: dict, ax: plt.Axes | None = None
     ) -> None:
         """Plot summary statistics per population using violin plots.
 
@@ -413,7 +404,7 @@ class Plotting:
 
         Args:
             per_population_stats (dict): Dictionary containing summary statistics per population.
-            ax (matplotlib.axes.Axes, optional): The matplotlib axis on which to plot the summary statistics.
+            ax (matplotlib.axes.Axes | None, optional): The matplotlib axis on which to plot the summary statistics.
         """
 
         if ax is None:
@@ -770,146 +761,99 @@ class Plotting:
 
         plt.close()
 
-    def plot_fst_outliers(self, outlier_snps: pd.DataFrame) -> None:
-        """Create a heatmap of Fst values for outlier SNPs.
-
-        This method creates a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs. The heatmap is sorted by SNP index and population pair, and only the lower triangle is displayed.
+    def plot_fst_outliers(
+        self, outlier_snps: pd.DataFrame, method: Literal["dbscan", "permutation"]
+    ) -> None:
+        """Create a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs.
 
         Args:
-            outlier_snps (pd.DataFrame): DataFrame containing Fst values and Contributing_Pairs for outlier SNPs.
+            outlier_snps (pd.DataFrame): DataFrame containing outlier SNPs and their Fst values.
+            method (str): Method used for outlier detection ("dbscan" or "permutation").
         """
+
         # Copy the DataFrame to avoid modifying the original data
-        data: pd.DataFrame = outlier_snps.copy()
+        data = outlier_snps.copy()
+        data = data.rename(columns={"Locus": "SNP"})
 
-        # Ensure SNP identifiers are in the index
-        if data.index.name != "SNP":
-            data.index.name = "SNP"
-
-        data = data.reset_index()
-
-        self.logger.debug(f"data_index: {data.index}")
-        self.logger.debug(f"data_columns: {data.columns}")
-
-        # Extract the Fst values (excluding the Contributing_Pairs column)
-        fst_values: pd.DataFrame = data.sort_index(axis=1).drop(
-            columns=["Contributing_Pairs"]
+        # Convert contributing pair lists (ensure it's a proper list not a string)
+        data["Contributing_Pairs"] = data["Contributing_Pairs"].apply(
+            lambda x: eval(x) if isinstance(x, str) else x
         )
 
-        if isinstance(data.columns, pd.MultiIndex):
-            # Flatten the MultiIndex columns
-            data.columns = data.columns.to_flat_index()
-
-            data.columns = [
-                col[0] if "Contributing_Pairs" in col or "SNP" in col else col
-                for col in data.columns
-            ]
-
-        if isinstance(fst_values.columns, pd.MultiIndex):
-            # Flatten the MultiIndex columns
-            fst_values.columns = fst_values.columns.to_flat_index()
-
-            fst_values.columns = [
-                col[0] if "Contributing_Pairs" in col or "SNP" in col else col
-                for col in fst_values.columns
-            ]
-
-        # Convert the Contributing_Pairs from list to set for faster lookup
+        # Create a column for fast lookup
         data["Contributing_Pairs_Set"] = data["Contributing_Pairs"].apply(set)
-        data = data.set_index("SNP")
 
-        # Melt the DataFrame to long format for easier plotting
-        fst_long: pd.DataFrame = fst_values.melt(
-            id_vars="SNP", var_name="Population_Pair", value_name="Fst"
+        # Add boolean column for highlighting
+        data["Contributing"] = data.apply(
+            lambda row: row["Population_Pair"] in row["Contributing_Pairs_Set"], axis=1
         )
 
-        # Add a column to indicate whether each cell is a contributing pair
-        def is_contributing_pair(row):
-            snp = row["SNP"]
-            pair = row["Population_Pair"]
-            contributing_pairs = data.loc[snp, "Contributing_Pairs_Set"]
-            return pair in contributing_pairs
+        # Check for duplicates before pivoting
+        dupes = data.duplicated(subset=["SNP", "Population_Pair"])
+        if dupes.any():
+            self.logger.warning(
+                f"Found {dupes.sum()} duplicate SNP-PopPair entries. Keeping first only."
+            )
+            data = data[~dupes]
 
-        fst_long["Contributing"] = fst_long.apply(is_contributing_pair, axis=1)
+        # Create mask after deduplicating
+        fst_pivot = data.pivot(index="SNP", columns="Population_Pair", values="Fst")
 
-        # Pivot back to wide format with MultiIndex (SNP, Contributing)
-        fst_pivot: pd.DataFrame = fst_long.pivot(
-            index="SNP", columns="Population_Pair", values="Fst"
-        )
+        cols = []
+        for col in fst_pivot.columns:
+            if col != "Population_Pair":
+                cols.append(col.replace("_", "-"))
+        fst_pivot.columns = cols
 
-        contributing_mask = fst_long.pivot(
-            index="SNP", columns="Population_Pair", values="Contributing"
-        )
-
-        # Create a mask for highlighting contributing pairs (masks out
-        # non-contributing pairs)
-        mask = ~contributing_mask.astype(bool)
-
-        # Ensure SNP indices are numeric
-        fst_pivot.index = fst_pivot.index.astype(int)
-        mask.index = mask.index.astype(int)
-
-        # Sort SNPs by their indices in numeric order
-        fst_pivot.sort_index(inplace=True)
-        mask: pd.DataFrame = mask.loc[fst_pivot.index]
+        self.logger.debug(f"Fst pivot table:\n{fst_pivot}")
 
         # Plot the heatmap
-        # Adjust height based on number of SNPs
         fig, ax = plt.subplots(1, 1, figsize=(15, max(8, len(fst_pivot) // 2)))
-        sns.set_theme(font_scale=1.2)
-        cmap: mpl_colors.LinearSegmentedColormap = sns.diverging_palette(
-            220, 20, as_cmap=True
-        )
 
-        # Plot all cells with masked non-contributing pairs
-        ax: plt.Axes = sns.heatmap(
-            fst_pivot,
-            cmap=cmap,
-            linewidths=0.5,
-            linecolor="grey",
-            cbar_kws={"label": "Fst"},
-            mask=mask,
-            square=False,
-            xticklabels=True,
-            yticklabels=True,
-            ax=ax,
-        )
+        sns.set_style("white")
 
-        # Overlay the contributing pairs without masking
+        cmap = sns.diverging_palette(220, 20, as_cmap=True)
+
         sns.heatmap(
             fst_pivot,
             cmap=cmap,
+            vmin=0.0,
+            vmax=1.0,
             linewidths=0.5,
             linecolor="grey",
-            cbar=False,
-            mask=~mask,
+            cbar_kws={"label": "Fst"},
             square=False,
             xticklabels=True,
             yticklabels=True,
             ax=ax,
         )
 
-        # Customize the plot
+        # Plot title and axis labels
         ax.set_title(
             "Fst Values for Outlier SNPs\nContributing Populations Highlighted"
         )
-        ax.set_xlabel("Population Pairs", fontsize=14)
-        ax.set_ylabel("SNPs", fontsize=14)
+        ax.set_xlabel("Population Pairs")
+        ax.set_ylabel("SNPs")
 
-        # Rotate x-axis labels for better readability
+        # Rotate x-axis labels
         ax.set_xticks(ax.get_xticks())
         ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+        ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
 
-        # Set y-axis labels to be the SNP indices
-        ax.set_yticklabels(fst_pivot.index)
+        method = method.lower()
+
+        if method not in {"dbscan", "permutation"}:
+            msg = f"Method must be either 'dbscan' or 'permutation', but got: {method}"
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         # Save the plot
-        of: str = f"outlier_snps_heatmap.{self.plot_format}"
-        outpath: Path = self.output_dir_analysis / of
-        fig.savefig(outpath)
+        of = f"outlier_snps_heatmap_{method}.{self.plot_format}"
+        outpath = self.output_dir_analysis / of
+        fig.savefig(outpath, bbox_inches="tight")
 
         if self.show:
             plt.show()
-
         plt.close()
 
     def plot_summary_statistics(
@@ -1299,33 +1243,36 @@ class Plotting:
         self.logger.debug(f"Sankey plot data: {dftmp_combined}")
 
         try:
-            # Create the Sankey plot with edge labels and colors.
-            sankey_plot = hv.Sankey(
-                dftmp_combined,
-                kdims=[
-                    hv.Dimension("Source", label="EdgeLabel"),
-                    hv.Dimension("Target"),
-                ],
-                vdims=["Count", "LinkColor", "EdgeLabel"],
-            ).opts(
-                opts.Sankey(
-                    width=800,
-                    height=600,
-                    edge_color="LinkColor",
-                    node_color="blue",
-                    node_padding=20,
-                    label_position="left",
-                    fontsize={"labels": "8pt", "title": "12pt"},
+            with warnings.catch_warnings(category=DeprecationWarning):
+                warnings.simplefilter("ignore")
+
+                # Create the Sankey plot with edge labels and colors.
+                sankey_plot = hv.Sankey(
+                    dftmp_combined,
+                    kdims=[
+                        hv.Dimension("Source", label="EdgeLabel"),
+                        hv.Dimension("Target"),
+                    ],
+                    vdims=["Count", "LinkColor", "EdgeLabel"],
+                ).opts(
+                    opts.Sankey(
+                        width=800,
+                        height=600,
+                        edge_color="LinkColor",
+                        node_color="blue",
+                        node_padding=20,
+                        label_position="left",
+                        fontsize={"labels": "8pt", "title": "12pt"},
+                    )
                 )
-            )
 
-            if isinstance(thresholds, list):
-                thresholds = "_".join([str(threshold) for threshold in thresholds])
+                if isinstance(thresholds, list):
+                    thresholds = "_".join([str(threshold) for threshold in thresholds])
 
-            # Save the plot to an HTML file
-            of: str = f"filtering_results_sankey_thresholds{thresholds}.html"
-            fname: Path = plot_dir / of
-            hv.save(sankey_plot, fname, fmt="html")
+                # Save the plot to an HTML file
+                of: str = f"filtering_results_sankey_thresholds{thresholds}.html"
+                fname: Path = plot_dir / of
+                hv.save(sankey_plot, fname, fmt="html")
 
         except ValueError as e:
             self.logger.warning(
@@ -1928,7 +1875,7 @@ class Plotting:
 
     def plot_performance(
         self,
-        resource_data: Dict[str, List[Union[float, int]]],
+        resource_data: Dict[str, List[float | int]],
         color: str = "#8C56E3",
         figsize: Tuple[int, int] = (18, 10),
     ) -> None:
@@ -1937,7 +1884,7 @@ class Plotting:
         This function takes a dictionary of performance data and plots the metrics for each method using boxplots to show variability. The resulting plots are saved in a file of the specified format. The plot shows the CPU Load, Memory Footprint, and Execution Time for each method. The plot is colored based on the specified color.
 
         Args:
-            resource_data (Dict[str, List[Union[int, float]]]): Dictionary with performance data. Keys are method names, and values are lists of dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
+            resource_data (Dict[str, List[int | float]]): Dictionary with performance data. Keys are method names, and values are lists of performance metrics.
             color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
             figsize (Tuple[int, int], optional): Size of the figure. Should be a tuple of 2 integers. Defaults to (18, 10).
 
@@ -2033,7 +1980,7 @@ class Plotting:
 
     def run_pca(
         self,
-        n_components: Optional[int] = None,
+        n_components: int | None = None,
         center: bool = True,
         scale: bool = False,
         n_axes: int = 2,
@@ -2227,7 +2174,7 @@ class Plotting:
     def visualize_missingness(
         self,
         df: pd.DataFrame,
-        prefix: Optional[str] = None,
+        prefix: str | None = None,
         zoom: bool = False,
         horizontal_space: float = 0.6,
         vertical_space: float = 0.6,
