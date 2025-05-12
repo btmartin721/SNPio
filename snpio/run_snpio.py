@@ -1,136 +1,171 @@
+import argparse
+import json
+from pathlib import Path
+
+import matplotlib as mpl
+import matplotlib.pyplot as plt
 import pandas as pd
-
-import snpio
-from snpio import (
-    GenotypeEncoder,
-    NRemover2,
-    Plotting,
-    PopGenStatistics,
-    TreeParser,
-    VCFReader,
-)
-
-# Uncomment the following line to import the Benchmark class.
-# NOTE: For development purposes. Comment out for normal use.
-# from snpio.utils.benchmarking import Benchmark
+import seaborn as sns
 
 
 def main():
+    args = parse_args()
+    print("Using snpio version:", get_snpio_version())
 
-    print("Using snpio version:", snpio.__version__)
+    loader = BenchmarkDataLoader(snpio_path=args.snpio_path, vcfr_path=args.vcfr_path)
 
-    # Read the alignment, popmap, and tree files.
-    gd = VCFReader(
-        filename="snpio/example_data/vcf_files/nremover_test.vcf.gz",
-        popmapfile="snpio/example_data/popmaps/nremover_test.popmap",
-        force_popmap=True,  # Remove samples not in the popmap, or vice versa.
-        chunk_size=5000,
-        exclude_pops=["DS", "OG"],
-        plot_format="png",
-        prefix="BOX_analysis",
+    df_snpio = loader.load_runtime("VCFReader", "SNPio")
+    df_snpio_mem = loader.load_memory("VCFReader", "SNPio")
+    df_vcfr = loader.load_runtime("vcfR", "vcfR")
+    df_vcfr_mem = loader.load_memory("vcfR", "vcfR")
+
+    df_time = pd.concat([df_snpio, df_vcfr], ignore_index=True)
+    df_mem = pd.concat([df_snpio_mem, df_vcfr_mem], ignore_index=True)
+
+    df_time_long = melt_metrics(df_time, "execution_time")
+    df_mem_long = melt_metrics(df_mem, "memory_usage")
+
+    plot_benchmark_results(df_time_long, args.output_dir, "execution_time")
+    plot_benchmark_results(df_mem_long, args.output_dir, "memory_usage")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Benchmark SNPio and vcfR performance."
+    )
+    parser.add_argument(
+        "--repeats", type=int, default=100, help="Number of replicates per test"
+    )
+    parser.add_argument(
+        "--snpio_path", type=Path, required=True, help="Directory with SNPio JSONs"
+    )
+    parser.add_argument(
+        "--vcfr_path", type=Path, required=True, help="Directory with vcfR JSONs"
+    )
+    parser.add_argument(
+        "--output_dir", type=Path, required=True, help="Directory for saving plots"
+    )
+    return parser.parse_args()
+
+
+def get_snpio_version():
+    import snpio
+
+    return snpio.__version__
+
+
+class BenchmarkDataLoader:
+    def __init__(self, snpio_path: Path, vcfr_path: Path):
+        self.snpio_path = snpio_path
+        self.vcfr_path = vcfr_path
+
+    def load_runtime(self, method, source_type):
+        dflist = []
+        path = self.snpio_path if source_type == "SNPio" else self.vcfr_path
+        for f in path.glob(f"{method}_*metrics.json"):  # safe pattern
+            with open(f, "r") as fh:
+                data = json.load(fh)
+            try:
+                df = pd.DataFrame(data["results"][0]["times"])
+            except KeyError:
+                df = pd.DataFrame.from_dict(data, orient="index")
+            df["NLoci"] = f.stem.split("_")[-2]
+            df["run_id"] = range(len(df))
+            df["method"] = method
+            df["type"] = source_type
+            dflist.append(df)
+        return pd.concat(dflist, ignore_index=True).rename(
+            columns={0: "execution_time"}
+        )
+
+    def load_memory(self, method, source_type):
+        dflist = []
+        path = self.snpio_path if source_type == "SNPio" else self.vcfr_path
+
+        # Use separate patterns for each method
+        if method == "VCFReader":
+            pattern = f"{method}_memory_usage_*_loci.json"
+        elif method == "vcfR":
+            pattern = f"{method}_memory_usage_*.json"
+        else:
+            raise ValueError(f"Unsupported method for memory load: {method}")
+
+        for f in path.glob(pattern):
+            with open(f, "r") as fh:
+                data = json.load(fh)
+            try:
+                df = pd.DataFrame(data["memory_usage"])
+                df["NLoci"] = f.stem.split("_")[-1]
+            except KeyError:
+                df = pd.DataFrame.from_dict(data, orient="index")
+                df["NLoci"] = f.stem.split("_")[-2]
+            df["method"] = method
+            df["type"] = source_type
+            dflist.append(df)
+        df_all = pd.concat(dflist, ignore_index=True)
+
+        return df_all.rename(columns={"peak_rss_MB": "memory_usage", 0: "memory_usage"})
+
+
+def melt_metrics(df, metric):
+    df["NLoci"] = df["NLoci"].astype(int)
+    df_melt = df.melt(
+        id_vars=["method", "run_id", "type", "NLoci"],
+        value_vars=[metric],
+        var_name="metric",
+        value_name="value",
+    )
+    df_melt["NLoci"] = df_melt["NLoci"].astype(int)
+    return df_melt.sort_values(by=["NLoci", "method", "metric"])
+
+
+def plot_benchmark_results(df_long, output_dir, metric):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    df_long["NLoci"] = df_long["NLoci"].astype(int)
+    df_long = df_long.sort_values(by=["NLoci", "method", "metric"])
+    df_long["NLoci"] = df_long["NLoci"].astype(str)
+
+    fontsize = 20
+    mpl.rcParams.update(
+        {
+            "font.family": "Arial",
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+            "font.size": fontsize,
+            "axes.titlesize": fontsize,
+            "axes.labelsize": fontsize,
+            "xtick.labelsize": fontsize,
+            "ytick.labelsize": fontsize,
+        }
     )
 
-    pgs = PopGenStatistics(gd, verbose=True)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.set_style("white")
 
-    summary_stats = pgs.summary_statistics(
-        save_plots=True, n_bootstraps=1000, n_jobs=8, use_pvalues=True
+    sns.lineplot(
+        data=df_long[df_long["method"].isin(["vcfR", "VCFReader"])],
+        x="NLoci",
+        y="value",
+        hue="method",
+        palette="Set2",
+        legend=True,
+        err_style="bars",
+        marker="o",
+        lw=3,
+        markersize=10,
+        errorbar="sd",
+        err_kws={"capsize": 15},
+        ax=ax,
     )
 
-    nei = pgs.neis_genetic_distance(n_bootstraps=100, n_jobs=8, return_pvalues=True)
+    ylabel = "Execution Time (s)" if metric == "execution_time" else "Memory Usage (MB)"
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel("Number of Loci")
 
-    # df_fst_outliers_boot, df_fst_outlier_pvalues_boot = pgs.detect_fst_outliers(
-    #     correction_method="bonf",
-    #     use_bootstrap=True,
-    #     n_bootstraps=1000,
-    #     n_jobs=-1,
-    #     tail_direction="upper",
-    # )
-
-    # df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
-    #     correction_method="bonf", use_bootstrap=False, n_jobs=1
-    # )
-
-    # NOTE: Takes a while to run.
-    # amova_results = pgs.amova(
-    #     regionmap={
-    #         "EA": "Eastern",
-    #         "GU": "Eastern",_only
-    #         "TT": "Eastern",
-    #         "TC": "Eastern",
-    #         "ON": "Ornate",
-    #         "DS": "Ornate",
-    #     },
-    #     n_bootstraps=10,
-    #     n_jobs=1,
-    #     random_seed=42,
-    # )
-
-    # dstats_df, overall_results = pgs.calculate_d_statistics(
-    #     method="patterson",
-    #     population1="EA",
-    #     population2="GU",
-    #     population3="TT",
-    #     outgroup="ON",
-    #     num_bootstraps=10,
-    #     n_jobs=1,
-    #     max_individuals_per_pop=6,
-    # )
-
-    # # Run PCA and make missingness report plots.
-    # plotting = Plotting(genotype_data=gd)
-    # gd_components, gd_pca = plotting.run_pca()
-    # gd.missingness_reports()
-
-    # nrm.search_thresholds(
-    #     thresholds=[0.25, 0.5, 0.75, 1.0],
-    #     maf_thresholds=[0.0],
-    #     mac_thresholds=[2, 5],
-    # )
-
-    # Plot benchmarking results.
-    # NOTE: For development purposes. Comment out for normal use.
-    # Benchmark.plot_performance(nrm.genotype_data, nrm.genotype_data.resource_data)
-
-    # nrm.plot_sankey_filtering_report()
-
-    # # Make missingness report plots.
-    # plotting2 = Plotting(genotype_data=gd_filt)
-    # filt_components, filt_pca = plotting2.run_pca()
-    # gd_filt.missingness_reports(prefix="filtered")
-
-    # # Write the filtered VCF file.
-    # gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
-    # gd_filt.write_popmap("snpio/example_data/popmaps/nremover_test.popmap")
-
-    # # Encode the genotypes into 012, one-hot, and integer formats.
-    # ge = GenotypeEncoder(gd_filt)
-    # gt_012 = ge.genotypes_012
-    # gt_onehot = ge.genotypes_onehot
-    # gt_int = ge.genotypes_int
-
-    # df012 = pd.DataFrame(gt_012)
-    # dfint = pd.DataFrame(gt_int)
-
-    # tp = TreeParser(
-    #     genotype_data=gd_filt,
-    #     treefile="snpio/example_data/trees/test.tre",
-    #     qmatrix="snpio/example_data/trees/test.iqtree",
-    #     siterates="snpio/example_data/trees/test14K.rate",
-    #     verbose=True,
-    #     debug=False,
-    # )
-
-    # # # Get a toytree object by reading the tree file.
-    # tree = tp.read_tree()
-
-    # # # Reroot the tree at any nodes containing the string 'EA' in the sampleID.
-    # tp.reroot_tree("~EA")
-
-    # # # Get a subtree with only the samples containing 'EA' in the sampleID.
-    # subtree = tp.get_subtree("~EA")
-
-    # # # Prune the tree to remove samples containing 'ON' in the sampleID.
-    # pruned_tree = tp.prune_tree("~ON")
+    for fmt in ["png", "pdf"]:
+        fig.savefig(
+            output_dir / f"{metric}_summary.{fmt}", dpi=300, bbox_inches="tight"
+        )
 
 
 if __name__ == "__main__":
