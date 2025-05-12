@@ -8,6 +8,7 @@ from tqdm import tqdm
 
 from snpio.read_input.genotype_data import GenotypeData
 from snpio.utils.logging import LoggerManager
+import snpio.utils.custom_exceptions as exceptions
 
 
 class VCFReader(GenotypeData):
@@ -481,7 +482,7 @@ class VCFReader(GenotypeData):
             ("T", "G"): "K",
             ("A", "T"): "W",
             ("T", "A"): "W",
-            ("N", "N"): "N",  # Represent any base
+            ("N", "N"): "N",
         }
         return iupac
 
@@ -495,6 +496,9 @@ class VCFReader(GenotypeData):
 
         Returns:
             np.ndarray: The transformed genotype tuples.
+
+        Raises:
+            InvalidGenotypeError: If the genotype tuples are invalid.
         """
         iupac_mapping = self._iupac_code()
 
@@ -515,7 +519,7 @@ class VCFReader(GenotypeData):
                     f"Invalid genotype tuple: {g}. Expected indices in {valid_indices}."
                 )
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidGenotypeError(msg)
 
         transformed_gt = np.array(
             [iupac_mapping.get((alt_array[g[0]], alt_array[g[1]]), "N") for g in gt]
