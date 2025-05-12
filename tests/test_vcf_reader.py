@@ -1,71 +1,136 @@
-import os
+import tempfile
 import textwrap
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from snpio.io.vcf_reader import VCFReader
+from snpio import VCFReader
 
 
 class TestVCFReader(unittest.TestCase):
 
     def setUp(self):
-        self.test_vcf = "test.vcf"
-        self.test_hdf5 = "test_vcf_attributes.h5"
-        self.test_output_vcf = "output_test.vcf"
+        self.maxDiff = None
 
-        vcf_content = textwrap.dedent(
+        self.test_vcf_content = textwrap.dedent(
             """\
             ##fileformat=VCFv4.2
             ##source=test
             ##contig=<ID=1,length=249250621>
             ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
-            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2
-            1\t100\t.\tG\tA\t.\tPASS\t.\tGT\t0/1\t0/0
-            1\t200\t.\tT\tC\t.\tPASS\t.\tGT\t0/0\t0/1
+            ##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">
+            ##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype Quality">
+            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2\tSample3
+            1\t100\t.\tG\tA\t.\tPASS\t.\tGT:DP:GQ\t0/1:35:99\t0/0:40:90\t1/1:10:60
+            1\t200\t.\tT\tC\t.\tPASS\t.\tGT:DP:GQ\t0/0:50:70\t0/1:20:85\t1/1:5:40
+            1\t300\t.\tA\tG\t.\tPASS\t.\tGT:DP:GQ\t1/1:15:50\t0/0:60:95\t0/1:30:80
             """
         )
 
-        with open(self.test_vcf, "w") as f:
-            f.write(vcf_content.strip())
+        self.temp_vcf = tempfile.NamedTemporaryFile(delete=False, suffix=".vcf")
 
-        self.reader = VCFReader(
-            filename=self.test_vcf, filetype="vcf", chunk_size=2, verbose=False
-        )
+        with open(self.temp_vcf.name, "w") as f:
+            f.write(self.test_vcf_content)
+
+        self.test_popmap_content = "Sample1\tpop1\nSample2\tpop1\nSample3\tpop2\n"
+        self.temp_popmap = tempfile.NamedTemporaryFile(delete=False, suffix=".popmap")
+        with open(self.temp_popmap.name, "w") as f:
+            f.write(self.test_popmap_content)
 
     def tearDown(self):
-        if os.path.exists(self.test_vcf):
-            os.remove(self.test_vcf)
-        if os.path.exists(self.test_hdf5):
-            os.remove(self.test_hdf5)
-        if os.path.exists(self.test_output_vcf):
-            os.remove(self.test_output_vcf)
+        Path(self.temp_vcf.name).unlink(missing_ok=True)
+        Path(self.temp_popmap.name).unlink(missing_ok=True)
+        Path(self.temp_vcf.name + ".tbi").unlink(missing_ok=True)
+
+        for f in Path(".").glob("tmp*.vcf.gz"):
+            if f.is_file():
+                f.unlink(missing_ok=True)
+        for f in Path(".").glob("tmp*.vcf.gz.tbi"):
+            if f.is_file():
+                f.unlink(missing_ok=True)
+
+        dir = Path("test_read_vcf_output")
+        if dir.is_dir():
+            dir.rmdir()
 
     def test_read_vcf(self):
-        self.reader.load_aln()
-        self.assertEqual(len(self.reader.samples), 2)
-        expected_snp_data = [["R", "G"], ["T", "Y"]]
-        np.testing.assert_array_equal(self.reader.snp_data, expected_snp_data)
+        reader = VCFReader(
+            filename=self.temp_vcf.name,
+            popmapfile=self.temp_popmap.name,
+            chunk_size=3,
+            verbose=False,
+            debug=False,
+            prefix="test_read_vcf",
+        )
 
-    def test_write_vcf(self):
-        self.reader.load_aln()
-        self.reader.write_vcf(output_filename=self.test_output_vcf, chunk_size=2)
+        self.assertEqual(len(reader.samples), 3)
+        expected_snp_data = np.array(
+            [["R", "T", "G"], ["G", "Y", "A"], ["A", "C", "R"]]
+        )
+        np.testing.assert_array_equal(reader.snp_data, expected_snp_data)
 
-        with open(self.test_output_vcf, "r") as f:
-            output_vcf_content = f.readlines()
+        self.assertEqual(reader.num_snps, 3)
+        self.assertEqual(reader.num_inds, 3)
+        self.assertEqual(reader.populations, ["pop1", "pop1", "pop2"])
+        self.assertEqual(
+            reader.popmap,
+            {"Sample1": "pop1", "Sample2": "pop1", "Sample3": "pop2"},
+        )
+        self.assertEqual(
+            reader.popmap_inverse,
+            {"pop1": ["Sample1", "Sample2"], "pop2": ["Sample3"]},
+        )
 
-        expected_output_vcf_content = [
-            "##fileformat=VCFv4.2\n",
-            "##source=SNPio\n",
-            '##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">\n',
-            '##INFO=<ID=VAF,Number=A,Type=Float,Description="Variant Allele Frequency">\n',
-            '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n',
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2\n",
-            "1\t100\t.\tG\tA\t.\tPASS\t.\tGT\t0/1\t0/0\n",
-            "1\t200\t.\tT\tC\t.\tPASS\t.\tGT\t0/0\t0/1\n",
-        ]
+    def test_write_vcf_with_and_without_format_fields(self):
+        for store_format_fields in (False, True):
+            reader = VCFReader(
+                filename=self.temp_vcf.name,
+                popmapfile=self.temp_popmap.name,
+                chunk_size=3,
+                verbose=False,
+                debug=False,
+                store_format_fields=store_format_fields,
+            )
 
-        self.assertEqual(output_vcf_content, expected_output_vcf_content)
+            with tempfile.NamedTemporaryFile(
+                delete=False, suffix=".vcf"
+            ) as temp_output_vcf:
+                reader.write_vcf(temp_output_vcf.name, chunk_size=2)
+
+                with open(temp_output_vcf.name, "r") as f:
+                    output_lines = [
+                        line.strip() for line in f if not line.startswith("##")
+                    ]
+
+                # Check header line and FORMAT structure
+                header_fields = output_lines[0].split("\t")
+                self.assertEqual(
+                    header_fields[:9],
+                    [
+                        "#CHROM",
+                        "POS",
+                        "ID",
+                        "REF",
+                        "ALT",
+                        "QUAL",
+                        "FILTER",
+                        "INFO",
+                        "FORMAT",
+                    ],
+                )
+
+                for line in output_lines[1:]:
+                    fields = line.split("\t")
+                    format_field = fields[8]  # FORMAT column
+
+                    if store_format_fields:
+                        self.assertIn(":", format_field)
+                        self.assertGreaterEqual(len(format_field.split(":")), 2)
+                    else:
+                        self.assertEqual(format_field, "GT")
+
+                Path(temp_output_vcf.name).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
