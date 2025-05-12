@@ -1,7 +1,6 @@
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, Union
 
 
 class LoggerManager:
@@ -35,18 +34,17 @@ class LoggerManager:
     def __init__(
         self,
         name: str,
-        prefix: Optional[str] = "",
+        prefix: str | None = "",
         debug: bool = False,
         verbose: bool = True,
-        log_file: Optional[Union[str, Path]] = None,
-        level: Optional[int] = None,
+        log_file: str | Path | None = None,
+        level: int | None = None,
         to_console: bool = True,
         to_file: bool = True,
         log_format: str = "%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s",
         date_format: str = "%Y-%m-%d %H:%M:%S",
     ):
-        """
-        Initializes the LoggerManager.
+        """Initializes the LoggerManager.
 
         This class sets up a logger with the specified name, log file, and logging level. It supports logging to both stdout and a file, with customizable formats and date formats. The default log format is "%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s", and the default date format is "%Y-%m-%d %H:%M:%S".
 
@@ -61,29 +59,6 @@ class LoggerManager:
             to_file (bool, optional): Whether to log to file. Defaults to True.
             log_format (str, optional): Format of the log messages.
             date_format (str, optional): Format of the date in log messages.
-
-        Note:
-            If both ``to_console`` and ``to_file`` are set to ``False``, the logger will not output any logs.
-
-            If both ``to_console`` and ``to_file`` are set to ``True``, the logger will output logs to both stdout and a file.
-
-            If ``to_console`` is set to ``True`` and ``to_file`` is set to False, the logger will output logs to stdout only.
-
-            If ``to_console`` is set to False and to_file is set to ``True``, the logger will output logs to a file only.
-
-            If no ``log_file`` is provided, the log file will be saved in the 'logs' directory with the name of the logger.
-
-            If a ``prefix`` is provided, the log file will be saved in a subdirectory of 'logs' with the ``prefix`` as the directory name.
-
-            If no ``prefix`` is provided, the log file will be saved in the 'logs'.
-
-            The default log format is "%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s".
-
-            The default date format is "%Y-%m-%d %H:%M:%S".
-
-            The default logging level is ``logging.INFO``.
-
-            The default values for ``to_console`` and ``to_file`` are True.
         """
         self.name = name
         self.logger = logging.getLogger(name)
