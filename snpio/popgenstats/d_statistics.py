@@ -166,7 +166,7 @@ class DStatistics:
         }
 
         if method not in method_map:
-            raise ValueError(f"Invalid method provided: {method}")
+            raise KeyError(f"Invalid method provided: {method}")
 
         d_statistic_func = method_map[method]
 
