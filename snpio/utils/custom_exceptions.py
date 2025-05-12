@@ -1,133 +1,67 @@
 from typing import List
 
 
-class PopmapKeyError(Exception):
-    """Custom exception raised when a key is not found in the population map."""
+class SNPioError(Exception):
+    """Base exception class for all SNPio errors."""
 
-    def __init__(self, key: str) -> None:
-        """Initialize PopmapKeyError.
-
-        Args:
-            key (str): The key that was not found.
-        """
-        super().__init__(
-            f"Population map sample '{key}' not found in the alignment or population map file."
-        )
-        self.key = key
-
-    def __str__(self) -> str:
-        """String representation of the exception.
-
-        Returns:
-            str: The message associated with the exception.
-        """
-        return f"Population map sample '{self.key}' not found in the alignment or population map file."
-
-    def __repr__(self) -> str:
-        """String representation of the exception for debugging.
-
-        Returns:
-            str: The message associated with the exception.
-        """
-        return f"PopmapKeyError({self.key})"
-
-
-class PopmapFileFormatError(Exception):
-    """Custom exception raised when there is an error reading the population map file."""
-
-    def __init__(self, message: str) -> None:
-        """Initialize PopmapFileFormatError.
-
-        Args:
-            message (str): The error message.
-        """
+    def __init__(self, message: str = "An SNPio-related error occurred.") -> None:
         super().__init__(message)
         self.message = message
 
     def __str__(self) -> str:
-        """String representation of the exception.
-
-        Returns:
-            str: The message associated with the exception.
-        """
         return self.message
 
     def __repr__(self) -> str:
-        """String representation of the exception for debugging.
-
-        Returns:
-            str: The message associated with the exception.
-        """
-        return f"PopmapFileFormatError({self.message})"
+        return f"{self.__class__.__name__}({self.message!r})"
 
 
-class PopmapFileNotFoundError(Exception):
-    """Custom exception raised when the population map file is not found."""
+class EmptyIterableError(SNPioError):
+    """Raised when a subset of an iterable is empty."""
 
-    def __init__(self, filename: str) -> None:
-        """Initialize PopmapFileNotFoundError.
+    pass
 
-        Args:
-            filename (str): The name of the population map file that was not found.
-        """
-        super().__init__(f"Population map file '{filename}' not found.")
+
+class PopmapKeyError(SNPioError):
+    """Raised when a key is not found in the population map."""
+
+    def __init__(self, key: str, message: str = None) -> None:
+        self.key = key
+        msg = (
+            message
+            or f"Population map sample '{key}' not found in the alignment or population map file."
+        )
+        super().__init__(msg)
+
+
+class PopmapFileFormatError(SNPioError):
+    """Raised when there is an error reading the population map file."""
+
+    pass
+
+
+class PopmapFileNotFoundError(SNPioError):
+    """Raised when the population map file is not found."""
+
+    def __init__(self, filename: str, message: str = None) -> None:
         self.filename = filename
-
-    def __str__(self) -> str:
-        """String representation of the exception.
-
-        Returns:
-            str: The message associated with the exception.
-        """
-        return f"Population map file '{self.filename}' not found."
-
-    def __repr__(self) -> str:
-        """String representation of the exception for debugging.
-
-        Returns:
-            str: The message associated with the exception.
-        """
-        return f"PopmapFileNotFoundError({self.filename})"
+        msg = message or f"Population map file '{filename}' not found."
+        super().__init__(msg)
 
 
-class UnsupportedFileTypeError(Exception):
-    """Custom exception to check if the given file type is supported.
-
-    Attributes:
-        filetype (str): The type of the file being checked.
-        message (str): Explanation of the error.
-        supported_types (list): List of supported file types.
-    """
+class UnsupportedFileTypeError(SNPioError):
+    """Raised when the given file type is unsupported."""
 
     def __init__(self, filetype: str, supported_types: List[str] | None = None) -> None:
-        """Initialize UnsupportedFileTypeException.
-
-        This exception is raised when the given file type is not supported.
-
-        Args:
-            filetype (str): The type of the file being checked.
-            supported_types (list, optional): List of supported file types.
-                Defaults to ["vcf", "phylip", "structure"].
-        """
         if supported_types is None:
             supported_types = ["vcf", "phylip", "structure"]
-
         self.filetype = filetype
         self.supported_types = supported_types
-        self.message = f"Alignment file type '{self.filetype}' is not supported. Supported types are {', '.join(self.supported_types)}."
-        super().__init__(self.message)
-
-    def __str__(self) -> str:
-        """String representation of the exception.
-
-        Returns:
-            str: The message associated with the exception.
-        """
-        return self.message
+        message = f"Alignment file type '{filetype}' is not supported. Supported types are {', '.join(supported_types)}."
+        super().__init__(message)
 
 
-class AlignmentError(Exception):
-    """Base class for exceptions related to alignment file handling."""
+class AlignmentError(SNPioError):
+    """Base class for alignment file-related exceptions."""
 
     pass
 
@@ -135,81 +69,136 @@ class AlignmentError(Exception):
 class AlignmentFormatError(AlignmentError):
     """Raised when an alignment file has an invalid format."""
 
-    def __init__(self, message: str) -> None:
-        """Initialize AlignmentFormatError.
-
-        Args:
-            message (str): The error message.
-        """
-        super().__init__(message)
+    pass
 
 
 class SequenceLengthError(AlignmentFormatError):
     """Raised when sequences in the alignment file have unequal lengths."""
 
     def __init__(self, sample_name: str) -> None:
-        """Initialize SequenceLengthError.
-
-        Args:
-            sample_name (str): The name of the sample where the error occurred.
-        """
         msg = f"Sequences have unequal lengths. Error at sample: {sample_name}"
         super().__init__(msg)
 
 
 class PhylipAlignmentSampleMismatch(AlignmentFormatError):
-    """Raised when samples in the alignment file do not match the expected number of samples."""
+    """Raised when samples in the PHYLIP alignment file don't match header."""
 
     def __init__(
         self, header_samples: int, sample_list_len: int, snp_data_len: int
     ) -> None:
-        """Initialize PhylipAlignmentSampleMismatch.
-
-        Args:
-            header_samples (int): The number of samples in the header.
-            sample_list_len (int): The number of samples in the sample list.
-            snp_data_len (int): The number of genotypes in the SNP data.
-        """
-        super().__init__(
-            f"Unexpected number of samples encountered. Expected {header_samples}, but got: {sample_list_len} samples across {snp_data_len} genotypes."
+        msg = (
+            f"Unexpected number of samples encountered. Expected {header_samples}, "
+            f"but got: {sample_list_len} samples across {snp_data_len} genotypes."
         )
+        super().__init__(msg)
 
 
 class StructureAlignmentSampleMismatch(AlignmentFormatError):
-    """Raised when samples in the alignment file do not match the expected number of samples."""
+    """Raised when STRUCTURE sample list and genotype rows don't align."""
 
     def __init__(self, sample_list_len: int, snp_data_len: int) -> None:
-        """Initialize StructureAlignmentSampleMismatch.
-
-        Args:
-            sample_list_len (int): The number of samples in the sample list.
-            snp_data_len (int): The number of genotypes in the SNP data.
-        """
-        super().__init__(
-            f"Unexpected number of samples encountered. Expected {sample_list_len}, but got: {snp_data_len} genotype rows."
+        msg = (
+            f"Unexpected number of samples encountered. Expected {sample_list_len}, "
+            f"but got: {snp_data_len} genotype rows."
         )
+        super().__init__(msg)
 
 
 class AlignmentFileNotFoundError(AlignmentError):
     """Raised when an alignment file is not found."""
 
-    def __init__(self, filename: str) -> None:
-        """Initialize AlignmentFileNotFoundError.
-
-        Args:
-            filename (str): The name of the alignment file that was not found.
-        """
-        super().__init__(f"Alignment file '{filename}' not found.")
+    def __init__(self, filename: str, message: str = None) -> None:
+        self.filename = filename
+        msg = message or f"Alignment file '{filename}' not found."
+        super().__init__(msg)
 
 
-class NoValidAllelesError(Exception):
-    """Custom exception raised when no valid alleles are found in a SNP column."""
+class NoValidAllelesError(SNPioError):
+    """Raised when no valid alleles are found in a SNP column."""
 
-    def __init__(self, column_index: int) -> None:
-        """Initialize NoValidAllelesError.
-
-        Args:
-            column_index (int): The index of the column where no valid alleles were found.
-        """
-        super().__init__(f"No valid alleles found in column {column_index}")
+    def __init__(self, column_index: int, message: str = None) -> None:
         self.column_index = column_index
+        msg = message or f"No valid alleles found in column {column_index}"
+        super().__init__(msg)
+
+
+class InvalidGenotypeError(SNPioError):
+    """Raised when a genotype string is invalid or unrecognized."""
+
+    def __init__(self, message: str = None) -> None:
+        msg = message or "Invalid or unrecognized genotype string."
+        super().__init__(msg)
+
+
+class MissingPopulationMapError(SNPioError):
+    """Raised when a required population map is missing."""
+
+    def __init__(self, message: str = None) -> None:
+        msg = message or "Missing required population map file or object."
+        super().__init__(msg)
+
+
+class NonBiallelicSiteError(SNPioError):
+    """Raised when a non-biallelic SNP site is encountered where only biallelic sites are allowed."""
+
+    def __init__(self, message: str = None) -> None:
+        msg = (
+            message
+            or "Encountered a non-biallelic SNP site where only biallelic sites are allowed."
+        )
+        super().__init__(msg)
+
+
+class EmptyLocusSetError(SNPioError):
+    """Raised when no loci remain after filtering or subsetting."""
+
+    def __init__(self, message: str = None) -> None:
+        msg = message or "No loci remain after filtering or subsetting."
+        super().__init__(msg)
+
+
+class InvalidVCFHeaderError(SNPioError):
+    """Raised when the VCF header is malformed or missing required fields."""
+
+    pass
+
+
+class EncodingMismatchError(SNPioError):
+    """Raised when the genotype encoding is incompatible with the data format."""
+
+    pass
+
+
+class StatisticalComputationError(SNPioError):
+    """Raised when a statistical calculation fails due to data or input issues."""
+
+    pass
+
+
+class PermutationInferenceError(SNPioError):
+    """Raised when bootstrapping or permutation-based inference fails."""
+
+    pass
+
+
+class InvalidChunkSizeError(SNPioError):
+    """Raised when the chunk size for I/O streaming is invalid."""
+
+    pass
+
+
+class UnsupportedFileFormatError(SNPioError):
+    """Raised when an unsupported file format is encountered."""
+
+    pass
+
+
+class InvalidThresholdError(SNPioError):
+    """Raised when an invalid threshold is provided for filtering."""
+
+    def __init__(self, threshold: float, message: str = None) -> None:
+        self.threshold = threshold
+        msg = (
+            message or f"Invalid threshold value: {threshold}. Must be between 0 and 1."
+        )
+        super().__init__(msg)
