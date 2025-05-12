@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 # Custom imports
+import snpio.utils.custom_exceptions as exceptions
 from snpio.filtering.filtering_helper import FilteringHelper
 from snpio.filtering.filtering_methods import FilteringMethods
 from snpio.plotting.plotting import Plotting
@@ -351,17 +352,21 @@ class NRemover2:
             thresholds = np.linspace(0.1, 0.9, num=9, endpoint=True, dtype=float)
         else:
             if not all([0.0 < t <= 1.0 for t in thresholds]):
-                msg = f"Invalid missing data threshold provided. Thresholds must be between 0.0 and 1.0, but got: {thresholds}"
+                msg = f"Invalid missing data threshold provided. Thresholds must be in the range [0.0, 1.0], but got: {",".join(map(str, thresholds))}"
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(
+                    ",".join(map(str, thresholds)), msg
+                )
 
         if maf_thresholds is None:
             maf_thresholds = np.array([0.01, 0.05, 0.075, 0.1, 0.15, 0.2], dtype=float)
         else:
             if not all([0.0 <= t < 1.0 for t in maf_thresholds]):
-                msg = "Invalid MAF threshold provided. MAF thresholds must be between 0.0 and 1.0."
+                msg = f"Invalid MAF threshold provided. MAF thresholds must be in the range [0.0, 1.0], but got: {",".join(map(str, maf_thresholds))}"
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(
+                    ",".join(map(str, maf_thresholds)), msg
+                )
 
         if mac_thresholds is None:
             mac_thresholds = np.array([2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=int)
@@ -369,7 +374,9 @@ class NRemover2:
             if not all([t > 1 for t in mac_thresholds]):
                 msg = "Invalid MAC threshold provided. MAC thresholds must be greater than 1."
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(
+                    ",".join(map(str, mac_thresholds)), msg
+                )
 
         self.logger.debug(f"Max Thresholds: {thresholds}")
         self.logger.debug(f"MAF Thresholds: {maf_thresholds}")
@@ -687,7 +694,7 @@ class NRemover2:
             msg = f"No samples remain after filtering at threshold: {self.current_threshold}."
             if not self.search_mode:
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.EmptyLocusSetError(msg)
             else:
                 self.logger.info(msg)
                 self._chain_active = False
@@ -697,7 +704,7 @@ class NRemover2:
             msg = f"No loci remain after filtering at threshold: {self.current_threshold}."
             if not self.search_mode:
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.EmptyLocusSetError(msg)
             else:
                 self.logger.info(msg)
                 self._chain_active = False
@@ -711,7 +718,7 @@ class NRemover2:
                 return
             else:
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.EmptyLocusSetError(msg)
 
         self._chain_active = False
 
