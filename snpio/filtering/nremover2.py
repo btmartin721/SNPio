@@ -352,7 +352,7 @@ class NRemover2:
             thresholds = np.linspace(0.1, 0.9, num=9, endpoint=True, dtype=float)
         else:
             if not all([0.0 < t <= 1.0 for t in thresholds]):
-                msg = f"Invalid missing data threshold provided. Thresholds must be in the range [0.0, 1.0], but got: {",".join(map(str, thresholds))}"
+                msg = f"Invalid missing data threshold provided. Thresholds must be in the range [0.0, 1.0], but got: {','.join(map(str, thresholds))}"
                 self.logger.error(msg)
                 raise exceptions.InvalidThresholdError(
                     ",".join(map(str, thresholds)), msg
@@ -362,7 +362,7 @@ class NRemover2:
             maf_thresholds = np.array([0.01, 0.05, 0.075, 0.1, 0.15, 0.2], dtype=float)
         else:
             if not all([0.0 <= t < 1.0 for t in maf_thresholds]):
-                msg = f"Invalid MAF threshold provided. MAF thresholds must be in the range [0.0, 1.0], but got: {",".join(map(str, maf_thresholds))}"
+                msg = f"Invalid MAF threshold provided. MAF thresholds must be in the range [0.0, 1.0], but got: {','.join(map(str, maf_thresholds))}"
                 self.logger.error(msg)
                 raise exceptions.InvalidThresholdError(
                     ",".join(map(str, maf_thresholds)), msg
