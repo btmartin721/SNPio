@@ -2,7 +2,7 @@ import logging
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Tuple
 
 import numpy as np
 from scipy.spatial.distance import pdist, squareform
@@ -25,14 +25,14 @@ class AMOVA:
         self,
         genotype_data: Any,
         alignment: np.ndarray,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
     ):
         """Initialize the AMOVA object.
 
         Args:
             genotype_data (GenotypeData): Genotype data object (must have .popmap_inverse, .samples).
             alignment (np.ndarray): Genotype data in 012 format (shape: [n_samples, n_loci]).
-            logger (Logger, optional): Logger object for debug/info output.
+            logger (Logger | None): Logger object for debug/info output.
         """
         self._popmap_inverse = genotype_data.popmap_inverse
         self._samples = genotype_data.samples
@@ -65,10 +65,10 @@ class AMOVA:
 
     def run(
         self,
-        regionmap: Optional[Dict[str, str]] = None,
+        regionmap: Dict[str, str] | None = None,
         n_bootstraps: int = 0,
         n_jobs: int = 1,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ) -> Dict[str, float]:
         """Conduct AMOVA with 1, 2, or 3 hierarchical levels.
 
@@ -540,8 +540,8 @@ class AMOVA:
         observed_results: Dict[str, float],
         n_bootstraps: int,
         n_jobs: int,
-        random_seed: Optional[int] = None,
-        regionmap: Optional[Dict[str, str]] = None,
+        random_seed: int | None = None,
+        regionmap: Dict[str, str] | None = None,
     ) -> Dict[str, float]:
         """Bootstrap across loci to get p-values for Phi statistics.
 
@@ -551,8 +551,8 @@ class AMOVA:
             observed_results (dict): Observed results from AMOVA.
             n_bootstraps (int): Number of bootstrap replicates.
             n_jobs (int): Number of parallel jobs.
-            random_seed (int): Random seed for reproducibility.
-            regionmap (dict): population_id -> region_id mapping.
+            random_seed (int | None): Random seed for reproducibility.
+            regionmap (Dict[str, str] | None): population_id -> region_id mapping.
 
         Returns:
             Dict[str, float]: Dictionary of p-values for Phi statistics. Keys: "Phi_XXX_p_value". Values: float.
