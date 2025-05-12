@@ -1,11 +1,13 @@
+from ctypes import ArgumentError
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Tuple
 
 import numpy as np
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
+import snpio.utils.custom_exceptions as exceptions
 from snpio import GenotypeEncoder, Plotting
 from snpio.popgenstats.amova import AMOVA
 from snpio.popgenstats.d_statistics import DStatistics
@@ -13,9 +15,6 @@ from snpio.popgenstats.fst_outliers import FstOutliers
 from snpio.popgenstats.genetic_distance import GeneticDistance
 from snpio.popgenstats.summary_statistics import SummaryStatistics
 from snpio.utils.logging import LoggerManager
-from snpio.utils.results_exporter import ResultsExporter
-
-exporter = ResultsExporter(output_dir="snpio_output")
 
 
 class PopGenStatistics:
@@ -68,9 +67,10 @@ class PopGenStatistics:
         self.encoder = GenotypeEncoder(self.genotype_data)
         self.alignment_012: np.ndarray = self.encoder.genotypes_012.astype(np.float64)
 
-        exporter.output_dir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+        outdir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+        self.output_dir = outdir
+        self.output_dir.mkdir(exist_ok=True, parents=True)
 
-    @exporter.capture_results
     def calculate_d_statistics(
         self,
         method: str,
@@ -78,13 +78,13 @@ class PopGenStatistics:
         population2: str | List[str],
         population3: str | List[str],
         outgroup: str | List[str],
-        population4: Optional[str | List[str]] = None,
+        population4: str | List[str] | None = None,
         include_heterozygous: bool = False,
         num_bootstraps: int = 1000,
         n_jobs: int = -1,
-        max_individuals_per_pop: Optional[int] = None,
+        max_individuals_per_pop: int | None = None,
         individual_selection: str | dict = "random",
-        output_file: Optional[str] = None,
+        output_file: str | None = None,
         save_plot: bool = True,
     ) -> Tuple[pd.DataFrame, Dict[str, float]]:
         """Calculate D-statistics, Z-scores, and P-values from D-statistics.
@@ -97,13 +97,13 @@ class PopGenStatistics:
             population2 (str | List[str]): Population ID or list of IDs.
             population3 (str | List[str]): Population ID or list of IDs.
             outgroup (str | List[str]): Population ID or list of IDs.
-            population4 (str | List[str], optional): Population ID or list of IDs. Required for "partitioned" and "dfoil" methods.
+            population4 (str | List[str] | None): Population ID or list of IDs. Required for "partitioned" and "dfoil" methods.
             include_heterozygous (bool): Whether to include heterozygous genotypes. Defaults to False.
             num_bootstraps (int): Number of bootstrap replicates.
             n_jobs (int): Number of parallel jobs. -1 uses all available cores. Defaults to -1.
-            max_individuals_per_pop (Optional[int]): Max individuals per population. Defaults to None. If specified, will select individuals from each population based on the criteria specified in ``individual_selection``.
+            max_individuals_per_pop (int | None): Max individuals per population. Defaults to None. If specified, will select individuals from each population based on the criteria specified in ``individual_selection``.
             individual_selection (str | Dict[str, List[str]]): Method for selecting individuals. Defaults to "random". If max_individuals_per_pop is specified, can be a dictionary with population IDs as keys and lists of selected individuals as values.
-            output_file (Optional[str]): Path to save the results CSV file. If not specified, results will be saved to a default location. Defaults to None.
+            output_file (str | None): Path to save the results CSV file. If not specified, results will be saved to a default location. Defaults to None.
             save_plot (bool): Whether to save the plots D-statistic plots. Defaults to True.
 
         Returns:
@@ -115,13 +115,13 @@ class PopGenStatistics:
             """Retrieve sample indices for a population or list of populations.
 
             Args:
-                population (Union[str, List[str]]): Population ID or list of IDs.
+                population (str | List[str]): Population ID or list of IDs.
 
             Returns:
                 List[int]: List of sample indices.
 
             Raises:
-                ValueError: If a population ID is not found.
+                KeyError: If a population ID is not found.
                 ValueError: If an invalid ``individual_selection`` method is specified.
             """
             populations: List[str] = (
@@ -161,8 +161,9 @@ class PopGenStatistics:
                     else:
                         selected_samples.extend(samples)
                 except KeyError:
-                    self.logger.error(f"Population ID '{pop}' not found.")
-                    raise ValueError(f"Population ID '{pop}' not found.")
+                    msg = f"Population ID '{pop}' not found."
+                    self.logger.error(msg)
+                    raise exceptions.PopmapKeyError(msg)
 
             # Convert sample IDs to indices
             samples = self.genotype_data.samples
@@ -286,83 +287,121 @@ class PopGenStatistics:
         self,
         correction_method: Literal["bonf", "fdr"] | None = None,
         alpha: float = 0.05,
-        use_bootstrap: bool = False,
-        n_bootstraps: int = 1000,
+        use_dbscan: bool = False,
+        n_permutations: int = 1000,
         n_jobs: int = 1,
-        tail_direction: Literal["both", "upper", "lower"] = "both",
+        alternative: Literal["upper", "lower", "both"] = "upper",
+        seed: int = 42,
+        kde_bandwidth: float | Literal["silverman", "scott"] | None = "scott",
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Detect Fst outliers from SNP data using bootstrapping or DBSCAN.
 
         This method detects Fst outliers from SNP data using bootstrapping or DBSCAN clustering. Outliers are identified based on the distribution of Fst values between population pairs. The method returns a DataFrame containing the Fst outliers and contributing population pairs, as well as a DataFrame containing the adjusted or unadjusted P-values, depending on whether a multiple testing correction method was specified.
 
         Args:
-            correction_method (str, optional): Multiple testing correction method that performs P-value adjustment, 'bonf' (Bonferroni) or 'fdr' (FDR B-H). If not specified, no correction or P-value adjustment is applied. Defaults to None.
-            alpha (float): Significance level for multiple test correction (with adjusted P-values). Defaults to 0.05.
-            use_bootstrap (bool): Whether to use bootstrapping to estimate variance of Fst per SNP. If False, DBSCAN clustering is used instead. Defaults to False.
-            n_bootstraps (int): Number of bootstrap replicates to use for estimating variance of Fst per SNP. Defaults to 1000.
-            n_jobs (int): Number of CPU threads to use for parallelization. If set to -1, all available CPU threads are used. Defaults to 1.
-            tail_direction (str): Direction of the test for Fst outliers. "both" for two-tailed, "upper" for testing higher than expected, and "lower" for lower than expected. Defaults to "both".
+            correction_method (str, optional): Multiple testing correction method that performs P-value adjustment. Shoould be either 'bonf' (Bonferroni) or 'fdr' (FDR B-H), or None. If not specified, no correction or P-value adjustment is applied. Defaults to None (no correction).
+            alpha (float): Significance level for multiple test correction with adjusted P-values. Defaults to 0.05.
+            use_dbscan (bool): Whether to use DBSCAN clustering to estimate Fst outliers per SNP. If False, bootstrap variance method is used instead. Defaults to False.
+            n_permutations (int): Number of permutation replicates to use for estimating variance of Fst per SNP. Defaults to 1000.
+            n_jobs (int): Number of parallel jobs. Only applies to DBSCAN method. -1 uses all available CPU threads. Defaults to 1.
+            alternative (str): Alternative hypothesis for the Fst outlier test. Can be 'upper', 'lower', or 'both'. Defaults to 'both'.
+            seed (int): Random seed for reproducibility. Defaults to 42.
+            kde_bandwidth (float | Literal["scott", "silverman"] | None): Bandwidth for the Gaussian kernel density estimation used when estimating P-values. Can be a float, 'silverman' for Silverman's rule of thumb, 'scott' for Scott's rule of thumb, or None for no bandwidth. Defaults to 'scott'.
 
         Returns:
-            Tuple[pd.DataFrame, pd.DataFrame]: A DataFrame containing the Fst outliers and contributing population pairs, and a DataFrame containing the adjusted P-values if ``correction_method`` was provided or the un-adjusted P-values otherwise.
+            pd.DataFrame: A DataFrame containing the locus indices for Fst outliers, the Fst values, contributing population pairs to each outlier, and the unadjusted and adjusted P-values (if applicable).
         """
         self.logger.info("Detecting Fst outliers...")
 
         fo = FstOutliers(
-            self.genotype_data, self.alignment_012, self.logger, self.plotter
+            self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
         )
+
+        # Validate inputs.
+        alternative = alternative.lower()
+
+        if alternative not in {"upper", "lower", "both"}:
+            msg = f"Invalid alternative hypothesis. Supported options: 'upper', 'lower', 'both', but got: {alternative}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if isinstance(kde_bandwidth, str):
+            kde_bandwidth = kde_bandwidth.lower()
+        elif isinstance(kde_bandwidth, int):
+            kde_bandwidth = float(kde_bandwidth)
+            if kde_bandwidth < 0:
+                msg = f"Invalid bandwidth. Must be a positive float, but got: {kde_bandwidth}"
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+        if (
+            kde_bandwidth not in {"silverman", "scott"}
+            and not isinstance(kde_bandwidth, float)
+            and kde_bandwidth is not None
+        ):
+            msg = f"Invalid bandwidth. Supported options: 'silverman', 'scott', or float, but got: {kde_bandwidth} of type {type(kde_bandwidth)}"
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         if correction_method is not None:
             correction_method = correction_method.lower()
             if correction_method not in {"bonf", "fdr"}:
-                msg: str = (
-                    f"Invalid correction_method. Supported options: 'bonf', 'fdr', but got: {correction_method}"
-                )
+                msg = f"Invalid correction_method. Supported options: 'bonf', 'fdr', but got: {correction_method}"
                 self.logger.error(msg)
                 raise ValueError(msg)
 
             correction_method = "fdr_bh" if correction_method == "fdr" else "bonferroni"
 
         if alpha < 0 or alpha >= 1:
-            msg: str = (
-                f"Invalid alpha value. Must be in the range [0, 1), but got: {alpha}"
-            )
+            msg = f"Invalid alpha value. Must be in the range [0, 1), but got: {alpha}"
             self.logger.error(msg)
             raise ValueError(msg)
 
-        if n_bootstraps < 1 or not isinstance(n_bootstraps, int):
-            msg: str = (
-                f"Invalid n_bootstraps value. Must be an integer greater than 0, but got: {n_bootstraps}"
-            )
+        if n_permutations < 1 or not isinstance(n_permutations, int):
+            msg = f"Invalid 'n_permutations' value. Must be an integer greater than 0, but got: {n_permutations}"
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.PermutationInferenceError(msg)
 
-        tail_direction = tail_direction.lower()
-        if tail_direction not in {"both", "upper", "lower"}:
-            msg: str = (
-                f"Invalid tail_direction. Supported options: 'both', 'upper', 'lower', but got: {tail_direction}"
-            )
-            self.logger.error(msg)
-            raise ValueError(msg)
+        method = "dbscan" if use_dbscan else "bootstrap"
 
-        alternative = "two" if tail_direction == "both" else tail_direction
+        self.logger.info(
+            f"Starting Fst outlier detection ({method.capitalize()} method)..."
+        )
 
-        # Returns tuple of outlier SNPs and adjusted p-values.
-        if use_bootstrap:
-            return fo.detect_fst_outliers_bootstrap(
+        # Returns outlier SNPs, Fst-values, and adjusted and unadjusted
+        # p-values.
+        if use_dbscan:
+            # Use DBSCAN method for outlier detection
+            df_fst_outliers = fo.detect_fst_outliers_dbscan(
                 correction_method,
                 alpha,
-                n_bootstraps,
                 n_jobs,
+                n_bootstraps=n_permutations,
+                alternative=alternative,
+                seed=seed,
+            )
+        else:
+            df_fst_outliers = fo.detect_outliers_permutation(
+                n_perm=n_permutations,
+                correction_method=correction_method,
+                alpha=alpha,
+                seed=seed,
+                bandwidth=kde_bandwidth,
                 alternative=alternative,
             )
 
-        return fo.detect_fst_outliers_dbscan(correction_method, alpha, n_jobs)
+        # Save the results to a CSV file
+        pth = self.output_dir / f"fst_outliers_{method}_method.csv"
+        df_fst_outliers.to_csv(pth, index=False, header=True)
+        method = method.capitalize()
+        self.logger.info(f"{method} Fst outliers saved to {pth}")
+        self.logger.info(f"{method} Fst outlier detection complete!")
 
-    # @exporter.capture_results
+        return df_fst_outliers
+
     def summary_statistics(
         self,
-        n_bootstraps=0,
+        n_permutations=0,
         n_jobs=1,
         save_plots: bool = True,
         use_pvalues: bool = False,
@@ -372,7 +411,7 @@ class PopGenStatistics:
         This method calculates a suite of summary statistics for SNP data, including observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and Fst between populations. Summary statistics are calculated both overall and per population.
 
         Args:
-            n_bootstraps (int): Number of bootstrap replicates to use for estimating variance of Fst per SNP. If 0, then bootstrapping is not used and confidence intervals are estimated from the data. Defaults to 0.
+            n_permutations (int): Number of bootstrap replicates to use for estimating variance of Fst per SNP. If 0, then bootstrapping is not used and confidence intervals are estimated from the data. Defaults to 0.
             n_jobs (int): Number of parallel jobs. If set to -1, all available CPU threads are used. Defaults to 1.
             save_plots (bool): Whether to save plots of the summary statistics. In any case, a dictionary of summary statistics is returned. Defaults to True.
             use_pvalues (bool): Whether to calculate p-values for Fst. Otherwise calculates 95% confidence intervals. Defaults to False.
@@ -389,19 +428,18 @@ class PopGenStatistics:
         )
 
         return summary_stats.calculate_summary_statistics(
-            n_bootstraps=n_bootstraps,
+            n_permutations=n_permutations,
             n_jobs=n_jobs,
             save_plots=save_plots,
             use_pvalues=use_pvalues,
         )
 
-    @exporter.capture_results
     def amova(
         self,
-        regionmap: Optional[Dict[str, str]] = None,
-        n_bootstraps: int = 0,
+        regionmap: Dict[str, str] | None = None,
+        n_permutations: int = 0,
         n_jobs: int = 1,
-        random_seed: Optional[int] = None,
+        random_seed: int | None = None,
     ) -> Dict[str, float]:
         """Conduct AMOVA (Analysis Of Molecular Variance).
 
@@ -415,9 +453,9 @@ class PopGenStatistics:
         Args:
             regionmap (dict, optional): Mapping from population_id -> region_id.
                 If None but hierarchical_levels>1, raises ValueError.
-            n_bootstraps (int): Number of bootstrap replicates across SNP loci.
+            n_permutations (int): Number of bootstrap replicates across SNP loci.
             n_jobs (int): Number of parallel jobs. -1 uses all cores.
-            random_seed (int, optional): Random seed for reproducibility.
+            random_seed (int | None): Random seed for reproducibility.
 
         Returns:
             dict: AMOVA results (variance components, Phi statistics, and possibly p-values).
@@ -428,15 +466,14 @@ class PopGenStatistics:
         amova_instance = AMOVA(self.genotype_data, self.alignment, self.logger)
         return amova_instance.run(
             regionmap=regionmap,
-            n_bootstraps=n_bootstraps,
+            n_permutations=n_permutations,
             n_jobs=n_jobs,
             random_seed=random_seed,
         )
 
-    @exporter.capture_results
     def neis_genetic_distance(
         self,
-        n_bootstraps: int = 0,
+        n_permutations: int = 0,
         n_jobs: int = 1,
         use_pvalues: bool = False,
         palette: str = "magma",
@@ -444,29 +481,29 @@ class PopGenStatistics:
     ) -> pd.DataFrame | Tuple[pd.DataFrame, pd.DataFrame]:
         """Calculate Nei's genetic distance between all pairs of populations.
 
-        Optionally computes bootstrap-based p-values for each population pair if n_bootstraps > 0.
+        Optionally computes bootstrap-based p-values for each population pair if n_permutations > 0.
 
         Nei's genetic distance is defined as ``D = -ln( Ī )``, where Ī is the ratio of the average genetic identity to the geometric mean of the average homozygosities.
 
         Args:
-            n_bootstraps (int): Number of bootstrap replicates to compute p-values. Defaults to 0 (only distances are returned).
+            n_permutations (int): Number of bootstrap replicates to compute p-values. Defaults to 0 (only distances are returned).
             n_jobs (int): Number of parallel jobs. -1 uses all cores. Defaults to 1.
             use_pvalues (bool): If True, returns a tuple of (distance matrix, p-value matrix). Defaults to False.
             palette (str): Color palette for the distance matrix plot. Can use any matplotlib gradient-based palette. Some frequently used options include: "coolwarm", "viridis", "magma", and "inferno". Defaults to 'coolwarm'.
             supress_plot (bool): If True, suppresses the plotting of the distance matrix. Defaults to False.
 
         Returns:
-            pd.DataFrame: If n_bootstraps == 0, returns a DataFrame of Nei's distances.
-            Tuple[pd.DataFrame, pd.DataFrame]: If n_bootstraps > 0, returns a tuple of (distance matrix, p-value matrix).
+            pd.DataFrame: If n_permutations == 0, returns a DataFrame of Nei's distances.
+            Tuple[pd.DataFrame, pd.DataFrame]: If n_permutations > 0, returns a tuple of (distance matrix, p-value matrix).
         """
         gd = GeneticDistance(
             self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
         )
         self.logger.info("Calculating Nei's genetic distance...")
-        self.logger.info(f"Number of bootstraps: {n_bootstraps}")
+        self.logger.info(f"Number of bootstraps: {n_permutations}")
 
         nei_results = gd.nei_distance(
-            n_bootstraps=n_bootstraps, n_jobs=n_jobs, return_pvalues=use_pvalues
+            n_permutations=n_permutations, n_jobs=n_jobs, return_pvalues=use_pvalues
         )
 
         df_obs, df_lower, df_upper, df_pval = gd.parse_nei_result(nei_results)

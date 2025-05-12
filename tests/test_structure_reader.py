@@ -1,14 +1,21 @@
-import os
+import shutil
+import tempfile
 import unittest
-
-import numpy as np
+from pathlib import Path
 
 from snpio.io.structure_reader import StructureReader
 
 
 class TestStructureReader(unittest.TestCase):
     def setUp(self):
-        self.structure_file = "test.str"
+        self.structure_file = tempfile.NamedTemporaryFile(delete=False, suffix=".str")
+
+        self.popmap_file = tempfile.NamedTemporaryFile(delete=False, suffix=".popmap")
+
+        self.output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".str")
+
+        self.popmap_content = ["Sample1\tpop1", "Sample2\tpop1", "Sample3\tpop2"]
+
         self.structure_data = [
             "Sample1 1 1 2 2 3 3 4 4",  # A=1, C=2, G=3, T=4
             "Sample1 1 1 2 2 3 3 4 4",
@@ -17,27 +24,44 @@ class TestStructureReader(unittest.TestCase):
             "Sample3 2 2 1 1 4 4 3 3",
             "Sample3 2 2 1 1 4 4 3 3",
         ]
-        with open(self.structure_file, "w") as f:
+
+        with open(self.structure_file.name, "w") as f:
             f.write("\n".join(self.structure_data))
 
-        self.reader = StructureReader(filename=self.structure_file, has_popids=False)
+        with open(self.popmap_file.name, "w") as f:
+            f.write("\n".join(self.popmap_content))
 
     def tearDown(self):
-        if os.path.exists(self.structure_file):
-            os.remove(self.structure_file)
+        if Path(self.structure_file.name).exists():
+            Path(self.structure_file.name).unlink(missing_ok=True)
+
+        if Path(self.popmap_file.name).exists():
+            Path(self.popmap_file.name).unlink(missing_ok=True)
+
+        if Path(self.output_file.name).exists():
+            Path(self.output_file.name).unlink(missing_ok=True)
+
+        dir = Path("test_read_structure_output")
+        if dir.is_dir():
+            shutil.rmtree(dir)
 
     def test_load_structure(self):
-        with open(self.structure_file, "w") as f:
+        reader = StructureReader(
+            filename=self.structure_file.name,
+            popmapfile=self.popmap_file.name,
+            prefix="test_read_structure",
+            verbose=False,
+        )
+
+        with open(self.structure_file.name, "w") as f:
             f.write("\n".join(self.structure_data))
 
-        self.reader._filename = self.structure_file
-        self.reader._load_aln()
+        self.assertEqual(reader.num_snps, 8)
+        self.assertEqual(reader.num_inds, 3)
+        self.assertEqual(reader.samples, ["Sample1", "Sample2", "Sample3"])
 
-        self.assertEqual(self.reader.num_snps, 8)
-        self.assertEqual(self.reader.num_inds, 3)
-        self.assertEqual(self.reader.samples, ["Sample1", "Sample2", "Sample3"])
         self.assertEqual(
-            self.reader.snp_data.tolist(),
+            reader.snp_data.tolist(),
             [
                 ["A", "A", "C", "C", "G", "G", "T", "T"],
                 ["T", "T", "G", "G", "C", "C", "A", "A"],
@@ -45,38 +69,16 @@ class TestStructureReader(unittest.TestCase):
             ],
         )
 
-    def test_get_ref_alt_alleles(self):
-        # Example synthetic SNP data
-        data = np.array(
-            [
-                ["A/A", "A/G", "C/C", "T/T"],
-                ["A/A", "G/G", "C/C", "T/T"],
-                ["A/G", "A/G", "C/T", "T/C"],
-                ["A/G", "A/G", "C/C", "T/T"],
-                ["G/G", "A/A", "C/C", "C/C"],
-                ["A/G", "A/G", "C/C", "T/T"],
-                ["A/A", "G/G", "T/T", "T/T"],
-                ["A/A", "G/G", "C/C", "T/C"],
-                ["A/A", "A/G", "C/C", "C/C"],
-                ["G/G", "G/G", "C/C", "T/T"],
-            ]
-        )
-
-        most_common_alleles, second_most_common_alleles, less_common_alleles = (
-            self.reader._get_ref_alt_alleles(data)
-        )
-
     def test_write_structure(self):
-        # Set up _snp_data with IUPAC codes
-        self.reader._snp_data = [
-            ["A", "A", "C", "C", "G", "G", "T", "T"],  # IUPAC for 1/1, 2/2, 3/3, 4/4
-            ["T", "T", "G", "G", "C", "C", "A", "A"],  # IUPAC for 4/4, 3/3, 2/2, 1/1
-            ["C", "C", "A", "A", "T", "T", "G", "G"],  # IUPAC for 2/2, 1/1, 4/4, 3/3
-        ]
-        self.reader._samples = ["Sample1", "Sample2", "Sample3"]
+        reader = StructureReader(
+            filename=self.structure_file.name,
+            popmapfile=self.popmap_file.name,
+            prefix="test_read_structure",
+            verbose=False,
+        )
 
-        output_file = "output.str"
-        self.reader.write_structure(output_file)
+        output_file = self.output_file.name
+        reader.write_structure(output_file)
 
         with open(output_file, "r") as f:
             output_data = f.readlines()
@@ -93,8 +95,6 @@ class TestStructureReader(unittest.TestCase):
         ]
 
         self.assertEqual(output_data, expected_output_data)
-
-        os.remove(output_file)
 
 
 if __name__ == "__main__":

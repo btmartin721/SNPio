@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
@@ -49,8 +49,8 @@ class TreeParser(GenotypeData):
         self,
         genotype_data: Any,
         treefile: str,
-        qmatrix: Optional[str] = None,
-        siterates: Optional[str] = None,
+        qmatrix: str | None = None,
+        siterates: str | None = None,
         verbose: bool = False,
         debug: bool = False,
     ) -> None:
@@ -122,19 +122,19 @@ class TreeParser(GenotypeData):
         return tt.tree(self.treefile)
 
     def write_tree(
-        self, tree: tt.ToyTree, save_path: Optional[str] = None, nexus: bool = False
-    ) -> Optional[str]:
+        self, tree: tt.ToyTree, save_path: str | None = None, nexus: bool = False
+    ) -> str | None:
         """Write the phylogenetic tree to a file.
 
         This method saves the phylogenetic tree to a file in Newick or NEXUS format. If the save_path argument is not provided, the tree is returned as a string representation.
 
         Args:
             tree (toytree.tree): The tree object to save.
-            save_path (str, optional): Path to save the tree file. If not provided (left as None), then a string representation of the tree is returned. Defaults to None.
-            nexus (bool, optional): Whether to save the tree in NEXUS format.If False, then Newick format is used. Defaults to False.
+            save_path (str | None): Path to save the tree file. If not provided (left as None), then a string representation of the tree is returned. Defaults to None.
+            nexus (bool): Whether to save the tree in NEXUS format.If False, then Newick format is used. Defaults to False.
 
         Returns:
-            Optional[str]: The string representation of the tree if save_path is None. Otherwise, None is returned.
+            str | None: The string representation of the tree if save_path is None. Otherwise, None is returned.
 
         Raises:
             TypeError: If the input tree is not a toytree object.
@@ -196,7 +196,7 @@ class TreeParser(GenotypeData):
         This method prunes the tree by removing a set of taxa (leaf nodes) from the tree. The taxa argument can be a list of taxa names to remove from the tree or a regular expression to match the node or tip name. Regular expressions can be prefixed with '~' to indicate taxa to keep.
 
         Args:
-            taxa (Union[List[str], str]): List of taxa names to remove from the tree or a regular expression to match the node or tip name. Regular expressions can be prefixed with '~' to indicate taxa to keep.
+            taxa (List[str] | str): List of taxa names to remove from the tree or a regular expression to match the node or tip name. Regular expressions can be prefixed with '~' to indicate taxa to keep.
 
         Returns:
             toytree.tree: The pruned tree object.
@@ -232,7 +232,7 @@ class TreeParser(GenotypeData):
         This method reroots the tree at a specific node or tip, changing the root of the tree to the specified node. The rerooted tree is returned as a toytree object.
 
         Args:
-            node (Union[int, str]): Index of the node or tip where the tree should be rerooted, a regex string to match the node or tip name prefixed by "~", or a list of node or tip names.
+            node (int | str | List[str]): Index of the node or tip where the tree should be rerooted, a regex string to match the node or tip name prefixed by "~", or a list of node or tip names.
 
         Returns:
             toytree.tree: The rerooted tree.

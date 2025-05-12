@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional, Union
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -25,7 +25,7 @@ class IUPAC:
 
         multilab_value (float): The value to use for multilabel data.
 
-        logger (Optional[logging.Logger]): A logger object for logging messages.
+        logger (logging.Logger | None): A logger object for logging messages.
 
     Example:
         >>> iupac_data = IUPAC()
@@ -34,14 +34,14 @@ class IUPAC:
     """
 
     def __init__(
-        self, multilab_value: float = 1.0, logger: Optional[logging.Logger] = None
+        self, multilab_value: float = 1.0, logger: logging.Logger | None = None
     ) -> None:
         """Initialize the IUPACData class.
 
         Args:
             multilab_value (float, optional): The value to use for multilabel data. Defaults to 1.0.
 
-            logger (Optional[logging.Logger], optional): A logger object for logging messages. Defaults to None.
+            logger (logging.Logger | None): A logger object for logging messages. Defaults to None.
 
         Raises:
             ValueError: If `multilab_value` is not between 0 and 1.
@@ -132,6 +132,36 @@ class IUPAC:
             "B": "CGT",
             "X": "GATC",
             "N": "GATC",
+        }
+
+    def get_gt2iupac_0based(self) -> Dict[str, str]:
+        """Get a dictionary of genotype to IUPAC ambiguity codes.
+
+        This method returns a dictionary of genotype to IUPAC ambiguity codes. The keys are the genotypes and the values are the corresponding IUPAC ambiguity codes. The genotype values are 0-based, meaning that the first genotype is represented by 0.
+
+        Returns:
+            Dict[str, str]: A dictionary of genotype to IUPAC ambiguity codes.
+
+        """
+        return {
+            "0/0": "A",
+            "1/1": "C",
+            "2/2": "G",
+            "3/3": "T",
+            "0/1": "M",  # A/C
+            "1/0": "M",
+            "0/2": "R",  # A/G
+            "2/0": "R",
+            "0/3": "W",  # A/T
+            "3/0": "W",
+            "1/2": "S",  # C/G
+            "2/1": "S",
+            "1/3": "Y",  # C/T
+            "3/1": "Y",
+            "2/3": "K",  # G/T
+            "3/2": "K",
+            "-9/-9": "N",  # Missing data
+            "-1/-1": "N",
         }
 
     def get_gt2iupac(self) -> Dict[str, str]:
@@ -309,8 +339,8 @@ class IUPAC:
 
 
 def validate_input_type(
-    X: Union[np.ndarray, pd.DataFrame, List[List[int]]], return_type: str = "array"
-) -> Union[np.ndarray, pd.DataFrame, List[List[int]]]:
+    X: np.ndarray | pd.DataFrame | List[List[int]], return_type: str = "array"
+) -> np.ndarray | pd.DataFrame | List[List[int]]:
     """Validates the input type and returns it as a specified type.
 
     This function checks if the input `X` is a pandas DataFrame, numpy array, or a list of lists. It then converts `X` to the specified `return_type` and returns it.

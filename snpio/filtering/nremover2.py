@@ -1,68 +1,40 @@
 # Standard library imports
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Callable, Dict, List, Tuple
 
 # Third-party imports
 import numpy as np
 import pandas as pd
 
 # Custom imports
+import snpio.utils.custom_exceptions as exceptions
 from snpio.filtering.filtering_helper import FilteringHelper
 from snpio.filtering.filtering_methods import FilteringMethods
 from snpio.plotting.plotting import Plotting
 from snpio.utils.logging import LoggerManager
 
+if TYPE_CHECKING:
+    from snpio.read_input.genotype_data import GenotypeData
+
 
 class NRemover2:
     """A class for filtering alignments based on various criteria.
 
-    The class can filter out sequences (samples) and loci (columns) that exceed a missing data threshold (per-column and per-population), minor allele frequency, minor allele count, and other criteria. It can also filter out monomorphic sites, singletons, and loci with more than two alleles. Finally, it can removed all but one linked locus, thin out loci within a specified distance of each other, and randomly subset loci in the SNP dataset. The class provides a flexible and extensible framework for filtering genetic data alignments based on user-defined criteria. It can be used to clean up SNP datasets, remove low-quality loci, and prepare data for downstream analyses.
+    The class provides various methods for filtering genetic data alignments based on user-defined criteria. These include filtering sequences (samples) and loci (columns) by missing data thresholds, minor allele frequency, minor allele count, and other criteria. It can also remove monomorphic sites, singletons, loci with more than two alleles, and linked loci. Additional functionality includes thinning loci within a specified distance, randomly subsetting loci, and plotting filtering results.
 
-    Note:
-        NRemover2 handles the following characters as missing data:
-            - 'N'
-            - '-'
-            - '?'
-            - '.'
-
-        Thus, it treats gaps as missing data. Please keep this in mind when using NRemover2.
-
-        The class is designed to be used with the GenotypeData class, which contains the genetic data alignment, population map, and populations (if a popmap is provided).
-
-        The filtering classes use either a threshold or a boolean value to determine whether to consider heterozygous gentoypes in the filtering logic. The following methods use the ``exclude_heterozygous`` parameter:
-
-            - filter_monomorphic
-            - filter_singletons
-            - filter_biallelic
-
-        If ``exclude_heterozygous`` is set to ``True``, the filtering methods will exclude heterozygous genotypes from the filtering logic. If set to ``False`` (default), heterozygous genotypes will be included in the filtering logic.
-
-        The class can be used to search for optimal filtering thresholds by plotting the proportion of missing data against the filtering thresholds. The ``search_thresholds()`` method can be used to search across various combinations of filtering thresholds and plot the results.
-
-        The class can also be used to thin out loci within a specified distance of each other using the ``thin_loci`` method.
-
-        The class can be used to randomly subset the loci (columns) in the SNP dataset using the ``random_subset_loci`` method.
-
-        The class can be used to filter out linked loci using the VCF file CHROM field using the ``filter_linked`` method.
-
-        The class can be used to plot a Sankey diagram showing the number of loci removed at each filtering step using the ``plot_sankey_filtering_report`` method.
-
-        The class can be used to print a summary of the filtering results using the ``print_filtering_report`` method.
-
-        The class can be used to filter out monomorphic sites using the ``filter_monomorphic`` method.
-
-        The class can be used to filter out loci (columns) where the only variant is a singleton using the ``filter_singletons`` method.
-
-        The class can be used to filter out loci (columns) that have more than 2 alleles using the ``filter_biallelic`` method.
-
-        The class can be used to filter out loci (columns) where the minor allele frequency is below the threshold using the ``filter_maf`` method.
-
-        The class can be used to filter out loci (columns) where the minor allele count is below the threshold using the ``filter_mac`` method.
-
-        The class can be used to filter out loci (columns) from the alignment that have more than a given proportion of missing data using the ``filter_missing`` method.
-
-        The class can be used to filter out sequences from the alignment that have more than a given proportion of missing data using the ``filter_missing_sample`` method.
-
-        The class can be used to filter out loci (columns) from the alignment that have more than a given proportion of missing data in a specific population using the ``filter_missing_pop`` method.
+        Key features:
+            - Search for optimal filtering thresholds and plot results using `search_thresholds`.
+            - Thin loci within a specified distance using `thin_loci`.
+            - Randomly subset loci using `random_subset_loci`.
+            - Filter linked loci using the VCF CHROM field with `filter_linked`.
+            - Plot a Sankey diagram of loci removed at each step using `plot_sankey_filtering_report`.
+            - Print a summary of filtering results with `print_filtering_report`.
+            - Remove monomorphic sites using `filter_monomorphic`.
+            - Remove loci where the only variant is a singleton using `filter_singletons`.
+            - Remove loci with more than two alleles using `filter_biallelic`.
+            - Filter loci by minor allele frequency (`filter_maf`) or count (`filter_mac`).
+            - Filter loci with excessive missing data using `filter_missing`.
+            - Filter samples with excessive missing data using `filter_missing_sample`.
+            - Filter loci with excessive missing data in specific populations using `filter_missing_pop`.
 
     Example:
         >>> from snpio import VCFReader
@@ -81,13 +53,32 @@ class NRemover2:
         >>> nrm = NRemover2(gd)
         >>>
         >>> # Filter samples and loci.
-        >>> nrm.filter_missing_sample(0.75).filter_.filter_missing(0.75).filter_missing_pop(0.75).filter_mac(2).filter_monomorphic(exclude_heterozygous=False).filter_singletons(exclude_heterozygous=False).filter_biallelic(exclude_heterozygous=False).resolve()
-        >>>
+        >>> nrm.filter_missing_sample(0.75)
+                .filter_missing(0.75)
+                .filter_missing_pop(0.75)
+                .filter_mac(2)
+                .filter_monomorphic(exclude_heterozygous=False)
+                .filter_singletons(exclude_heterozygous=False)
+                .filter_biallelic(exclude_heterozygous=False)
+                .resolve()
         >>> # Plot the Sankey diagram showing the number of loci removed at each filtering step.
         >>> nrm.plot_sankey_filtering_report()
         >>>
         >>> # Run a threshold search and plot the results.
-        >>> nrm.search_thresholds(thresholds=[0.1, 0.2, 0.3, 0.4, 0.5], maf_thresholds=[0.01, 0.05, 0.1], mac_thresholds=[2, 3, 4, 5], filter_order=["filter_missing_sample", "filter_missing", "filter_missing_pop", "filter_maf", "filter_mac", "filter_monomorphic", "filter_singletons", "filter_biallelic"])
+        >>> nrm.search_thresholds(
+            thresholds=[0.1, 0.2, 0.3, 0.4, 0.5],
+            maf_thresholds=[0.01, 0.05, 0.1],
+            mac_thresholds=[2, 3, 4, 5],
+            filter_order=[
+                "filter_missing_sample",
+                "filter_missing",
+                "filter_missing_pop",
+                "filter_maf",
+                "filter_mac",
+                "filter_monomorphic",
+                "filter_singletons",
+                "filter_biallelic",
+            ])
 
     Attributes:
         genotype_data (GenotypeData): An instance of the GenotypeData class.
@@ -120,9 +111,9 @@ class NRemover2:
 
         prefix (str): The prefix for the output files.
 
-        popmap (Dict[str, Union[str, int]]): A dictionary mapping sample IDs to population names.
+        popmap (Dict[str, str | int): A dictionary mapping sample IDs to population names.
 
-        popmap_inverse (Dict[Union[str, int], List[str]]): A dictionary mapping population names to lists of sample IDs.
+        popmap_inverse (Dict[str | int], List[str]]): A dictionary mapping population names to lists of sample IDs.
 
         sample_indices (np.ndarray): A boolean array indicating which samples to keep.
 
@@ -174,28 +165,22 @@ class NRemover2:
         print_filtering_report: Prints a summary of the filtering results.
 
         resolve: Finalizes the method chain and returns the updated GenotypeData instance.
-
-        __repr__: Returns a string representation of the NRemover2 instance.
-
-        __str__: Returns a string representation of the NRemover2 instance.
-
-        __getattr__: Custom attribute access method that handles delegating calls to FilteringMethods or FilteringHelper.
     """
 
-    def __init__(self, genotype_data: Any) -> None:
+    def __init__(self, genotype_data: "GenotypeData") -> None:
         """Initializes the NRemover2 class.
+
+        This method initializes the NRemover2 class with the provided GenotypeData instance. It sets up the filtering state, including the alignment, sample indices, loci indices, and other relevant attributes. It also initializes the filtering helper and methods.
 
         Args:
             genotype_data (GenotypeData): An instance of the GenotypeData class containing the genetic data alignment, population map,  populations, and other relevant data.
         """
         self.genotype_data = genotype_data
-        self.popmap: Dict[str, Union[str, int]] = genotype_data.popmap
-        self.popmap_inverse: Dict[Union[str, int], List[str]] = (
-            genotype_data.popmap_inverse
-        )
+        self.popmap: Dict[str, str | int] = genotype_data.popmap
+        self.popmap_inverse: Dict[str | int, List[str]] = genotype_data.popmap_inverse
 
         if self.popmap_inverse is not None:
-            self.populations: List[Union[str, int]] = list(self.popmap_inverse.keys())
+            self.populations: List[str | int] = list(self.popmap_inverse.keys())
             if not all(isinstance(pop, str) for pop in self.populations):
                 self.populations = [str(pop) for pop in self.populations]
 
@@ -303,16 +288,16 @@ class NRemover2:
         }
 
     def _validate_filter_order(
-        self, filter_order: Optional[List[str]], filter_methods: Dict[str, Callable]
+        self, filter_order: List[str] | None, filter_methods: Dict[str, Callable]
     ) -> List[str]:
         """Validates the filter order or sets the default order if none is provided.
 
         Args:
-            filter_order (Optional[List[str]]): A list of filter methods in order of application.
+            filter_order (List[str] | None): A list of filter methods in order of application.
             filter_methods (Dict[str, Callable]): A dictionary of available filtering methods.
 
         Returns:
-            List[str]: The validated or default filter order.
+            Dict[str, Callable]: A dictionary of filter methods in the specified order.
 
         Raises:
             ValueError: If an unknown method is found in the filter order.
@@ -341,38 +326,47 @@ class NRemover2:
 
     def _set_threshold_ranges(
         self,
-        thresholds: Optional[Union[List[float], np.ndarray]],
-        maf_thresholds: Optional[Union[List[float], np.ndarray]],
-        mac_thresholds: Optional[Union[List[int], np.ndarray]],
+        thresholds: List[float] | np.ndarray | None,
+        maf_thresholds: List[float] | np.ndarray | None,
+        mac_thresholds: List[int] | np.ndarray | None,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """Sets the ranges of thresholds for filtering.
 
         Args:
-            thresholds (Optional[Union[List[float], np.ndarray]]): Thresholds for missing data (0.0 < threshold ≤ 1.0).
-            maf_thresholds (Optional[Union[List[float], np.ndarray]]): Thresholds for minor allele frequency (0.0 ≤ maf < 1.0).
-            mac_thresholds (Optional[Union[List[int], np.ndarray]]): Thresholds for minimum allele count (MAC > 1).
+            thresholds (List[float] | np.ndarray | None): Thresholds for missing data (0.0 < threshold ≤ 1.0).
+            maf_thresholds (List[float] | np.ndarray | None): Thresholds for minor allele frequency (0.0 ≤ maf < 1.0).
+            mac_thresholds (List[int] | np.ndarray | None): Thresholds for minimum allele count (MAC > 1).
 
         Returns:
             Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]: The validated thresholds, maf thresholds, boolean array, and mac thresholds.
 
         Raises:
-            ValueError: If any of the provided thresholds are invalid.
+            ValueError: If any of the thresholds are invalid.
+
+        Notes:
+            - The thresholds for missing data must be between 0.0 and 1.0 (exclusive).
+            - The maf thresholds must be between 0.0 and 1.0 (inclusive).
+            - The mac thresholds must be greater than 1.
         """
         if thresholds is None:
             thresholds = np.linspace(0.1, 0.9, num=9, endpoint=True, dtype=float)
         else:
             if not all([0.0 < t <= 1.0 for t in thresholds]):
-                msg = f"Invalid missing data threshold provided. Thresholds must be between 0.0 and 1.0, but got: {thresholds}"
+                msg = f"Invalid missing data threshold provided. Thresholds must be in the range [0.0, 1.0], but got: {','.join(map(str, thresholds))}"
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(
+                    ",".join(map(str, thresholds)), msg
+                )
 
         if maf_thresholds is None:
             maf_thresholds = np.array([0.01, 0.05, 0.075, 0.1, 0.15, 0.2], dtype=float)
         else:
             if not all([0.0 <= t < 1.0 for t in maf_thresholds]):
-                msg = "Invalid MAF threshold provided. MAF thresholds must be between 0.0 and 1.0."
+                msg = f"Invalid MAF threshold provided. MAF thresholds must be in the range [0.0, 1.0], but got: {','.join(map(str, maf_thresholds))}"
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(
+                    ",".join(map(str, maf_thresholds)), msg
+                )
 
         if mac_thresholds is None:
             mac_thresholds = np.array([2, 3, 4, 5, 6, 7, 8, 9, 10], dtype=int)
@@ -380,7 +374,9 @@ class NRemover2:
             if not all([t > 1 for t in mac_thresholds]):
                 msg = "Invalid MAC threshold provided. MAC thresholds must be greater than 1."
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.InvalidThresholdError(
+                    ",".join(map(str, mac_thresholds)), msg
+                )
 
         self.logger.debug(f"Max Thresholds: {thresholds}")
         self.logger.debug(f"MAF Thresholds: {maf_thresholds}")
@@ -395,12 +391,14 @@ class NRemover2:
 
     def _apply_filtering_methods(
         self,
-        filter_methods: Dict[str, Tuple[Callable, Optional[Union[np.ndarray, bool]]]],
+        filter_methods: Dict[str, Tuple[Callable, np.ndarray | bool | None]],
     ) -> None:
         """Applies the specified filtering methods in sequence.
 
+        This method applies the specified filtering methods in sequence, updating the alignment and indices based on the filtering results. It also records the filtering results in the filtering results DataFrame.
+
         Args:
-            filter_methods (Dict[str, Tuple[Callable, Optional[Union[np.ndarray, bool]]]]): A dictionary of filter methods and their corresponding thresholds.
+            filter_methods (Dict[str, Tuple[Callable, np.ndarray | bool | None]]): A dictionary of filter methods and their corresponding thresholds.
         """
         self.propagate_chain()
         for method_name, (method, thresholds) in filter_methods.items():
@@ -440,6 +438,8 @@ class NRemover2:
     def _plot_results(self, df_combined: pd.DataFrame) -> None:
         """Plot and save the filtering results.
 
+        This method generates a plot of the filtering results and saves it to the output directory. The plot shows the number of loci removed at each filtering step and the proportion of loci removed relative to the total number of loci in the alignment.
+
         Args:
             df_combined (pd.DataFrame): Combined DataFrame containing filtering results to plot.
         """
@@ -456,24 +456,8 @@ class NRemover2:
 
         This method generates a Sankey diagram showing the number of loci removed at each filtering step. The diagram is saved as a PNG file in the output directory. The Sankey diagram provides a visual representation of the filtering process, showing the number of loci removed at each step and the proportion of loci removed relative to the total number of loci in the alignment. It also shows the number of loci that were retained at each step.
 
-        Returns:
-            None
-
         Raises:
             RuntimeError: If the filtering chain has not been resolved.
-
-        Note:
-            The Sankey diagram is generated using the Plotting class.
-
-            The Sankey diagram is saved as PNG and HTML files in the output directory.
-
-            The Sankey diagram shows the number of loci removed at each filtering step and the proportion of loci removed relative to the total number of loci in the alignment.
-
-            The Sankey diagram also shows the number of loci that were retained at each step.
-
-            The Sankey diagram provides a visual representation of the filtering process, making it easier to understand the impact of each filtering step on the alignment.
-
-            The Sankey diagram is useful for visualizing the filtering process and identifying the most effective filtering steps.
 
         Example:
             To plot the Sankey diagram showing the number of loci removed at each filtering step, use the following code:
@@ -494,6 +478,8 @@ class NRemover2:
 
     def propagate_chain(self) -> None:
         """Propagates the filtering chain to the next step, marking the chain as active.
+
+        This method marks the filtering chain as active, allowing further filtering steps to be applied. It should be called after resolving the previous chain and before starting a new chain.
 
         Raises:
             RuntimeError: If the filtering chain has not been resolved.
@@ -525,7 +511,7 @@ class NRemover2:
         self,
         included_indices: np.ndarray,
         method_name: str,
-        threshold: Optional[float] = None,
+        threshold: float | None = None,
     ) -> None:
         """Updates the loci indices based on the filtering results and records the step.
 
@@ -534,13 +520,7 @@ class NRemover2:
         Args:
             included_indices (np.ndarray): Boolean array indicating which loci are included.
             method_name (str): The name of the filtering method used.
-            threshold (Optional[float]): The threshold value used for filtering.
-
-        Returns:
-            None
-
-        Raises:
-            ValueError: If the method_name is not recognized
+            threshold (float | None): The threshold value used for filtering.
 
         Note:
             - This method updates the loci indices based on the filtering results and records the step in the filtering results DataFrame.
@@ -563,7 +543,7 @@ class NRemover2:
         self,
         included_indices: np.ndarray,
         method_name: str,
-        threshold: Optional[float] = None,
+        threshold: float | None = None,
     ) -> None:
         """Updates the sample indices based on the filtering results and records the step.
 
@@ -572,10 +552,7 @@ class NRemover2:
         Args:
             included_indices (np.ndarray): Boolean array indicating which samples are included.
             method_name (str): The name of the filtering method used.
-            threshold (Optional[float]): The threshold value used for filtering.
-
-        Raises:
-            ValueError: If the method_name is not recognized
+            threshold (float | None): The threshold value used for filtering.
 
         Note:
             - This method updates the sample indices based on the filtering results and records the step in the filtering results DataFrame.
@@ -600,43 +577,38 @@ class NRemover2:
         included_indices: np.ndarray,
         current_list: List[pd.DataFrame],
         method_name: str,
-        threshold: Optional[float] = None,
+        threshold: float | None = None,
     ) -> Tuple[np.ndarray, Dict[str, Tuple[int, int]], List[pd.DataFrame]]:
         """Records the results of a filtering step and updates the indices.
 
-        This method records the results of a filtering step, updates the indices, and appends the results to the filtering results DataFrame. It is used to track the number of loci or samples removed at each filtering step.
+        This method records the results of a filtering step and updates the indices based on the filtering results.
 
         Args:
-            removed_per_step (Dict[str, Tuple[int, int]]): Dictionary tracking the number of removed loci or samples per step.
-            included_indices (np.ndarray): Boolean array indicating which loci or samples are included after filtering.
-            current_list (List[pd.DataFrame]): List to append filtering results DataFrames.
+            removed_per_step (Dict[str, Tuple[int, int]]): A dictionary tracking the number of loci or samples removed at each filtering step.
+            included_indices (np.ndarray): Boolean array indicating which loci or samples are included.
+            current_list (List[pd.DataFrame]): A list of DataFrames containing filtering results for the current step.
             method_name (str): The name of the filtering method used.
-            threshold (Optional[float]): The threshold value used for filtering.
+            threshold (float | None): The threshold value used for filtering.
 
         Returns:
-            Tuple[np.ndarray, Dict[str, Tuple[int, int]], List[pd.DataFrame]]: Updated indices, removed per step, and the current list of DataFrames.
-
-        Raises:
-            ValueError: If the method_name is not recognized
-
-        Note:
-            - This method records the results of a filtering step, updates the indices, and appends the results to the filtering results DataFrame.
-            - It is used to track the number of loci or samples removed at each filtering step.
-            - The removed_per_step dictionary tracks the number of loci or samples removed at each filtering step.
-            - The included_indices parameter is a boolean array indicating which loci or samples are included after filtering.
-            - The method_name parameter specifies the filtering method used, such as "filter_missing", "filter_maf", "filter_mac", "filter_monomorphic", "filter_singletons", or "filter_biallelic".
-            - The threshold parameter specifies the threshold value used for filtering.
+            Tuple[np.ndarray, Dict[str, Tuple[int, int]], List[pd.DataFrame]]: The updated indices, removed loci or samples per step, and the current list of filtering results.
         """
-        all_indices = (
-            self.loci_indices.copy()
-            if method_name != "filter_missing_sample"
-            else self.sample_indices.copy()
-        )
-        total_input = np.count_nonzero(all_indices)
-        n_to_keep = np.count_nonzero(included_indices & all_indices)
-        n_removed = total_input - n_to_keep  # number removed at this step
 
-        # Append this information to the filtering results DataFrame
+        # Assert shape match
+        reference_indices = (
+            self.loci_indices
+            if method_name != "filter_missing_sample"
+            else self.sample_indices
+        )
+        assert included_indices.shape == reference_indices.shape, (
+            f"Shape mismatch for {method_name}: "
+            f"expected {reference_indices.shape}, got {included_indices.shape}"
+        )
+
+        total_input = np.count_nonzero(reference_indices)
+        n_to_keep = np.count_nonzero(included_indices)
+        n_removed = total_input - n_to_keep
+
         current_list.append(
             pd.DataFrame(
                 {
@@ -668,14 +640,15 @@ class NRemover2:
             )
         )
 
-        all_indices[~included_indices] = False
+        return included_indices.copy(), removed_per_step, current_list
 
-        return all_indices.copy(), removed_per_step, current_list
-
-    def resolve(self) -> Any:
+    def resolve(self, benchmark_mode: bool = False) -> "GenotypeData":
         """Resolve the method chain and finalize the filtering process.
 
         This method resolves the method chain and finalizes the filtering process. It applies the selected filters to the alignment, updates the alignment, sample indices, and loci indices based on the filtering results, and resets the chain active flag. It returns the updated GenotypeData instance after filtering has been applied.
+
+        Args:
+            benchmark_mode (bool): If True, enables benchmark mode for performance measurement. Default is False.
 
         Returns:
             GenotypeData: The updated GenotypeData instance after filtering has been applied.
@@ -685,32 +658,57 @@ class NRemover2:
             - It updates the alignment, sample indices, and loci indices based on the filtering results.
             - It also resets the chain active flag and returns the updated GenotypeData instance after filtering has been applied.
         """
-        gd = self._finalize_chain()  # Finalizes the alignment
+        gd = self._finalize_chain(benchmark_mode=benchmark_mode)
         self._chain_resolved = True  # Mark the chain as resolved
         return gd
 
-    def _finalize_chain(self) -> None:
+    def _finalize_chain(self, benchmark_mode: bool = False) -> "GenotypeData":
         """Finalizes the method chain by applying the selected filters to the alignment.
 
         This method finalizes the method chain by applying the selected filters to the alignment. It updates the alignment, sample indices, and loci indices based on the filtering results. It also resets the chain active flag and returns the updated GenotypeData instance after filtering has been applied.
 
+        Args:
+            benchmark_mode (bool): If True, enables benchmark mode for performance measurement. Default is False.
+
         Raises:
             ValueError: If no samples or loci remain after filtering.
+            RuntimeError: If no active filter chain is found.
+            RuntimeError: If the filtering chain has not been resolved.
+
+        Returns:
+            GenotypeData: The updated GenotypeData instance after filtering has been applied, or None if no filtering was performed.
         """
-        if not self.search_mode and self.verbose:
-            self.filtering_helper.print_filtering_report()
 
         if not self._chain_active:
-            msg = "No active chain to finalize."
+            msg = "No active filter chain to resolve."
             self.logger.error(msg)
             raise RuntimeError(msg)
+
+        if not self.search_mode and self.verbose:
+            self.filtering_helper.print_filtering_report()
 
         si = self.sample_indices.astype(bool)
         li = self.loci_indices.astype(bool)
 
-        self.logger.debug(f"Search Mode: {self.search_mode}")
-        self.logger.debug(f"Sample Indices: {si}")
-        self.logger.debug(f"Loci Indices: {li}")
+        if not np.any(si):
+            msg = f"No samples remain after filtering at threshold: {self.current_threshold}."
+            if not self.search_mode:
+                self.logger.error(msg)
+                raise exceptions.EmptyLocusSetError(msg)
+            else:
+                self.logger.info(msg)
+                self._chain_active = False
+                return
+
+        if not np.any(li):
+            msg = f"No loci remain after filtering at threshold: {self.current_threshold}."
+            if not self.search_mode:
+                self.logger.error(msg)
+                raise exceptions.EmptyLocusSetError(msg)
+            else:
+                self.logger.info(msg)
+                self._chain_active = False
+                return
 
         if not np.any(si) or si.size == 0:
             if self.search_mode:
@@ -720,38 +718,28 @@ class NRemover2:
                 return
             else:
                 self.logger.error(msg)
-                raise ValueError(msg)
+                raise exceptions.EmptyLocusSetError(msg)
 
-        if not np.any(li) or li.size == 0:
-            if self.search_mode:
-                msg = f"No loci left after filtering at {self.current_threshold}."
-                self.logger.info(msg)
-                self._chain_active = False
-                return
-            else:
-                msg = "No loci left after filtering."
-                self.logger.error(msg)
-                raise ValueError(msg)
-
-        if self.search_mode:
-            self._chain_active = False
-            return
-
-        self.alignment = self.alignment[si, :][:, li].copy()
-
-        self.samples = (
-            np.array(self.samples)[si].tolist()
-            if isinstance(self.samples, list)
-            else self.samples[si].copy()
-        )
-
-        # Update the genotype data
-        self.genotype_data.set_alignment(self.alignment, self.samples, si, li)
-
-        # Reset the chain active flag
         self._chain_active = False
 
-        return self.genotype_data
+        if benchmark_mode:
+            return self.genotype_data  # Do not update during benchmark
+
+        filtered_alignment = self.alignment[np.ix_(si, li)].copy()
+        filtered_samples = np.array(self.samples)[si].tolist()
+
+        gd_filtered = self.genotype_data.copy()
+
+        # Set updated alignment and force recomputation of attributes
+        gd_filtered.set_alignment(
+            snp_data=filtered_alignment,
+            samples=filtered_samples,
+            sample_indices=si,
+            loci_indices=li,
+            reset_attributes=True,  # Ensure metadata files are rewritten
+        )
+
+        return gd_filtered
 
     @property
     def search_mode(self) -> bool:
@@ -807,9 +795,8 @@ class NRemover2:
         """
         self._sample_indices = value
 
-    def __getattr__(self, name: str) -> Union[Callable, None]:
-        """
-        Custom attribute access method that handles delegating calls to FilteringMethods or FilteringHelper.
+    def __getattr__(self, name: str) -> Callable | None:
+        """Custom attribute access method that handles delegating calls to `FilteringMethods` or `FilteringHelper`.
 
         This method allows for transparent access to the filtering methods and helper classes from NRemover2.
 
@@ -817,7 +804,7 @@ class NRemover2:
             name (str): The name of the attribute to access.
 
         Returns:
-            Union[Callable, None]: The requested attribute, or None if not found.
+            Callable | None: The requested attribute, or None if not found.
 
         Raises:
             AttributeError: If the attribute is not found in either NRemover2 or the filtering methods or helper.

@@ -77,8 +77,12 @@ dependencies = [
 
 [project.optional-dependencies]
 docs = ["sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
-dev = ["memory-profiler", "psutil", "mypy", "sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
+dev = ["memory-profiler", "psutil", "sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints", "pytest", "pre-commit"]
 
 [project.scripts]
 snpio = "snpio.run_snpio:main"
+
+[tool.pytest.ini_options]
+testpaths = ["./tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
 

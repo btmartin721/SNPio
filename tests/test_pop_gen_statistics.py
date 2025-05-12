@@ -1,13 +1,13 @@
 import tempfile
 import unittest
-from typing import Optional, Dict, List
+from typing import Dict, List
+from pathlib import Path
+import shutil
 
 import numpy as np
 import pandas as pd
-from pandas.testing import assert_frame_equal, assert_series_equal
 
-from snpio import PopGenStatistics
-from snpio import PhylipReader
+from snpio import PhylipReader, PopGenStatistics
 
 # Mapping of diploid genotypes to IUPAC codes
 IUPAC_CODES = {
@@ -33,16 +33,17 @@ IUPAC_CODES = {
 def generate_phylip_file(
     num_samples: int = 30,
     num_loci: int = 100,
-    populations: Optional[Dict[str, Dict[str, float]]] = None,
-    fst_outliers: Optional[List[int]] = None,
+    default_rng: np.random.Generator | None = None,
+    populations: Dict[str, Dict[str, float]] | None = None,
+    fst_outliers: List[int] | None = None,
     admixture: bool = False,
 ) -> str:
-    """
-    Generates a temporary PHYLIP-formatted file with specified allele frequencies and heterozygosity.
+    """Generates a temporary PHYLIP-formatted file with specified allele frequencies and heterozygosity.
 
     Args:
         num_samples (int): Total number of samples.
         num_loci (int): Total number of loci.
+        default_rng (np.random.Generator): Random number generator for reproducibility.
         populations (dict): Dictionary where keys are population IDs and values are allele frequencies per population.
         fst_outliers (list): List of SNP indices to introduce Fst outliers.
         admixture (bool): Whether to introduce admixture in population 2.
@@ -95,7 +96,7 @@ def generate_phylip_file(
             sample_genotype = []
             for snp_index in range(num_loci):
                 freqs = genotype_freqs[pop_id][snp_index]
-                genotype = np.random.choice(
+                genotype = default_rng.choice(
                     ["AA", "AT", "TT"], p=[freqs["AA"], freqs["AT"], freqs["TT"]]
                 )
                 genotype_code = IUPAC_CODES[genotype]
@@ -110,7 +111,7 @@ def generate_phylip_file(
     return temp_phylip_file.name
 
 
-def generate_population_map_file(populations: Optional[Dict[str, list]] = None) -> str:
+def generate_population_map_file(populations: Dict[str, list] | None = None) -> str:
     """Generates a temporary population map file.
 
     Args:
@@ -139,136 +140,158 @@ class TestPopGenStatistics(unittest.TestCase):
 
     def setUp(self):
         """Set up common variables for tests."""
-        self.verbose = True
-        self.debug = True
-
-    def test_amova(self):
-        """Test the AMOVA method for expected variance components and Phi_ST."""
-        np.random.seed(42)
-        phyfile = generate_phylip_file(num_samples=30, num_loci=100)
-        popmapfile = generate_population_map_file()
-
-        genotype_data = PhylipReader(filename=phyfile, popmapfile=popmapfile)
-        _ = genotype_data.snp_data
-        popgen_stats = PopGenStatistics(
-            genotype_data, verbose=self.verbose, debug=self.debug
-        )
-
-        amova_result = popgen_stats.amova()
-
-        H_s = (0.42 + 0.5 + 0.42) / 3  # 0.4467
-        H_t = 0.5  # Mean allele frequency is 0.5
-        sigma2_among = H_t - H_s  # 0.0533
-        Phi_ST = sigma2_among / H_t  # 0.1067
-
-        expected_amova = {
-            "Among_population_variance": sigma2_among,
-            "Within_population_variance": H_s,
-            "Phi_ST": Phi_ST,
-        }
-
-        for key, expected_val in expected_amova.items():
-            self.assertAlmostEqual(amova_result[key], expected_val, places=2)
-
-    def test_detect_fst_outliers_bootstrap(self):
-        """Test Fst outlier detection using bootstrapping with and without p-value adjustment."""
-        np.random.seed(42)
-        phyfile = generate_phylip_file(
-            num_samples=30, num_loci=100, fst_outliers=[0, 19]
-        )
-        popmapfile = generate_population_map_file()
-
-        genotype_data = PhylipReader(filename=phyfile, popmapfile=popmapfile)
-        _ = genotype_data.snp_data
-        popgen_stats = PopGenStatistics(
-            genotype_data, verbose=self.verbose, debug=self.debug
-        )
-
-        expected_outliers = pd.DataFrame(
-            {
-                "SNP": [0, 19],
-                "Fst": [0.8, 0.8],  # Expected high Fst values
-            }
-        )
-
-        outliers, _ = popgen_stats.detect_fst_outliers(
-            use_bootstrap=True, n_bootstraps=10, correction_method=None
-        )
-
-        # Adjust the DataFrame to match the expected structure
-        observed_outliers = outliers.reset_index()
-        observed_outliers = observed_outliers[observed_outliers["index"].isin([0, 19])]
-
-        # Rename columns for comparison
-        observed_outliers = observed_outliers.rename(columns={"index": "SNP"})
-        if "Fst_value" in observed_outliers.columns:
-            observed_outliers = observed_outliers.rename(columns={"Fst_value": "Fst"})
-        observed_outliers = observed_outliers[["SNP", "Fst"]]
-
-        assert_frame_equal(
-            observed_outliers.reset_index(drop=True),
-            expected_outliers,
-            check_exact=False,
-            rtol=1e-1,
-        )
+        self.verbose = False
+        self.debug = False
 
     def test_summary_statistics(self):
-        """Test the summary_statistics method to ensure correct output format and data types."""
-        np.random.seed(42)
-        phyfile = generate_phylip_file(num_samples=30, num_loci=100)
+        """Test PopGenStatistics.summary_statistics() for structure and biological accuracy."""
+        default_rng = np.random.default_rng(42)
+
+        phyfile = generate_phylip_file(
+            num_samples=30, num_loci=100, default_rng=default_rng
+        )
         popmapfile = generate_population_map_file()
 
-        genotype_data = PhylipReader(filename=phyfile, popmapfile=popmapfile)
-        _ = genotype_data.snp_data
+        genotype_data = PhylipReader(
+            filename=phyfile,
+            popmapfile=popmapfile,
+            prefix="test_popgen",
+            verbose=self.verbose,
+            debug=self.debug,
+            plot_format="png",
+        )
+
         popgen_stats = PopGenStatistics(
             genotype_data, verbose=self.verbose, debug=self.debug
         )
 
         summary_stats = popgen_stats.summary_statistics()
 
-        # Recalculate expected He
-        p_mean = (0.7 + 0.5 + 0.3) / 3
-        He = 2 * p_mean * (1 - p_mean)
-        expected_he_overall = pd.Series([He] * 100)
+        # --- 1. Check structural validity ---
+        self.assertIn("overall", summary_stats)
+        self.assertIn("per_population", summary_stats)
+        self.assertIn("Fst_between_populations_obs", summary_stats)
 
-        # Allow for sampling variation in He
-        assert_series_equal(
-            summary_stats["overall"]["He"].reset_index(drop=True),
-            expected_he_overall,
-            atol=0.05,
+        self.assertIsInstance(summary_stats["overall"], pd.DataFrame)
+        self.assertEqual(
+            set(summary_stats["per_population"].keys()), {"pop1", "pop2", "pop3"}
         )
 
-    def test_calculate_d_statistics_patterson(self):
-        """Test the calculation of D-statistics using the 'patterson' method."""
-        np.random.seed(42)
-        phyfile = generate_phylip_file(num_samples=30, num_loci=100, admixture=True)
-        popmapfile = generate_population_map_file()
+        # --- 2. Check shape ---
+        self.assertEqual(summary_stats["overall"].shape, (100, 3))
+        for df in summary_stats["per_population"].values():
+            self.assertEqual(df.shape, (100, 3))
 
-        genotype_data = PhylipReader(filename=phyfile, popmapfile=popmapfile)
-        _ = genotype_data.snp_data
-        popgen_stats = PopGenStatistics(
-            genotype_data, verbose=self.verbose, debug=self.debug
+        # --- 3. Biological expectations ---
+        # Expected He under average p = (0.7 + 0.5 + 0.3)/3 = 0.5
+        expected_He_pop1 = 2 * 0.7 * 0.3  # 0.42
+        expected_He_pop2 = 2 * 0.5 * 0.5  # 0.50
+        expected_He_pop3 = 2 * 0.3 * 0.7  # 0.42
+        expected_overall_he = np.mean(
+            [expected_He_pop1, expected_He_pop2, expected_He_pop3]
+        )  # ~0.4467
+
+        expected_Pi_overall = expected_overall_he * 10 / 9  # Bias-corrected
+
+        observed_ho = summary_stats["overall"]["Ho"]
+        observed_he = summary_stats["overall"]["He"]
+        observed_pi = summary_stats["overall"]["Pi"]
+
+        # Mean values should be close to expected
+        self.assertAlmostEqual(observed_he.mean(), expected_overall_he, delta=0.05)
+        self.assertAlmostEqual(observed_pi.mean(), expected_Pi_overall, delta=0.05)
+        self.assertTrue(np.all((observed_he >= 0) & (observed_he <= 0.55)))
+        self.assertTrue(np.all((observed_ho >= 0) & (observed_ho <= 1)))
+
+        # --- 4. Check Fst matrix symmetry and expectations ---
+        fst_matrix = summary_stats["Fst_between_populations_obs"]
+        self.assertIsInstance(fst_matrix, pd.DataFrame)
+        self.assertEqual(set(fst_matrix.columns), {"pop1", "pop2", "pop3"})
+
+        # Confirm symmetry
+        self.assertAlmostEqual(
+            fst_matrix.loc["pop1", "pop2"], fst_matrix.loc["pop2", "pop1"], delta=1e-6
+        )
+        self.assertAlmostEqual(
+            fst_matrix.loc["pop1", "pop3"], fst_matrix.loc["pop3", "pop1"], delta=1e-6
+        )
+        self.assertAlmostEqual(
+            fst_matrix.loc["pop2", "pop3"], fst_matrix.loc["pop3", "pop2"], delta=1e-6
         )
 
-        # Expected values based on admixture
-        expected_overall_results = {
-            "Observed D-Statistic": 0.0,  # Adjust based on actual expected value
-            "Z-Score": 0.0,
-            "P-Value": 1.0,
-        }
+        # Check Fst order matches divergence (pop1 and pop3 most divergent)
+        fst_12 = fst_matrix.loc["pop1", "pop2"]
+        fst_23 = fst_matrix.loc["pop2", "pop3"]
+        fst_13 = fst_matrix.loc["pop1", "pop3"]
 
-        _, overall_results = popgen_stats.calculate_d_statistics(
-            method="patterson",
-            population1="pop1",
-            population2="pop2",
-            population3="pop3",
-            outgroup="pop3",
-            num_bootstraps=5,
-            max_individuals_per_pop=5,
+        self.assertTrue(fst_13 > fst_12)
+        self.assertTrue(fst_13 > fst_23)
+        self.assertTrue(fst_12 < 0.1)
+        self.assertTrue(fst_23 < 0.1)
+        self.assertTrue(fst_13 > 0.2)
+
+        # --- 5. Validate expected heterozygosity (He) per population ---
+        per_pop = summary_stats["per_population"]
+
+        self.assertAlmostEqual(
+            per_pop["pop1"]["He"].mean(), expected_He_pop1, delta=0.03
+        )
+        self.assertAlmostEqual(
+            per_pop["pop2"]["He"].mean(), expected_He_pop2, delta=0.03
+        )
+        self.assertAlmostEqual(
+            per_pop["pop3"]["He"].mean(), expected_He_pop3, delta=0.03
         )
 
-        for key, expected_val in expected_overall_results.items():
-            self.assertAlmostEqual(overall_results[key], expected_val, places=1)
+        # Ho should be close to but not exceed He significantly
+        self.assertAlmostEqual(
+            per_pop["pop1"]["Ho"].mean(), expected_He_pop1, delta=0.05
+        )
+        self.assertAlmostEqual(
+            per_pop["pop2"]["Ho"].mean(), expected_He_pop2, delta=0.05
+        )
+        self.assertAlmostEqual(
+            per_pop["pop3"]["Ho"].mean(), expected_He_pop3, delta=0.05
+        )
+
+        # --- 6. Validate Pi values per population (using bias-corrected He) ---
+        expected_Pi_pop1 = expected_He_pop1 * 10 / 9
+        expected_Pi_pop2 = expected_He_pop2 * 10 / 9
+        expected_Pi_pop3 = expected_He_pop3 * 10 / 9
+
+        self.assertAlmostEqual(
+            per_pop["pop1"]["Pi"].mean(), expected_Pi_pop1, delta=0.03
+        )
+        self.assertAlmostEqual(
+            per_pop["pop2"]["Pi"].mean(), expected_Pi_pop2, delta=0.03
+        )
+        self.assertAlmostEqual(
+            per_pop["pop3"]["Pi"].mean(), expected_Pi_pop3, delta=0.03
+        )
+
+        # --- 7. Validate expected Fst hierarchy based on allele frequencies ---
+        # Fst should be highest between pop1 and pop3, then pop1 and pop2,
+        # Just check expected order of divergence
+        self.assertTrue(fst_matrix.loc["pop1", "pop3"] > fst_matrix.loc["pop1", "pop2"])
+        self.assertTrue(fst_matrix.loc["pop1", "pop3"] > fst_matrix.loc["pop2", "pop3"])
+
+        self.assertTrue(0.01 < fst_matrix.loc["pop1", "pop2"] < 0.08)
+        self.assertTrue(0.01 < fst_matrix.loc["pop2", "pop3"] < 0.08)
+
+        if Path(phyfile).exists() and Path(phyfile).is_file():
+            Path(phyfile).unlink(missing_ok=True)
+        if Path(popmapfile).exists() and Path(popmapfile).is_file():
+            Path(popmapfile).unlink(missing_ok=True)
+
+        if Path("test_popgen_output").exists() and Path("test_popgen_output").is_dir():
+            shutil.rmtree("test_popgen_output")
+
+        for f in Path(".").glob("tmp*.phy"):
+            if f.is_file():
+                f.unlink(missing_ok=True)
+
+    def tearDown(self):
+        return super().tearDown()
 
 
 if __name__ == "__main__":

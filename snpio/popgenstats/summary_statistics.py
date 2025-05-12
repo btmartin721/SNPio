@@ -110,7 +110,7 @@ class SummaryStatistics:
 
     def calculate_summary_statistics(
         self,
-        n_bootstraps=0,
+        n_permutations=0,
         n_jobs=1,
         save_plots: bool = True,
         use_pvalues: bool = False,
@@ -122,7 +122,7 @@ class SummaryStatistics:
         are included in the summary.
 
         Args:
-            n_bootstraps (int): Number of bootstrap replicates for estimating variance of Fst per SNP. Defaults to 0.
+            n_permutations (int): Number of permutation replicates for estimating variance of Fst per SNP. Defaults to 0.
             n_jobs (int): Number of parallel jobs. If -1, all available cores are used. Defaults to 1.
             save_plots (bool): Whether to save plots of the summary statistics. Defaults to True.
             use_pvalues (bool): If True, compute p-values for pairwise Fst comparisons. Defaults to False.
@@ -161,7 +161,7 @@ class SummaryStatistics:
             )
 
         self.logger.info("Calculating pairwise Weir & Cockerham Fst...")
-        self.logger.info(f"Number of bootstraps: {n_bootstraps}")
+        self.logger.info(f"Number of bootstraps: {n_permutations}")
         self.logger.info(f"Number of CPU threads: {n_jobs}")
         self.logger.info(f"Use p-values: {use_pvalues}")
         self.logger.info(f"Save plots: {save_plots}")
@@ -172,7 +172,7 @@ class SummaryStatistics:
         )
 
         fst_pw = fst.weir_cockerham_fst(
-            n_bootstraps=n_bootstraps, n_jobs=n_jobs, return_pvalues=use_pvalues
+            n_bootstraps=n_permutations, n_jobs=n_jobs, return_pvalues=use_pvalues
         )
 
         df_observed, df_lower, df_upper, df_pvals = fst._parse_wc_fst(

@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal
 
 import numpy as np
 
@@ -16,7 +16,37 @@ from snpio.utils.logging import LoggerManager
 class StructureReader(GenotypeData):
     """This class reads STRUCTURE files and stores the SNP data, sample IDs, and populations.
 
-    ``StructureReader`` is a subclass of GenotypeData and inherits its attributes and methods. It reads STRUCTURE files and stores the SNP data, sample IDs, and populations, as well as various other attributes.
+    It is a subclass of GenotypeData and inherits its attributes and methods. The STRUCTURE file can be written to a new file using the write_structure method. SNP data can be accessed in the IUPAC format using the `snp_data` attribute. The class also provides methods for filtering, PCA, and plotting. The class is initialized with the filename of the STRUCTURE file, the population map file, and other optional parameters.
+
+
+    STRUCTURE files are used in population genetics to represent genetic data for individuals across multiple loci. The format is commonly used in STRUCTURE software for inferring population structure and admixture.
+
+    The STRUCTURE file format consists of a header line followed by lines of data. Each line represents an individual and contains the individual's name, population ID (if present), and the genotypes for each locus. The genotypes are represented as alleles, with missing data represented by a specific character (e.g., "0" or "N"). The file can be in one-row or two-row format, depending on whether the genotypes are presented in a single line or two lines per individual.
+
+    Here is an example of a STRUCTURE file in one-row format:
+    ```
+    Sample1 0 0 0 0
+    Sample2 0 0 0 0
+    Sample3 0 0 0 0
+    Sample4 0 0 0 0
+    ```
+
+    In this example, there are 4 individuals and 4 loci. The first line contains the number of individuals and loci, followed by lines for each individual with their genotypes.
+
+    Here is an example of a STRUCTURE file in two-row format:
+    ```
+    Sample1 0 0 0 0
+    Sample1 0 0 0 0
+    Sample2 0 0 0 0
+    Sample2 0 0 0 0
+    Sample3 0 0 0 0
+    Sample3 0 0 0 0
+    Sample4 0 0 0 0
+    Sample4 0 0 0 0
+    Sample4 0 0 0 0
+    ```
+
+    In this example, there are 4 individuals and 4 loci. Each individual has two lines of data, with the first line containing the individual's name and the second line containing the genotypes.
 
     Example:
         >>> from snpio import StructureReader
@@ -66,20 +96,20 @@ class StructureReader(GenotypeData):
 
     def __init__(
         self,
-        filename: Optional[str] = None,
-        popmapfile: Optional[str] = None,
+        filename: str | None = None,
+        popmapfile: str | None = None,
         has_popids: bool = False,
         force_popmap: bool = False,
-        exclude_pops: Optional[List[str]] = None,
-        include_pops: Optional[List[str]] = None,
-        plot_format: Optional[str] = "png",
-        prefix="snpio",
+        exclude_pops: List[str] | None = None,
+        include_pops: List[str] | None = None,
+        plot_format: Literal["png", "pdf", "jpg", "svg"] = "png",
+        prefix: str = "snpio",
         verbose: bool = False,
         debug: bool = False,
     ) -> None:
         """Initialize the StructureReader class.
 
-        This class reads STRUCTURE files and stores the SNP data, sample IDs, and populations. It is a subclass of GenotypeData and inherits its attributes and methods.
+        This class reads STRUCTURE files and stores the SNP data, sample IDs, and populations. It is a subclass of GenotypeData and inherits its attributes and methods. The STRUCTURE file can be written to a new file using the write_structure method. SNP data can be accessed in the IUPAC format using the `snp_data` attribute. The class also provides methods for filtering, PCA, and plotting.
 
         Args:
             filename (str, optional): Name of the STRUCTURE file.
@@ -93,17 +123,12 @@ class StructureReader(GenotypeData):
             verbose (bool, optional): If True, status updates are printed.
             debug (bool, optional): If True, debug messages are printed.
 
-        Raises:
-            AlignmentFileNotFoundError: If the STRUCTURE file is not found.
-
         Note:
-            If the filename is provided, the STRUCTURE file is loaded immediately.
+            - The STRUCTURE file format consists of a header line followed by lines of data. Each line represents an individual and contains the individual's name, population ID (if present), and the genotypes for each locus. The genotypes are represented as alleles, with missing data represented by a specific character (e.g., "0" or "N"). The file can be in one-row or two-row format, depending on whether the genotypes are presented in a single line or two lines per individual.
+            - The STRUCTURE file can be in one-row or two-row format. In one-row format, each line contains the individual's name and the genotypes for each locus. In two-row format, each individual has two lines of data, with the first line containing the individual's name and the second line containing the genotypes.
 
-            If the filename is not provided, the STRUCTURE file can be loaded later using the load_aln method.
-
-            The STRUCTURE file can be written to a new file using the write_structure method.
+            - The class provides methods for filtering, PCA, and plotting. The class is initialized with the filename of the STRUCTURE file, the population map file, and other optional parameters.
         """
-
         # Set up logger
         kwargs = dict(prefix=prefix, verbose=verbose, debug=debug)
         logman = LoggerManager(name=__name__, **kwargs)
@@ -111,6 +136,11 @@ class StructureReader(GenotypeData):
 
         self.verbose = verbose
         self.debug = debug
+
+        self._has_popids: bool = has_popids
+        self._onerow: bool = False
+
+        self.resource_data = {}
 
         # Initialize the parent class GenotypeData
         super().__init__(
@@ -127,9 +157,6 @@ class StructureReader(GenotypeData):
             debug=debug,
         )
 
-        self._has_popids: bool = has_popids
-        self._onerow: bool = False
-
     def load_aln(self) -> None:
         """Load the STRUCTURE file and populate SNP data, samples, and populations.
 
@@ -138,6 +165,8 @@ class StructureReader(GenotypeData):
         Raises:
             AlignmentNotFoundError: If the STRUCTURE file is not found.
             AlignmentFormatError: If the STRUCTURE file has an invalid format.
+            StructureAlignmentSampleMismatch: If the number of samples in the STRUCTURE file does not match the number of samples in the population map file.
+            AlignmentError: If there is an error while reading the STRUCTURE file.
 
         Note:
             This method should be called after initializing the StructureReader object.
@@ -213,71 +242,7 @@ class StructureReader(GenotypeData):
         except (AlignmentError, Exception) as e:
             msg = f"An error occurred while reading the STRUCTURE file: {e}"
             self.logger.error(msg)
-            raise
-
-    def write_structure(
-        self,
-        output_file: str,
-        genotype_data=None,
-        snp_data: Optional[List[List[str]]] = None,
-        samples: Optional[List[str]] = None,
-        verbose: bool = False,
-    ) -> None:
-        """Write the stored alignment as a STRUCTURE file.
-
-        This method writes the stored alignment as a STRUCTURE file. If genotype_data is provided, the SNP data and sample IDs are extracted from it. Otherwise, the SNP data and sample IDs must be provided.
-
-        Args:
-            output_file (str): Name of the output STRUCTURE file.
-            genotype_data (GenotypeData, optional): GenotypeData instance.
-            snp_data (List[List[str]], optional): SNP data in IUPAC format. Must be provided if genotype_data is None.
-            samples (List[str]], optional): List of sample IDs. Must be provided if snp_data is not provided.
-            verbose (bool, optional): If True, status updates are printed.
-
-        Raises:
-            TypeError: If genotype_data and snp_data are both provided.
-            TypeError: If samples are not provided when snp_data is provided.
-        """
-        self.logger.info(f"\nWriting STRUCTURE file {output_file}...")
-
-        if genotype_data is not None and snp_data is None:
-            snp_data = genotype_data.snp_data
-            samples = genotype_data.samples
-        elif genotype_data is None and snp_data is None:
-            snp_data = self.snp_data
-            samples = self.samples
-        elif genotype_data is None and snp_data is not None:
-            if samples is None:
-                raise TypeError("samples must be provided if snp_data is provided.")
-
-        try:
-            with open(output_file, "w") as fout:
-                for sample, sample_data in zip(samples, snp_data):
-                    # Convert IUPAC codes back to genotype format (e.g., 1/1, 2/2)
-                    genotypes = [
-                        self._iupac_to_genotype(iupac) for iupac in sample_data
-                    ]
-
-                    if self._onerow:
-                        # Flatten the genotype pairs and write to file in one-row format
-                        genotype_pairs = [
-                            allele
-                            for genotype in genotypes
-                            for allele in genotype.split("/")
-                        ]
-                        fout.write(f"{sample}\t" + "\t".join(genotype_pairs) + "\n")
-                    else:
-                        # Write the two alleles in two separate rows for two-row format
-                        first_row = [genotype.split("/")[0] for genotype in genotypes]
-                        second_row = [genotype.split("/")[1] for genotype in genotypes]
-                        fout.write(f"{sample}\t" + "\t".join(first_row) + "\n")
-                        fout.write(f"{sample}\t" + "\t".join(second_row) + "\n")
-
-            self.logger.info("Successfully wrote STRUCTURE file!")
-        except Exception as e:
-            msg = f"An error occurred while writing the STRUCTURE file: {e}"
-            self.logger.error(msg)
-            raise
+            raise e
 
     def _detect_format(self) -> bool:
         """Detect the format of the STRUCTURE file (onerow or tworow).
@@ -286,6 +251,10 @@ class StructureReader(GenotypeData):
 
         Returns:
             bool: True if the file is in one-row format, False if it is in two-row format.
+
+        Raises:
+            AlignmentFileNotFoundError: If the STRUCTURE file is not found.
+            AlignmentFormatError: If the STRUCTURE file has an invalid format.
         """
         if not Path(self.filename).is_file():
             msg = f"STRUCTURE file {self.filename} not found."

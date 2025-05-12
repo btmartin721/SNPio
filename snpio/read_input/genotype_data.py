@@ -1,16 +1,17 @@
 import copy
 import logging
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+from typing import Any, Dict, Generator, List, Literal, Tuple
 
+import h5py
 import numpy as np
 import pandas as pd
-import pysam
+from tqdm import tqdm
 
+import snpio.utils.custom_exceptions as exceptions
 from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data_base import BaseGenotypeData
 from snpio.read_input.popmap_file import ReadPopmap
-from snpio.utils.custom_exceptions import SequenceLengthError, UnsupportedFileTypeError
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
 
@@ -36,7 +37,7 @@ class GenotypeData(BaseGenotypeData):
 
         num_inds (int): Number of individuals in the dataset.
 
-        populations (List[Union[str, int]]): Population IDs.
+        populations (List[str | int]): Population IDs.
 
         popmap (dict): Dictionary object with SampleIDs as keys and popIDs as values.
 
@@ -139,23 +140,23 @@ class GenotypeData(BaseGenotypeData):
 
     def __init__(
         self,
-        filename: Optional[str] = None,
-        filetype: Optional[str] = None,
-        popmapfile: Optional[str] = None,
+        filename: str | None = None,
+        filetype: str | None = None,
+        popmapfile: str | None = None,
         force_popmap: bool = False,
-        exclude_pops: Optional[List[str]] = None,
-        include_pops: Optional[List[str]] = None,
-        plot_format: Optional[str] = "png",
+        exclude_pops: List[str] | None = None,
+        include_pops: List[str] | None = None,
+        plot_format: Literal["png", "pdf", "jpg", "svg"] | None = "png",
         plot_fontsize: int = 18,
         plot_dpi: int = 300,
         plot_despine: bool = True,
         show_plots: bool = False,
         prefix: str = "snpio",
         verbose: bool = False,
-        loci_indices: Optional[np.ndarray] = None,
-        sample_indices: Optional[np.ndarray] = None,
+        loci_indices: List[int] | np.ndarray | None = None,
+        sample_indices: List[int] | np.ndarray | None = None,
         chunk_size: int = 1000,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
         debug: bool = False,
     ) -> None:
         """
@@ -201,26 +202,10 @@ class GenotypeData(BaseGenotypeData):
             debug (bool, optional): If True, display debug messages. Defaults to False.
 
         Raises:
-            UnsupportedFileTypeError: If the filetype is not supported.
+            exceptions.UnsupportedFileTypeError: If the filetype is not supported.
 
         Note:
             If using PHYLIP or STRUCTURE formats, all sites will be forced to be biallelic. If multiple alleles are needed, you must use a VCF file.
-
-            If popmapfile is provided, the samples will be subset based on the population criteria.
-
-            If popmapfile is not provided, the popmap attribute will be None.
-
-            If popmapfile is not provided, the missingness_reports method will not generate population-based reports or plots.
-
-            If popmapfile is not provided, the write_popmap method will raise an AttributeError.
-
-            If popmapfile is not provided, the read_popmap method will raise an AttributeError.
-
-            If popmapfile is not provided, the subset_with_popmap method will raise an AttributeError.
-
-            If popmapfile is not provided, the popmap attribute will be None.
-
-            If popmapfile is not provided, the popmap_inverse attribute will be None.
         """
         if filetype is not None:
             filetype = filetype.lower()
@@ -246,8 +231,9 @@ class GenotypeData(BaseGenotypeData):
 
         self.supported_filetypes: List[str] = ["vcf", "phylip", "structure", "tree"]
         self._snp_data = None
+        self.from_vcf = False
 
-        self.logger: Optional[logging.Logger] = None if logger is None else logger
+        self.logger: logging.Logger | None = None if logger is None else logger
 
         if self.logger is None:
             kwargs = {"prefix": prefix, "verbose": verbose, "debug": debug}
@@ -286,11 +272,11 @@ class GenotypeData(BaseGenotypeData):
         self.replace_vals = [pd.NA] * len(self.missing_vals)
 
         self._samples: List[str] = []
-        self._populations: List[Union[str, int]] = []
+        self._populations: List[str | int] = []
         self._ref: List[str] = []
         self._alt: List[str] = []
-        self._popmap: Optional[Dict[str, str | int]] = None
-        self._popmap_inverse: Optional[Dict[str, List[str]]] = None
+        self._popmap: Dict[str, str | int] | None = None
+        self._popmap_inverse: Dict[str, List[str]] | None = None
 
         self._loci_indices = loci_indices
         self._sample_indices = sample_indices
@@ -298,7 +284,7 @@ class GenotypeData(BaseGenotypeData):
         if self.filetype not in self.supported_filetypes:
             msg = f"Unsupported filetype provided to GenotypeData: {self.filetype}"
             self.logger.error(msg)
-            raise UnsupportedFileTypeError(
+            raise exceptions.UnsupportedFileTypeError(
                 self.filetype, supported_types=self.supported_filetypes
             )
 
@@ -349,17 +335,17 @@ class GenotypeData(BaseGenotypeData):
 
     def _make_snpsdict(
         self,
-        samples: Optional[List[str]] = None,
-        snp_data: Optional[List[List[str]]] = None,
+        samples: List[str] | None = None,
+        snp_data: np.ndarray | List[List[str]] | None = None,
     ) -> Dict[str, List[str]]:
         """Make a dictionary with SampleIDs as keys and a list of SNPs associated with the sample as the values.
 
         This method is used to create a dictionary with sample IDs as keys and a list of SNPs as values. The dictionary is used to quickly access the SNPs associated with a sample.
 
         Args:
-            samples (List[str], optional): List of sample IDs. If not provided, uses self.samples.
+            samples (List[str] | None, optional): List of sample IDs. If not provided, uses self.samples.
 
-            snp_data (np.ndarray, optional): 2D list of genotypes. If not provided, uses self.snp_data.
+            snp_data (np.ndarray | List[List[str]] | None, optional): 2D list of genotypes. If not provided, uses self.snp_data.
 
         Returns:
             Dict[str, List[str]]: Dictionary with sample IDs as keys and a list of SNPs as values.
@@ -385,15 +371,21 @@ class GenotypeData(BaseGenotypeData):
             - popmap
             - popmap_inverse
             - sample_indices
+
+        Raises:
+            TypeError: If the popmapfile is not a string.
+            ValueError: If no valid samples are found after subsetting.
         """
         if self.popmapfile is not None:
             if not isinstance(self.popmapfile, str):
-                msg = f"Invalid popmapfile type. Expected str, but got: {type(self.popmapfile)}"
+                msg = f"Invalid popmapfile type provided. Expected str, but got: {type(self.popmapfile)}"
                 self.logger.error(msg)
-                raise TypeError(msg)
+                raise exceptions.PopmapFileNotFoundError(msg)
 
             # Instantiate popmap object and read in the popmap file.
-            pm = ReadPopmap(self.popmapfile, self.logger, verbose=self.verbose)
+            pm = ReadPopmap(
+                self.popmapfile, self.logger, verbose=self.verbose, debug=self.debug
+            )
 
             # Get the samples and populations from the popmap file.
             fc = self.force_popmap
@@ -409,27 +401,28 @@ class GenotypeData(BaseGenotypeData):
         my_popmap: ReadPopmap,
         samples: List[str],
         force: bool,
-        include_pops: Optional[List[str]] = None,
-        exclude_pops: Optional[List[str]] = None,
+        include_pops: List[str] | None = None,
+        exclude_pops: List[str] | None = None,
         return_indices: bool = False,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Subset popmap and samples based on population criteria.
+
+        This method validates the popmap with the current samples and subsets the popmap based on inclusion/exclusion criteria. It updates the sample list and populations accordingly.
 
         Args:
             my_popmap (ReadPopmap): ReadPopmap instance.
-
             samples (List[str]): List of sample IDs.
-
             force (bool): If True, force the subsetting. If False, raise an error if the samples don't align.
-
-            include_pops (Optional[List[str]]): List of populations to include. If provided, only samples belonging to these populations will be retained.
-
-            exclude_pops (Optional[List[str]]): List of populations to exclude. If provided, samples belonging to these populations will be excluded.
-
-            return_indices (bool, optional): If True, return the indices for samples. Defaults to False.
+            include_pops (List[str] | None): List of populations to include. If provided, only samples belonging to these populations will be retained.
+            exclude_pops (List[str] | None): List of populations to exclude. If provided, samples belonging to these populations will be excluded.
+            return_indices (bool): If True, return the indices for samples. Defaults to False.
 
         Returns:
-            Optional[np.ndarray]: Boolean array of `sample_indices` if return_indices is True. Otherwise, None.
+            np.ndarray | None: Boolean array of `sample_indices` if return_indices is True. Otherwise, None.
+
+        Raises:
+            ValueError: If no valid samples are found after subsetting.
+            TypeError: If the popmap file is not a string.
         """
         # Validate popmap with current samples
         popmap_ok = my_popmap.validate_popmap(samples, force=force)
@@ -437,7 +430,7 @@ class GenotypeData(BaseGenotypeData):
         if not popmap_ok:
             msg = "Popmap validation failed. Check the popmap file and try again."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.PopmapFileFormatError(msg)
 
         # Subset the popmap based on inclusion/exclusion criteria
         my_popmap.subset_popmap(samples, include_pops, exclude_pops)
@@ -459,7 +452,7 @@ class GenotypeData(BaseGenotypeData):
         if not new_samples:
             msg = "No valid samples found after popmap subsetting."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.EmptyIterableError(msg)
 
         # Update the sample indices as a boolean array
         self.sample_indices = np.isin(self.samples, new_samples)
@@ -492,20 +485,351 @@ class GenotypeData(BaseGenotypeData):
         if not self.samples or self.samples is None:
             msg = "'samples attribute is undefined."
             self.logger.error(msg)
-            raise AttributeError(msg)
+            raise exceptions.EmptyIterableError(msg)
 
         if not self.populations or self.populations is None:
             msg = "'populations' attribute is undefined."
             self.logger.error(msg)
-            raise AttributeError(msg)
+            raise exceptions.EmptyIterableError(msg)
 
         with open(filename, "w") as fout:
             for s, p in zip(self.samples, self.populations):
                 fout.write(f"{s},{p}\n")
 
+    def write_vcf(
+        self,
+        output_filename: str | Path,
+        hdf5_file_path: str | Path | None = None,
+        chunk_size: int = 1000,
+    ) -> None:
+        """Writes the GenotypeData object data to a VCF file in chunks.
+
+        This method writes the VCF data, bgzips the output file, indexes it with Tabix, and validates the output.
+        If the original input was VCF (`self.from_vcf`), it reads from the HDF5 produced by `get_vcf_attributes_fast`.
+        Otherwise it falls back to writing from `self.snp_data` directly.
+
+        Args:
+            output_filename (str | Path): The name of the output VCF file.
+            hdf5_file_path (str | Path, optional): Path to the HDF5 file; if None uses self.vcf_attributes_fn.
+            chunk_size (int, optional): Number of records per write chunk.
+
+        Raises:
+            FileNotFoundError: If HDF5 is expected but missing.
+        """
+        self.logger.info(f"Writing VCF file to: {output_filename}")
+
+        from_vcf = getattr(self, "from_vcf", False)
+        of = Path(output_filename)
+
+        try:
+            if from_vcf:
+                # HDF5-backed branch
+                if hdf5_file_path is None:
+                    hdf5_file_path = self.vcf_attributes_fn
+                h5p = Path(hdf5_file_path)
+                if not h5p.is_file():
+                    raise FileNotFoundError(f"HDF5 file not found: {h5p}")
+
+                with h5py.File(h5p, "r") as h5, open(of, "w") as f:
+                    f.write(self.build_vcf_header())
+                    total = h5["chrom"].shape[0]
+                    info_keys = list(h5["info"].keys())
+                    write_format_metadata = (
+                        self.store_format_fields and "fmt_metadata" in h5
+                    )
+
+                    if write_format_metadata:
+                        fmt_keys = list(h5["fmt_metadata"].keys())
+
+                    with tqdm(
+                        total=total, desc="Writing VCF Records: ", unit=" rec"
+                    ) as pbar:
+                        for start in range(0, total, chunk_size):
+                            end = min(start + chunk_size, total)
+                            n = end - start
+
+                            chrom = h5["chrom"][start:end].astype(str)
+                            pos = h5["pos"][start:end]
+                            vid = h5["id"][start:end].astype(str)
+                            ref = h5["ref"][start:end].astype(str)
+                            alt_raw = h5["alt"][start:end].astype(str)
+                            filt = h5["filt"][start:end].astype(str)
+                            qual = (
+                                h5["qual"][start:end].astype(str)
+                                if "qual" in h5
+                                else np.array(["."] * n)
+                            )
+
+                            info_chunk = {
+                                key: h5["info"][key][start:end].astype(str)
+                                for key in info_keys
+                            }
+
+                            refs = ref.tolist()
+                            alts = [
+                                s.split(",") if s not in {".", ""} else []
+                                for s in alt_raw
+                            ]
+                            snp_chunk = self.snp_data[:, start:end].T
+
+                            try:
+                                fmt_matrix = self.encode_to_vcf_format(
+                                    snp_chunk, refs, alts
+                                )
+                            except Exception as e:
+                                self.logger.error(f"Error encoding SNP data: {e}")
+                                raise
+
+                            if write_format_metadata:
+                                fmt_chunks = {
+                                    key: h5["fmt_metadata"][key][start:end, :].astype(
+                                        str
+                                    )
+                                    for key in fmt_keys
+                                }
+
+                            for i in range(n):
+                                parts = [
+                                    f"{key}={info_chunk[key][i]}"
+                                    for key in info_keys
+                                    if info_chunk[key][i] not in {".", ""}
+                                ]
+                                info_str = ";".join(parts) if parts else "."
+                                alt_str = (
+                                    alt_raw[i] if alt_raw[i] not in {".", ""} else "."
+                                )
+
+                                # Assemble FORMAT and sample fields
+                                if write_format_metadata:
+                                    format_col = "GT:" + ":".join(fmt_keys)
+                                    sample_fields = []
+                                    for j in range(fmt_matrix.shape[1]):
+                                        extra_fields = [
+                                            fmt_chunks[k][i][j] for k in fmt_keys
+                                        ]
+                                        sample_field = ":".join(
+                                            [fmt_matrix[i][j]] + extra_fields
+                                        )
+                                        sample_fields.append(sample_field)
+                                else:
+                                    format_col = "GT"
+                                    sample_fields = fmt_matrix[i].tolist()
+
+                                row = [
+                                    chrom[i],
+                                    str(pos[i]),
+                                    vid[i],
+                                    ref[i],
+                                    alt_str,
+                                    qual[i],
+                                    filt[i],
+                                    info_str,
+                                    format_col,
+                                ] + sample_fields
+
+                                f.write("\t".join(row) + "\n")
+
+                            pbar.update(n)
+
+            else:
+                # Raw fallback
+                n_loci = self.snp_data.shape[1]
+                chrom_idx = np.arange(1, n_loci + 1).astype(str)
+                chrom = [f"locus{idx}" for idx in chrom_idx]
+                pos = [1] * n_loci
+                vid = [f"locus{idx}" for idx in chrom_idx]
+                refs, alts = self.refs_alts_from_snp_data(self.snp_data)
+                qual = ["."] * n_loci
+                filt = ["PASS"] * n_loci
+                info = [
+                    f"NS={np.count_nonzero(self.snp_data != 'N', axis=0)[i]}"
+                    for i in range(n_loci)
+                ]
+
+                try:
+                    fmt_matrix = self.encode_to_vcf_format(self.snp_data.T, refs, alts)
+                except Exception as e:
+                    self.logger.error(f"Error encoding SNP data: {e}")
+                    raise
+
+                with open(of, "w") as f:
+                    f.write(self.build_vcf_header())
+                    with tqdm(
+                        total=n_loci, desc="Writing VCF Records: ", unit=" rec"
+                    ) as pbar:
+                        for i in range(n_loci):
+                            alt_str = ",".join(alts[i]) if alts[i] else "."
+                            row = [
+                                chrom[i],
+                                str(pos[i]),
+                                vid[i],
+                                refs[i],
+                                alt_str,
+                                qual[i],
+                                filt[i],
+                                info[i],
+                                "GT",
+                            ] + fmt_matrix[i].tolist()
+                            f.write("\t".join(row) + "\n")
+                            pbar.update(1)
+
+        except Exception as e:
+            self.logger.error(f"Error writing VCF file: {e}")
+            raise
+
+        # bgzip & tabix
+        bgz = of if self._is_bgzipped(of) else self.bgzip_file(of)
+        self.tabix_index(bgz)
+        self.logger.info(f"Indexed VCF file: {bgz}.tbi")
+        self.logger.info("Successfully wrote VCF file!")
+
+    def write_phylip(
+        self,
+        output_file: str | Path,
+        genotype_data: Any = None,
+        snp_data: np.ndarray | None = None,
+        samples: List[str] | None = None,
+    ) -> None:
+        """Write the stored alignment as a PHYLIP file.
+
+        This method writes the stored alignment as a PHYLIP file. The PHYLIP format is a simple text format for representing multiple sequence alignments. The first line of a PHYLIP file contains the number of samples and the number of loci. Each subsequent line contains the sample ID followed by the sequence data.
+
+        Args:
+            output_file (str): Name of the output PHYLIP file.
+            genotype_data (GenotypeData, optional): GenotypeData instance.
+            snp_data (List[List[str]], optional): SNP data. Must be provided if genotype_data is None.
+            samples (List[str], optional): List of sample IDs. Must be provided if snp_data is not None.
+
+        Raises:
+            TypeError: If genotype_data and snp_data are both provided.
+            TypeError: If samples are not provided when snp_data is provided.
+            ValueError: If samples and snp_data are not the same length.
+
+        Note:
+            If genotype_data is provided, the snp_data and samples are loaded from the GenotypeData instance.
+
+            If snp_data is provided, the samples must also be provided.
+
+            If genotype_data is not provided, the snp_data and samples must be provided.
+
+            The sequence data must have the same length for each sample.
+
+            The PHYLIP file must have the correct number of samples and loci.
+        """
+        if genotype_data is not None and snp_data is not None:
+            msg = "Arguments 'genotype_data' and 'snp_data' cannot both be provided."
+            self.logger.error(msg)
+            raise TypeError(msg)
+        elif genotype_data is None and snp_data is None:
+            snp_data = self.snp_data
+            samples = self.samples
+        elif genotype_data is not None and snp_data is None:
+            snp_data = genotype_data.snp_data
+            samples = genotype_data.samples
+        elif genotype_data is None and snp_data is not None and samples is None:
+            msg = "If 'snp_data' is provided, 'samples' argument must also be provided "
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        self.logger.info(f"Writing PHYLIP file as: {output_file}...")
+
+        if not isinstance(output_file, Path):
+            output_file = Path(output_file)
+        output_file.parent.mkdir(exist_ok=True, parents=True)
+
+        self._validate_seq_lengths()
+
+        try:
+            with open(output_file, "w") as f:
+                n_samples, n_loci = len(samples), len(snp_data[0])
+                f.write(f"{n_samples} {n_loci}\n")
+                for sample, sample_data in zip(samples, snp_data):
+                    genotype_str = "".join(str(x) for x in sample_data)
+                    f.write(f"{sample}\t{genotype_str}\n")
+
+            self.logger.info(f"Successfully wrote PHYLIP file {output_file}!")
+        except Exception as e:
+            msg = f"An error occurred while writing the PHYLIP file: {e}"
+            self.logger.error(msg)
+            raise e
+
+    def write_structure(
+        self,
+        output_file: str | Path,
+        onerow: bool = False,
+        genotype_data: Any = None,
+        snp_data: np.ndarray | None = None,
+        samples: List[str] | None = None,
+    ) -> None:
+        """Write the stored alignment as a STRUCTURE file.
+
+        This method writes the stored alignment as a STRUCTURE file. If genotype_data is provided, the SNP data and sample IDs are extracted from it. Otherwise, the SNP data and sample IDs must be provided.
+
+        Args:
+            output_file (str): Name of the output STRUCTURE file.
+            onerow (bool): If True, write the STRUCTURE file in one-row format. If False, write in two-row format.
+            genotype_data (GenotypeData, optional): GenotypeData instance.
+            snp_data (List[List[str]], optional): SNP data in IUPAC format. Must be provided if genotype_data is None.
+            samples (List[str]], optional): List of sample IDs. Must be provided if snp_data is not provided.
+            verbose (bool, optional): If True, status updates are printed.
+
+        Raises:
+            TypeError: If genotype_data and snp_data are both provided.
+            TypeError: If samples are not provided when snp_data is provided.
+        """
+        if not isinstance(output_file, Path):
+            output_file = Path(output_file)
+        output_file.parent.mkdir(exist_ok=True, parents=True)
+
+        if genotype_data is not None and snp_data is None:
+            snp_data = genotype_data.snp_data
+            samples = genotype_data.samples
+
+        elif genotype_data is None and snp_data is None:
+            snp_data = self.snp_data
+            samples = self.samples
+
+        elif genotype_data is None and snp_data is not None and samples is None:
+            msg = "If snp_data is provided, samples argument must also be provided."
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        self.logger.info(f"Writing STRUCTURE file as: {output_file}...")
+
+        try:
+            with open(output_file, "w") as fout:
+                for sample, sample_data in zip(samples, snp_data):
+                    # Convert IUPAC codes back to genotype format
+                    # (e.g., 0/0, 1/1, 2/2, 0/1, etc.)
+                    genotypes = [
+                        self._iupac_to_genotype(iupac) for iupac in sample_data
+                    ]
+
+                    if onerow:
+                        # Flatten the genotype pairs and write to file in
+                        # one-row format
+                        genotype_pairs = [
+                            allele
+                            for genotype in genotypes
+                            for allele in genotype.split("/")
+                        ]
+                        fout.write(f"{sample}\t" + "\t".join(genotype_pairs) + "\n")
+                    else:
+                        # Write the two alleles in two separate rows for two-row format
+                        first_row = [genotype.split("/")[0] for genotype in genotypes]
+                        second_row = [genotype.split("/")[1] for genotype in genotypes]
+                        fout.write(f"{sample}\t" + "\t".join(first_row) + "\n")
+                        fout.write(f"{sample}\t" + "\t".join(second_row) + "\n")
+
+            self.logger.info("Successfully wrote STRUCTURE file.")
+        except Exception as e:
+            msg = f"An error occurred while writing the STRUCTURE file: {e}"
+            self.logger.error(msg)
+            raise e
+
     def missingness_reports(
         self,
-        prefix: Optional[str] = None,
+        prefix: str | None = None,
         zoom: bool = True,
         bar_color: str = "gray",
         heatmap_palette: str = "magma",
@@ -619,16 +943,30 @@ class GenotypeData(BaseGenotypeData):
 
         Returns:
             str: Corresponding IUPAC code for the input genotype. Returns 'N' if the genotype is not in the lookup dictionary.
+
+        Raises:
+            ValueError: If the genotype is not valid.
         """
-        iupac_dict = self.iupac.get_gt2iupac()
+        try:
+            iupac_dict = self.iupac.get_gt2iupac()
 
-        gt = iupac_dict.get(genotype)
+            # Validate genotype format
+            if not isinstance(genotype, str) or "/" not in genotype:
+                self.logger.error(f"Invalid genotype format: {genotype}")
+                raise exceptions.InvalidGenotypeError(f"Invalid format: {genotype}")
 
-        if gt is None:
-            msg = f"Invalid Genotype: {genotype}"
-            self.logger.error(msg)
-            raise ValueError(msg)
-        return gt
+            gt = iupac_dict.get(genotype, "N")  # Default to 'N' for undefined genotypes
+
+            if gt == "N":
+                self.logger.warning(
+                    f"Undefined genotype: {genotype}, defaulting to 'N'"
+                )
+
+            return gt
+
+        except Exception as e:
+            self.logger.error(f"Error processing genotype {genotype}: {e}")
+            raise
 
     def _iupac_to_genotype(self, iupac_code: str) -> str:
         """Convert an IUPAC code to its corresponding genotype string.
@@ -638,6 +976,9 @@ class GenotypeData(BaseGenotypeData):
 
         Returns:
             str: Corresponding genotype string for the input IUPAC code. Returns '-9/-9' if the IUPAC code is not in the lookup dictionary.
+
+        Raises:
+            ValueError: If the IUPAC code is not valid.
         """
         genotype_dict = self.iupac.get_iupac2gt()
 
@@ -645,15 +986,15 @@ class GenotypeData(BaseGenotypeData):
         if gt is None:
             msg = f"Invalid IUPAC Code: {iupac_code}"
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidGenotypeError(msg)
         return gt
 
     def calc_missing(self, df: pd.DataFrame, use_pops: bool = True) -> Tuple[
         pd.Series,
         pd.Series,
-        Optional[pd.DataFrame],
-        Optional[pd.Series],
-        Optional[pd.DataFrame],
+        pd.DataFrame | None,
+        pd.Series | None,
+        pd.DataFrame | None,
     ]:
         """Calculate missing value statistics based on a DataFrame.
 
@@ -663,17 +1004,13 @@ class GenotypeData(BaseGenotypeData):
             use_pops (bool, optional): If True, calculate statistics per population. Defaults to True.
 
         Returns:
-            Tuple[pd.Series, pd.Series, Optional[pd.DataFrame], Optional[pd.Series], Optional[pd.DataFrame]]: A tuple of missing value statistics:
+            Tuple[pd.Series, pd.Series, pd.DataFrame | None, pd.Series | None, pd.DataFrame | None]: A tuple of missing value statistics:
 
             - loc (pd.Series): Missing value proportions per locus.
-
             - ind (pd.Series): Missing value proportions per individual.
-
-            - poploc (Optional[pd.DataFrame]): Missing value proportions per population and locus. Only returned if use_pops=True.
-
-            - poptot (Optional[pd.Series]): Missing value proportions per population. Only returned if use_pops=True.
-
-            - indpop (Optional[pd.DataFrame]): Missing value proportions per individual and population. Only returned if use_pops=True.
+            - poploc (pd.DataFrame | None): Missing value proportions per population and locus. Only returned if use_pops=True.
+            - poptot (pd.Series | None): Missing value proportions per population. Only returned if use_pops=True.
+            - indpop (pd.DataFrame | None): Missing value proportions per individual and population. Only returned if use_pops=True.
         """
         # Get missing value counts per-locus.
         loc = df.isna().sum(axis=0) / self.num_inds
@@ -699,41 +1036,46 @@ class GenotypeData(BaseGenotypeData):
         return loc, ind, poploc, poptot, indpop
 
     def copy(self) -> Any:
-        """Create a deep copy of the GenotypeData or VCFReader object.
+        """Create a deep copy of the GenotypeData or subclass object.
 
         Returns:
-            GenotypeData or VCFReader: A new object with the same attributes as the original.
+            GenotypeData or subclass: A new object with identical data and structure.
         """
-        # Determine the class type of the current object
         new_obj = self.__class__.__new__(self.__class__)
 
-        # Shallow copy of the original object's __dict__
-        new_obj.__dict__.update(self.__dict__)
+        # Attributes to exclude from deepcopy due to special handling
+        exclude_attrs = {"vcf_header", "_vcf_attributes_fn", "logger"}
 
-        # Deep copy all attributes EXCEPT the problematic VariantHeader
-        for name, attr in self.__dict__.items():
-            if name not in {"vcf_header", "_vcf_attributes_fn"}:
+        for name, attr in vars(self).items():  # safer than __dict__
+            if name in exclude_attrs:
+                setattr(new_obj, name, attr)
+            else:
                 setattr(new_obj, name, copy.deepcopy(attr))
 
-        # Handle VCF-specific attributes if they exist
+        # Copy header safely
         if hasattr(self, "vcf_header") and self.vcf_header:
-            new_header = pysam.VariantHeader()
-            new_header = self.vcf_header.copy()
-            new_obj.vcf_header = new_header
+            try:
+                new_obj.vcf_header = self.vcf_header.copy()
+            except Exception:
+                new_obj.vcf_header = self.vcf_header
 
-        if hasattr(self, "_vcf_attributes_fn"):
-            # Copy the VCF attributes file path as a Path object
-            new_obj._vcf_attributes_fn = Path(self._vcf_attributes_fn)
+        # Reinitialize logger
+        logman = LoggerManager(
+            __name__,
+            prefix=getattr(self, "prefix", "default"),
+            verbose=getattr(self, "verbose", False),
+            debug=getattr(self, "debug", False),
+        )
+        new_obj.logger = logman.get_logger()
 
-        # Ensure BaseGenotypeData attributes are copied if they exist
-        if hasattr(super(), "copy"):
-            base_copy = super().copy()
-            new_obj.__dict__.update(base_copy.__dict__)
+        # Allow subclasses to clean up any problematic state
+        if hasattr(new_obj, "_post_copy_hook"):
+            new_obj._post_copy_hook()
 
         return new_obj
 
     def load_aln(self):
-        msg = "load_aln method must be implemented in child class."
+        msg = "load_aln method must be implemented in the child class."
         self.logger.error(msg)
         raise NotImplementedError(msg)
 
@@ -841,20 +1183,20 @@ class GenotypeData(BaseGenotypeData):
         self._num_inds = value
 
     @property
-    def populations(self) -> List[Union[str, int]]:
+    def populations(self) -> List[str | int]:
         """Population IDs as a list of strings or integers.
 
         Returns:
-            List[Union[str, int]]: Population IDs.
+            List[str | int]: Population IDs.
         """
         return self._populations
 
     @populations.setter
-    def populations(self, value: List[Union[str, int]]) -> None:
+    def populations(self, value: List[str | int]) -> None:
         """Set the population IDs.
 
         Args:
-            value (List[Union[str, int]]): List of population IDs.
+            value (List[str | int]): List of population IDs.
         """
         self._populations = value
 
@@ -863,24 +1205,31 @@ class GenotypeData(BaseGenotypeData):
         """Dictionary object with SampleIDs as keys and popIDs as values.
 
         Returns:
-            Dict[str, str]: Dictionary with SampleIDs as keys and popIDs as values
+            Dict[str, str | int]: Dictionary with SampleIDs as keys and popIDs as values
         """
         return self._popmap
 
     @popmap.setter
-    def popmap(self, value: Dict[str, str]) -> None:
+    def popmap(self, value: Dict[str, str | int]) -> None:
         """Dictionary with SampleIDs as keys and popIDs as values.
 
         Args:
-            value (Dict[str, str]): Dictionary object with SampleIDs as keys and popIDs as values.
+            value (Dict[str, str | int]): Dictionary object with SampleIDs as keys and popIDs as values.
+
+        Raises:
+            TypeError: If the value is not a dictionary object.
+            TypeError: If the values are not strings or integers.
         """
         if not isinstance(value, dict):
-            raise TypeError(
-                f"popmap must be a dictionary object, but got {type(value)}."
-            )
+            msg = f"'popmap' must be a dict object: {type(value)}"
+            self.logger.error(msg)
+            raise TypeError(msg)
 
         if not all(isinstance(v, (str, int)) for v in value.values()):
-            raise TypeError(f"popmap values must be strings or integers")
+            msg = f"popmap values must be strings or integers"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
         self._popmap = value
 
     @property
@@ -898,6 +1247,10 @@ class GenotypeData(BaseGenotypeData):
 
         Args:
             value (Dict[str, List[str]]): Inverse dictionary of popmap, where popIDs are keys and lists of sampleIDs are values.
+
+        Raises:
+            TypeError: If the value is not a dictionary object.
+            TypeError: If the values are not lists of sampleIDs.
         """
         if not isinstance(value, dict):
             msg = f"'popmap_inverse' must be a dict object: {type(value)}"
@@ -960,7 +1313,7 @@ class GenotypeData(BaseGenotypeData):
             TypeError: If the loci_indices attribute is not a numpy.dtype 'bool'.
         """
 
-        if not isinstance(self._loci_indices, (np.ndarray, list)):
+        if not isinstance(self._loci_indices, (np.ndarray, list, type(None))):
             msg = f"'loci_indices' set to invalid type. Expected numpy.ndarray or list, but got: {type(self._loci_indices)}"
             self.logger.error(msg)
             raise TypeError(msg)
@@ -980,14 +1333,13 @@ class GenotypeData(BaseGenotypeData):
         return self._loci_indices
 
     @loci_indices.setter
-    def loci_indices(self, value: Union[np.ndarray, list]) -> None:
+    def loci_indices(self, value: np.ndarray | list) -> None:
         """Column indices for retained loci in filtered alignment.
 
         Args:
             value (np.ndarray): Boolean array of loci indices, with True for retained loci and False for excluded loci.
 
         Raises:
-            TypeError: If the loci_indices attribute is not a numpy.ndarray or list.
             TypeError: If the loci_indices attribute is not a numpy.dtype 'bool'.
         """
         if value is None:
@@ -1031,11 +1383,11 @@ class GenotypeData(BaseGenotypeData):
         return self._sample_indices
 
     @sample_indices.setter
-    def sample_indices(self, value: Union[np.ndarray, list]) -> None:
+    def sample_indices(self, value: np.ndarray | list) -> None:
         """Set the sample indices as a boolean array.
 
         Args:
-            value: Boolean array of sample indices, with True for retained samples and False for excluded samples.
+            value (np.ndarray | list): Boolean array of sample indices, with True for retained samples and False for excluded samples.
         """
         if value is None:
             value = np.ones_like(self.samples, dtype=bool)
@@ -1120,7 +1472,7 @@ class GenotypeData(BaseGenotypeData):
         Input can be a 2D list, numpy array, or pandas DataFrame object.
 
         Args:
-            value (Union[np.ndarray, List[List[str]], pd.DataFrame]): 2D array of IUPAC encoded genotype data.
+            value (np.ndarray | List[List[str]] | pd.DataFrame): 2D array of IUPAC encoded genotype data.
 
         Raises:
             TypeError: If the snp_data attribute is not a numpy.ndarray, pandas.DataFrame, or list.
@@ -1147,6 +1499,7 @@ class GenotypeData(BaseGenotypeData):
         lengths = set([len(row) for row in self.snp_data])
         if len(lengths) > 1:
             n_snps = len(self.snp_data[0])
+
             for i, row in enumerate(self.snp_data):
                 if len(row) != n_snps:
                     msg = f"Invalid sequence length for Sample {self.samples[i]}. Expected {n_snps}, but got: {len(row)}"
@@ -1159,66 +1512,74 @@ class GenotypeData(BaseGenotypeData):
         samples: List[str],
         sample_indices: np.ndarray,
         loci_indices: np.ndarray,
+        reset_attributes: bool = True,
     ) -> None:
-        """Set the alignment data and sample IDs.
+        """Set the alignment data and sample IDs after filtering.
 
         Args:
             snp_data (np.ndarray): 2D array of genotype data.
             samples (List[str]): List of sample IDs.
             sample_indices (np.ndarray): Boolean array of sample indices.
             loci_indices (np.ndarray): Boolean array of locus indices.
-
-        Note:
-            This method is used to set the alignment data and sample IDs after filtering.
-
-            The method updates the following attributes:
-                - snp_data
-                - samples
-                - populations
-                - popmap
-                - popmap_inverse
-                - sample_indices
-                - loci_indices
-                - num_inds
-                - num_snps
-                - prefix
+            reset_attributes (bool): If True, update the VCF attributes metadata.
         """
         self.snp_data = snp_data
         self.samples = samples
-
-        if self.popmap is not None:
-            self.populations = [self.popmap[s] for s in samples]
-            self.popmap = {s: self.popmap[s] for s in samples}
-            self.popmap_inverse = {
-                p: [s for s in samp if s in samples]
-                for p, samp in self.popmap_inverse.items()
-            }
-
         self.sample_indices = sample_indices
         self.loci_indices = loci_indices
         self.num_inds = np.count_nonzero(self.sample_indices)
         self.num_snps = np.count_nonzero(self.loci_indices)
         self.prefix = f"{self.prefix}_filtered"
 
-        idx = np.where(self.loci_indices)[0].tolist()
-        self.ref = [i for j, i in enumerate(self.ref) if j in idx]
-        self.alt = [i for j, i in enumerate(self.alt) if j in idx]
+        if self.popmap is not None:
+            self.popmap = {s: self.popmap[s] for s in samples}
+            self.populations = [self.popmap[s] for s in samples]
+            self.popmap_inverse = {}
+            for s, p in self.popmap.items():
+                self.popmap_inverse.setdefault(p, []).append(s)
 
-        if self.filetype == "vcf":
-            self.update_vcf_attributes(
-                self.snp_data, self.sample_indices, self.loci_indices, self.samples
+        ref, alt, alt2 = self.get_ref_alt_alleles(self.snp_data)
+        self.ref = ref
+        self.alt = alt
+        self.alt = list(alt)
+        if alt2:
+            self.alt = [a if isinstance(a, list) else [a] for a in self.alt]
+            for i, extra in enumerate(alt2):
+                self.alt[i].extend(
+                    extra.tolist() if isinstance(extra, np.ndarray) else extra
+                )
+
+        if reset_attributes and self.filetype.startswith("vcf"):
+            self.vcf_attributes_fn = self.update_vcf_attributes(
+                snp_data=self.snp_data,
+                sample_indices=self.sample_indices,
+                loci_indices=self.loci_indices,
+                samples=self.samples,
             )
 
     def __len__(self) -> int:
-        """Return the number of individuals in the dataset."""
-        return self.num_inds
+        """Return the number of individuals in the dataset.
 
-    def __getitem__(self, index: int) -> List[str]:
-        """Return the genotype data for a specific individual."""
+        Returns:
+            int: The number of individuals in the dataset.
+        """
+        return len(self.snp_data)
+
+    def __getitem__(self, index: int | str) -> List[str]:
+        """Return the genotypes for a specific sample index.
+
+        Args:
+            index (int): Index of the sample to retrieve.
+
+        Returns:
+            List[str]: The genotypes for the specified sample index.
+        """
+        if isinstance(index, str):
+            index = self.samples.index(index)
         return self.snp_data[index]
 
     def __iter__(self) -> Generator[List[str], None, None]:
-        """Iterate over the genotype data for each individual."""
+        """Iterate over each sample in the dataset."""
         for i in range(self.num_inds):
             yield self.snp_data[i]
 

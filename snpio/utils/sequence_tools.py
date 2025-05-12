@@ -1,6 +1,6 @@
 import re
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def remove_items(all_list: List[Any], bad_list: List[Any]) -> List[Any]:
@@ -57,7 +57,7 @@ def count_alleles(l, vcf: bool = False) -> int:
 
 
 def get_major_allele(
-    l: List[str], num: Optional[int] = None, vcf: bool = False
+    l: List[str], num: int | None = None, vcf: bool = False
 ) -> List[str]:
     """
     Returns the most common alleles in a list.
@@ -67,7 +67,7 @@ def get_major_allele(
     Args:
         l (List[str]): A list of genotypes for one sample.
 
-        num (int, optional): The number of elements to return. If None, all elements are returned. Defaults to None.
+        num (int | None, optional): The number of elements to return. If None, all elements are returned. Defaults to None.
 
         vcf (bool, optional): If True, the alleles are in VCF format. If False, the alleles are in STRUCTURE-style format. Defaults to False.
 

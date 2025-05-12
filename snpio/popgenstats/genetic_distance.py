@@ -103,32 +103,54 @@ class GeneticDistance:
         return nei_vals
 
     def _nei_permutation_pval_locus_resampling(
-        self, pop1_inds, pop2_inds, full_matrix, n_bootstraps=1000, seed=42
+        self, pop1_inds, pop2_inds, full_matrix, n_permutations=1000, seed=42
     ):
-        f1 = self._calculate_allele_freqs(full_matrix, list(pop1_inds))
-        f2 = self._calculate_allele_freqs(full_matrix, list(pop2_inds))
-        obs_nei = self._neis_distance(f1, f2)
+        # Precompute allele counts once
+        counts1 = self._precompute_allele_counts(full_matrix, list(pop1_inds))
+        counts2 = self._precompute_allele_counts(full_matrix, list(pop2_inds))
 
-        n_loci = full_matrix.shape[1]
+        loci = list(counts1.keys())
+
+        # Observed Nei distance
+        obs_nei = self._neis_distance_from_counts(counts1, counts2)
+
         rng = np.random.default_rng(seed)
-        dist = np.full((n_bootstraps,), np.nan)
+        dist = np.full((n_permutations,), np.nan)
 
-        for i in range(n_bootstraps):
-            resample_idx = rng.choice(n_loci, size=n_loci, replace=True)
-            f1_boot = self._calculate_allele_freqs(
-                full_matrix[:, resample_idx], list(pop1_inds)
+        for i in range(n_permutations):
+            resample_idx = rng.choice(loci, size=len(loci), replace=True)
+
+            resampled_counts1 = {loc: counts1[loc] for loc in resample_idx}
+            resampled_counts2 = {loc: counts2[loc] for loc in resample_idx}
+
+            dist[i] = self._neis_distance_from_counts(
+                resampled_counts1, resampled_counts2
             )
-            f2_boot = self._calculate_allele_freqs(
-                full_matrix[:, resample_idx], list(pop2_inds)
-            )
-            dist[i] = self._neis_distance(f1_boot, f2_boot)
 
         dist = dist[~np.isnan(dist)]
         pval = (np.sum(dist >= obs_nei) + 1) / (len(dist) + 1)
 
         return obs_nei, pval, dist
 
-    def nei_distance(self, n_bootstraps=0, n_jobs=1, return_pvalues=False):
+    def nei_distance(self, n_permutations=0, n_jobs=1, return_pvalues=False):
+        """Calculate pairwise Nei's genetic distance between populations.
+
+        This method can compute either the observed distance or perform permutation testing to calculate p-values for the distances. If `n_permutations` is set to 0, only the observed distance is calculated. If `n_permutations` is greater than 0, the method will perform the specified number of permutations to calculate p-values for the Nei distances. The method also supports parallel processing using the `n_jobs` parameter.
+
+        Args:
+            n_permutations (int): Number of permutations for p-value calculation.
+                If 0, only the observed distance is calculated.
+            n_jobs (int): Number of parallel jobs to run. Default is 1.
+            return_pvalues (bool): If True, return p-values for Nei distances.
+                If False, only the observed distances are returned.
+        Returns:
+            DataFrame: Pairwise Nei distances between populations.
+                If n_permutations > 0, also includes p-values.
+        """
+        self.logger.info(
+            f"Calculating Nei's genetic distance with {n_permutations} permutations and {n_jobs} jobs."
+        )
+
         popmap = self.genotype_data.popmap_inverse
         sample_to_idx = {s: i for i, s in enumerate(self.genotype_data.samples)}
         pop_indices = {
@@ -139,7 +161,7 @@ class GeneticDistance:
         n_loci = full_matrix.shape[1]
         num_pops = len(pop_keys)
 
-        if n_bootstraps == 0 and not return_pvalues:
+        if n_permutations == 0 and not return_pvalues:
             nei_mat = np.full((num_pops, num_pops), np.nan)
             for ia, ib in itertools.combinations(range(num_pops), 2):
                 i1 = pop_indices[pop_keys[ia]]
@@ -152,16 +174,16 @@ class GeneticDistance:
             df = pd.DataFrame(nei_mat, index=pop_keys, columns=pop_keys)
             outpath = self.outdir / "pairwise_nei_distances.csv"
             df.to_csv(outpath, index=True, float_format="%.8f")
-            self.logger.info(f"Nei distances saved to {outpath}")
+            self.logger.info(f"Nei distance caluclation complete!")
             return df
 
-        elif return_pvalues and n_bootstraps > 0:
+        elif return_pvalues and n_permutations > 0:
             result = {}
             for ia, ib in itertools.combinations(range(num_pops), 2):
                 i1 = pop_indices[pop_keys[ia]]
                 i2 = pop_indices[pop_keys[ib]]
                 obs, pval, dist = self._nei_permutation_pval_locus_resampling(
-                    i1, i2, full_matrix, n_bootstraps=n_bootstraps, seed=42
+                    i1, i2, full_matrix, n_permutations=n_permutations, seed=42
                 )
                 result[(pop_keys[ia], pop_keys[ib])] = {
                     "nei": obs,
@@ -171,11 +193,12 @@ class GeneticDistance:
                 self.plotter.plot_permutation_dist(
                     obs, dist, pop_keys[ia], pop_keys[ib], dist_type="nei"
                 )
+            self.logger.info(f"Nei distance calculation complete!")
             return result
 
         else:
             result = {
-                (pop_keys[ia], pop_keys[ib]): np.zeros(n_bootstraps, dtype=float)
+                (pop_keys[ia], pop_keys[ib]): np.zeros(n_permutations, dtype=float)
                 for ia, ib in itertools.combinations(range(num_pops), 2)
             }
 
@@ -196,15 +219,19 @@ class GeneticDistance:
                         f1, f2
                     )
 
+                self.logger.info(f"Nei distance calculation complete!")
+
                 return replicate
 
-            seeds = np.random.default_rng().integers(0, 1e9, size=n_bootstraps)
+            seeds = np.random.default_rng().integers(0, 1e9, size=n_permutations)
             with ThreadPoolExecutor(
                 max_workers=(mp.cpu_count() if n_jobs == -1 else n_jobs)
             ) as pool:
                 for i, rep in enumerate(pool.map(bootstrap, seeds)):
                     for pair in rep:
                         result[pair][i] = rep[pair]
+
+            self.logger.info(f"Nei distance calculation complete!")
             return result
 
     def parse_nei_result(self, result_dict, alpha: float = 0.05):
@@ -419,12 +446,12 @@ class GeneticDistance:
         if df_upper.shape != df_lower.shape:
             msg = "Both DataFrames must have the same shape."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise AssertionError(msg)
 
         if df_upper.shape[0] != df_upper.shape[1]:
             msg = "Input DataFrames must be square."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise AssertionError(msg)
 
         n = df_upper.shape[0]
 
@@ -453,3 +480,58 @@ class GeneticDistance:
             raise ValueError(msg)
 
         return pd.DataFrame(combined, index=df_upper.index, columns=df_upper.columns)
+
+    def _precompute_allele_counts(self, matrix, indices):
+        """Precompute allele counts per locus for a given population."""
+        n_loci = matrix.shape[1]
+        allele_counts = {}
+
+        for locus in range(n_loci):
+            genos = [matrix[i, locus] for i in indices]
+            clean = self._clean_inds(genos)
+            if not clean:
+                allele_counts[locus] = {}
+                continue
+
+            alleles = self._get_alleles(clean)
+            counts = pd.Series(alleles).value_counts().to_dict()
+            allele_counts[locus] = counts
+
+        return allele_counts
+
+    def _neis_distance_from_counts(self, counts1, counts2):
+        """Calculate Nei's genetic distance from allele count dictionaries."""
+        total_num = 0.0
+        total_denom1 = 0.0
+        total_denom2 = 0.0
+
+        for locus in counts1:
+            if locus not in counts2:
+                continue
+
+            p1_counts = counts1[locus]
+            p2_counts = counts2[locus]
+
+            total1 = sum(p1_counts.values())
+            total2 = sum(p2_counts.values())
+
+            if total1 == 0 or total2 == 0:
+                continue
+
+            p1_freqs = {a: c / total1 for a, c in p1_counts.items()}
+            p2_freqs = {a: c / total2 for a, c in p2_counts.items()}
+
+            shared = set(p1_freqs) & set(p2_freqs)
+            if not shared:
+                continue
+
+            total_num += sum(p1_freqs[a] * p2_freqs[a] for a in shared)
+            total_denom1 += sum(f**2 for f in p1_freqs.values())
+            total_denom2 += sum(f**2 for f in p2_freqs.values())
+
+        if total_num == 0 or total_denom1 == 0 or total_denom2 == 0:
+            return np.nan
+
+        I = total_num / np.sqrt(total_denom1 * total_denom2)
+        D = -np.log(I) if I > 0 else np.inf
+        return D
