@@ -1,117 +1,182 @@
-import functools
+import os
 import time
+import tracemalloc
+from contextlib import ContextDecorator
+from dataclasses import dataclass
+from multiprocessing import Pipe, Process
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Tuple
 
-from snpio.plotting.plotting import Plotting
+import pandas as pd
 
-try:
-    import psutil
-    from memory_profiler import memory_usage
 
-    MEMORY_PROFILING_AVAILABLE = True
+@dataclass
+class ResourceMetrics:
+    """Stores memory and execution time for one benchmark run."""
 
-except (ImportError, ModuleNotFoundError):
-    MEMORY_PROFILING_AVAILABLE = False
+    memory_footprint_mib: float
+    execution_time_s: float
+
+
+def _subprocess_benchmark(conn, func, args, kwargs):
+    import sys
+    import time
+    import traceback
+    import tracemalloc
+
+    try:
+        sys.stdout = open(os.devnull, "w")
+        sys.stderr = open(os.devnull, "w")
+
+        tracemalloc.start()
+        start = time.perf_counter()
+        func(*args, **kwargs)
+        end = time.perf_counter()
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        conn.send(("ok", peak / (1024**2), end - start))
+    except Exception:
+        tb = traceback.format_exc()
+        conn.send(("error", tb))
+    finally:
+        conn.close()
 
 
 class Benchmark:
-    @staticmethod
-    def plot_performance(
-        genotype_data: Any,
-        resource_data: Dict[str, Any],
-        color: str = "#8C56E3",
-        figsize: Tuple[int, int] = (18, 10),
-    ) -> None:
-        """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time.
+    """Benchmark class for measuring performance of functions and code blocks."""
 
-        Takes a dictionary of performance data and plots the metrics for each of the methods. The resulting plot is saved in a .png file in the ``<prefix_output/gtdata/plots/performance`` directory.
-
-        Args:
-            genotype_data (GenotypeData): Initialized GenotypeData object to use.
-
-            resource_data (Dict[str, Any]): Dictionary with performance data. Keys are method names, and values are dictionaries with keys 'cpu_load', 'memory_footprint', and 'execution_time'.
-
-            color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
-
-            figsize (Tuple[int, int], optional): Size of the figure. Should be a tuple of two integers. Defaults to (18, 10).
-
-        Returns:
-            None. The function saves the plot to a file.
-
-        Note:
-            The plot is saved in the ``<prefix_output/gtdata/plots/performance`` directory.
-
-            The plot is saved in `genotype_data.plot_format` format.
-        """
-        plot_dir = Path(f"{genotype_data.prefix}_output")
-        plot_dir = plot_dir / "gtdata" / "plots" / "performance"
-        plot_dir.mkdir(exist_ok=True, parents=True)
-
-        plotting = Plotting(genotype_data=genotype_data, **genotype_data.plot_kwargs)
-
-        plotting.plot_performance(resource_data, color=color, figsize=figsize)
+    global_resource_data: Dict[str, List[ResourceMetrics]] = {}
 
     @staticmethod
-    def measure_execution_time(func: Callable) -> Callable:
-        """Decorator to measure the execution time of a function.
+    def measure_once(func: Callable[..., Any], *args, **kwargs) -> ResourceMetrics:
+        """Measure execution time and memory for a single function call."""
+        tracemalloc.start()
+        start = time.perf_counter()
+        func(*args, **kwargs)
+        end = time.perf_counter()
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+        return ResourceMetrics(peak / (1024**2), end - start)
 
-        This method is a decorator that measures the execution time of a function and adds the performance data to the resource_data dictionary of the object that the function is called on. The decorator also measures the CPU load and memory footprint of the function.
+    @staticmethod
+    def run_repeated(
+        func: Callable[..., Any], repeats: int, *args, **kwargs
+    ) -> List[ResourceMetrics]:
+        """Run a function multiple times and collect performance metrics."""
+        return [Benchmark.measure_once(func, *args, **kwargs) for _ in range(repeats)]
+
+    @staticmethod
+    def run_repeated_subprocess(
+        name: str,
+        func: Callable[..., Any],
+        repeats: int = 5,
+        *args,
+        **kwargs,
+    ) -> List[ResourceMetrics]:
+        """Benchmark function in isolated subprocesses."""
+        from tqdm import tqdm
+
+        metrics = []
+        for i in tqdm(range(repeats), desc=f"[Subprocess] {name}", unit="rep"):
+            parent_conn, child_conn = Pipe()
+            p = Process(
+                target=_subprocess_benchmark, args=(child_conn, func, args, kwargs)
+            )
+            p.start()
+            msg = parent_conn.recv()
+            p.join()
+
+            if msg[0] == "ok":
+                _, mem_mib, exec_time = msg
+                metrics.append(ResourceMetrics(mem_mib, exec_time))
+            elif msg[0] == "error":
+                raise RuntimeError(f"[Subprocess error on iteration {i}] {msg[1]}")
+            else:
+                raise ValueError(f"Unexpected message format: {msg}")
+
+        return metrics
+
+    @staticmethod
+    def measure_block(obj: Any | None, name: str) -> ContextDecorator:
+        """Context manager for measuring performance of code blocks."""
+
+        class _Measurer(ContextDecorator):
+            def __enter__(_self):
+                _self._start = time.perf_counter()
+                tracemalloc.start()
+                return _self
+
+            def __exit__(_self, exc_type, exc_val, exc_tb):
+                exec_time = time.perf_counter() - _self._start
+                _, peak = tracemalloc.get_traced_memory()
+                tracemalloc.stop()
+                metrics = ResourceMetrics(peak / (1024**2), exec_time)
+
+                if obj is None:
+                    Benchmark.global_resource_data.setdefault(name, []).append(metrics)
+                else:
+                    if not hasattr(obj, "resource_data"):
+                        obj.resource_data = {}
+                    obj.resource_data.setdefault(name, []).append(metrics)
+
+                return False  # propagate exceptions
+
+        return _Measurer()
+
+    @classmethod
+    def collect_all(cls, *objs: Any) -> Dict[str, List[ResourceMetrics]]:
+        """Merge global and object-specific resource metrics."""
+        combined: Dict[str, List[ResourceMetrics]] = {}
+        for method, runs in cls.global_resource_data.items():
+            combined.setdefault(method, []).extend(runs)
+        for obj in objs:
+            for method, runs in getattr(obj, "resource_data", {}).items():
+                combined.setdefault(method, []).extend(runs)
+        return combined
+
+    @classmethod
+    def save_performance(
+        cls,
+        resource_data: Dict[str, List[ResourceMetrics]] | None = None,
+        objs: List[Any] | None = None,
+        save_dir: Path | None = None,
+        outfile_prefix: str = "",
+    ) -> Tuple[pd.DataFrame, Dict[str, List[ResourceMetrics]]]:
+        """Save and plot benchmark metrics.
 
         Args:
-            func (Callable): The function to be decorated.
+            resource_data (dict, optional): Resource data to save.
+            objs (list, optional): List of objects with resource data.
+            save_dir (Path, optional): Directory to save the output files.
+            outfile_prefix (str, optional): Prefix for output files.
 
         Returns:
-            Callable: The decorated function. The wrapper function measures the execution time of the decorated function.
+            Tuple[pd.DataFrame, dict]: DataFrame of metrics and merged resource data.
         """
-        if not MEMORY_PROFILING_AVAILABLE:
-            # If memory profiler is not available, return the original function
-            # without modification
-            return func
+        merged = (
+            cls.collect_all(*(objs or []))
+            if resource_data is None
+            else dict(resource_data)
+        )
+        for method, runs in cls.global_resource_data.items():
+            merged.setdefault(method, []).extend(runs)
 
-        @functools.wraps(func)
-        def wrapper(*args: List[Any], **kwargs: Dict[str, Any]) -> Any:
-            """Wrapper function to measure the execution time of the decorated function.
-
-            Args:
-                *args: Variable length argument list.
-                **kwargs: Arbitrary keyword arguments.
-
-            Returns:
-                Any: The result of the decorated function.
-            """
-            # Monitor start time, CPU, and memory usage before execution
-            start_time = time.time()
-            start_cpu = psutil.cpu_percent(interval=None)
-            start_memory = memory_usage(-1, interval=0.1, timeout=1)
-
-            result = func(*args, **kwargs)
-
-            # Monitor end time, CPU, and memory usage after execution
-            end_time = time.time()
-            end_cpu = psutil.cpu_percent(interval=None)
-            end_memory = memory_usage(-1, interval=0.1, timeout=1)
-
-            # Calculate performance metrics
-            execution_time = end_time - start_time
-            avg_cpu_load = (start_cpu + end_cpu) / 2
-            memory_footprint = max(end_memory) - min(start_memory)
-
-            # Add the performance data to the resource_data dictionary
-            if hasattr(args[0], "resource_data"):
-                # Initialize an empty list if the key doesn't exist
-                if func.__name__ not in args[0].resource_data:
-                    args[0].resource_data[func.__name__] = []
-
-                # Append the new performance data to the list
-                args[0].resource_data[func.__name__].append(
+        records = []
+        for method, runs in merged.items():
+            for i, m in enumerate(runs):
+                records.append(
                     {
-                        "cpu_load": avg_cpu_load,
-                        "memory_footprint": memory_footprint,
-                        "execution_time": execution_time,
+                        "method": method,
+                        "run_id": i,
+                        "memory_footprint": m.memory_footprint_mib,
+                        "execution_time": m.execution_time_s,
                     }
                 )
 
-            return result
+        df = pd.DataFrame(records)
 
-        return wrapper
+        outdir = save_dir or Path("./performance_plots")
+        outdir.mkdir(exist_ok=True, parents=True)
+        df.to_csv(outdir / f"{outfile_prefix}_metrics.csv", index=False)
+        df.to_json(outdir / f"{outfile_prefix}_metrics.json", orient="records")
