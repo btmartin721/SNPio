@@ -446,12 +446,12 @@ class GeneticDistance:
         if df_upper.shape != df_lower.shape:
             msg = "Both DataFrames must have the same shape."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise AssertionError(msg)
 
         if df_upper.shape[0] != df_upper.shape[1]:
             msg = "Input DataFrames must be square."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise AssertionError(msg)
 
         n = df_upper.shape[0]
 
