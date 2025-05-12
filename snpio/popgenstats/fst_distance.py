@@ -2,12 +2,13 @@ import itertools
 import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from re import A
 from typing import Literal, Tuple
 
 import numpy as np
 import pandas as pd
 
-from snpio.utils.benchmarking import Benchmark
+import snpio.utils.custom_exceptions as exceptions
 from snpio.utils.logging import LoggerManager
 
 phased_encoding = {
@@ -139,7 +140,7 @@ class FstDistance:
         if not all("/" in x for x in phasedList):
             msg = "All inputs must be phased genotypes, e.g. 'A/T'."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidGenotypeError(msg)
 
         for genotype in phasedList:
             gens = genotype.split("/")
@@ -192,24 +193,24 @@ class FstDistance:
         if (not isinstance(s1, list)) or (not isinstance(s2, list)):
             msg = "Inputs must be lists."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidGenotypeError(msg)
 
         if (not s1) or (not s2):
             msg = "Inputs must not be empty."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.EmptyIterableError(msg)
 
         if (not all(isinstance(x, str) for x in s1)) or (
             not all(isinstance(x, str) for x in s2)
         ):
             msg = "All inputs must be strings (phased genotypes)."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidGenotypeError(msg)
 
         if (not all("/" in x for x in s1)) or (not all("/" in x for x in s2)):
             msg = "All inputs must be phased genotypes, e.g. 'A/T'."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.InvalidGenotypeError(msg)
 
         # Initialize variables
         num = 0.0
@@ -1017,12 +1018,12 @@ class FstDistance:
         if df_upper.shape != df_lower.shape:
             msg = "Both DataFrames must have the same shape."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise AssertionError(msg)
 
         if df_upper.shape[0] != df_upper.shape[1]:
             msg = "Input DataFrames must be square."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise AssertionError(msg)
 
         n = df_upper.shape[0]
 
@@ -1117,7 +1118,7 @@ class FstDistance:
         if len(a_vals) == 0:
             msg = "No valid loci for this pair."
             self.logger.error(msg)
-            raise RuntimeError(msg)
+            raise exceptions.EmptyLocusSetError(msg)
 
         obs_fst = np.sum(a_vals) / np.sum(d_vals)
 
