@@ -1100,8 +1100,9 @@ class Plotting:
             >>> nrm.filter_missing(0.75).filter_mac(2).filter_missing_pop(0.5).filter_singletons(exclude_heterozygous=True).filter_monomorphic().filter_biallelic().resolve()
             >>> nrm.plot_sankey_filtering_report()
         """
-        # Import Holoviews and Bokeh
-        hv.extension("bokeh")
+        with warnings.catch_warnings(action="ignore"):
+            # Import Holoviews and Bokeh
+            hv.extension("bokeh")
 
         plot_dir: Path = self.output_dir_nrm / "sankey_plots"
         plot_dir.mkdir(exist_ok=True, parents=True)
@@ -1243,8 +1244,8 @@ class Plotting:
         self.logger.debug(f"Sankey plot data: {dftmp_combined}")
 
         try:
-            with warnings.catch_warnings(category=DeprecationWarning):
-                warnings.simplefilter("ignore")
+            with warnings.catch_warnings(action="ignore"):
+                warnings.filterwarnings(action="ignore")
 
                 # Create the Sankey plot with edge labels and colors.
                 sankey_plot = hv.Sankey(
@@ -1274,7 +1275,7 @@ class Plotting:
                 fname: Path = plot_dir / of
                 hv.save(sankey_plot, fname, fmt="html")
 
-        except ValueError as e:
+        except Exception as e:
             self.logger.warning(
                 f"Failed to generate Sankey plot with thresholds: {thresholds}: error: {e}"
             )
@@ -2138,37 +2139,40 @@ class Plotting:
             title="PCA Per-Population Missingness Scatterplot",
         )
 
-        fig.update_traces(
-            hovertemplate="<br>".join(
-                [
-                    "Axis 1: %{x}",
-                    "Axis 2: %{y}",
-                    "Axis 3: %{customdata[0]}",
-                    "Sample ID: %{customdata[1]}",
-                    "Population: %{customdata[2]}",
-                    "Missing Prop.: %{customdata[3]}",
-                ]
-            ),
-        )
-        fig.update_layout(
-            showlegend=True,
-            margin=dict(
-                b=bottom_margin,
-                t=top_margin + 100,
-                l=left_margin,
-                r=right_margin,
-            ),
-            width=width,
-            height=height,
-            legend_orientation="h",
-            legend_title="Population",
-            legend_title_side="top",
-            font=dict(size=24),
-        )
+        with warnings.catch_warnings(action="ignore"):
+            fig.update_traces(
+                hovertemplate="<br>".join(
+                    [
+                        "Axis 1: %{x}",
+                        "Axis 2: %{y}",
+                        "Axis 3: %{customdata[0]}",
+                        "Sample ID: %{customdata[1]}",
+                        "Population: %{customdata[2]}",
+                        "Missing Prop.: %{customdata[3]}",
+                    ]
+                ),
+            )
+            fig.update_layout(
+                showlegend=True,
+                margin=dict(
+                    b=bottom_margin,
+                    t=top_margin + 100,
+                    l=left_margin,
+                    r=right_margin,
+                ),
+                width=width,
+                height=height,
+                legend_orientation="h",
+                legend_title="Population",
+                legend_title_side="top",
+                font=dict(size=24),
+            )
 
-        of = plot_dir / f"pca_missingness.{self.plot_format}"
-        fig.write_html(of.with_suffix(".html"))
-        fig.write_image(of, format=self.plot_format)
+            of = plot_dir / f"pca_missingness.{self.plot_format}"
+
+            fig.write_html(of.with_suffix(".html"))
+            fig.write_image(of, format=self.plot_format)
+
         return components, model
 
     def visualize_missingness(

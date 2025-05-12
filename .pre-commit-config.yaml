@@ -6,3 +6,5 @@ repos:
         entry: pytest tests/
         language: python
         types: [python]
+        additional_dependencies: [snpio, pytest]
+        pass_filenames: false
