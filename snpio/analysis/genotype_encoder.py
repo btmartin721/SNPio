@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 
+import snpio.utils.custom_exceptions as exceptions
 from snpio.utils import misc, sequence_tools
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
@@ -103,7 +104,7 @@ class GenotypeEncoder:
         if len(list(set(num_snps))) > 1:
             msg = "All sequences must be the same length. At least one sequence differs in length from the others"
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.SequenceLengthError(msg)
 
         miss_vals = ["NA", np.nan, pd.NA, "N", ".", "-", "?"]
         df = pd.DataFrame(snp_data)
