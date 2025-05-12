@@ -1,3 +1,4 @@
+from ctypes import ArgumentError
 from logging import Logger
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Tuple
@@ -6,6 +7,7 @@ import numpy as np
 import pandas as pd
 from statsmodels.stats.multitest import multipletests
 
+import snpio.utils.custom_exceptions as exceptions
 from snpio import GenotypeEncoder, Plotting
 from snpio.popgenstats.amova import AMOVA
 from snpio.popgenstats.d_statistics import DStatistics
@@ -119,7 +121,7 @@ class PopGenStatistics:
                 List[int]: List of sample indices.
 
             Raises:
-                ValueError: If a population ID is not found.
+                KeyError: If a population ID is not found.
                 ValueError: If an invalid ``individual_selection`` method is specified.
             """
             populations: List[str] = (
@@ -159,8 +161,9 @@ class PopGenStatistics:
                     else:
                         selected_samples.extend(samples)
                 except KeyError:
-                    self.logger.error(f"Population ID '{pop}' not found.")
-                    raise ValueError(f"Population ID '{pop}' not found.")
+                    msg = f"Population ID '{pop}' not found."
+                    self.logger.error(msg)
+                    raise exceptions.PopmapKeyError(msg)
 
             # Convert sample IDs to indices
             samples = self.genotype_data.samples
@@ -357,7 +360,7 @@ class PopGenStatistics:
         if n_permutations < 1 or not isinstance(n_permutations, int):
             msg = f"Invalid 'n_permutations' value. Must be an integer greater than 0, but got: {n_permutations}"
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.PermutationInferenceError(msg)
 
         method = "dbscan" if use_dbscan else "bootstrap"
 
