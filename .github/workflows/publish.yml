@@ -34,7 +34,7 @@ jobs:
           twine upload --repository testpypi dist/*
           echo "Package published to TestPyPI successfully."
 
-      Uncomment the block below to enable PyPI publishing as well
+      # Uncomment the block below to enable PyPI publishing as well
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
