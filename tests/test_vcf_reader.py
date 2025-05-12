@@ -1,3 +1,4 @@
+import shutil
 import tempfile
 import textwrap
 import unittest
@@ -52,7 +53,7 @@ class TestVCFReader(unittest.TestCase):
 
         dir = Path("test_read_vcf_output")
         if dir.is_dir():
-            dir.rmdir()
+            shutil.rmtree(dir)
 
     def test_read_vcf(self):
         reader = VCFReader(
@@ -68,12 +69,20 @@ class TestVCFReader(unittest.TestCase):
         expected_snp_data = np.array(
             [["R", "T", "G"], ["G", "Y", "A"], ["A", "C", "R"]]
         )
+
+        self.assertIsInstance(reader.snp_data, np.ndarray)
+
         np.testing.assert_array_equal(reader.snp_data, expected_snp_data)
 
+        self.assertIsInstance(reader.num_snps, int)
+        self.assertIsInstance(reader.num_inds, int)
         self.assertEqual(reader.num_snps, 3)
         self.assertEqual(reader.num_inds, 3)
-        self.assertEqual(reader.populations, ["pop1", "pop1", "pop2"])
-        self.assertEqual(
+
+        self.assertListEqual(reader.samples, ["Sample1", "Sample2", "Sample3"])
+        self.assertListEqual(reader.populations, ["pop1", "pop1", "pop2"])
+
+        self.assertDictEqual(
             reader.popmap,
             {"Sample1": "pop1", "Sample2": "pop1", "Sample3": "pop2"},
         )
@@ -81,6 +90,9 @@ class TestVCFReader(unittest.TestCase):
             reader.popmap_inverse,
             {"pop1": ["Sample1", "Sample2"], "pop2": ["Sample3"]},
         )
+
+        self.assertTrue(reader.snp_data.shape[0] == reader.num_inds)
+        self.assertTrue(reader.snp_data.shape[1] == reader.num_snps)
 
     def test_write_vcf_with_and_without_format_fields(self):
         for store_format_fields in (False, True):
