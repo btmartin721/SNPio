@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+import snpio.utils.custom_exceptions as exceptions
+
 if TYPE_CHECKING:
     import logging
     from snpio.filtering.nremover2 import NRemover2
@@ -75,7 +77,7 @@ class FilteringHelper:
             if total == 0:
                 msg = "There is no data left after filtering."
                 self.logger.error(msg)
-                raise RuntimeError(msg)
+                raise exceptions.EmptyLocusSetError(msg)
             missing = np.count_nonzero(np.isin(aln, self.missing_vals))
             return (missing / total) * 100 if total else 0.0
 
@@ -224,6 +226,6 @@ class FilteringHelper:
         if df_sample.empty and df_global.empty:
             msg = "No data to plot. Please check the filtering thresholds."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise exceptions.EmptyLocusSetError(msg)
 
         return pd.concat([df_sample, df_global])
