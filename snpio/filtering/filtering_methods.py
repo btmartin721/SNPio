@@ -51,7 +51,7 @@ class FilteringMethods:
         if not self.resource_data:
             self.resource_data: Dict[str, Any] = {}
 
-        self.iupac: IUPAC = IUPAC()
+        self.iupac: IUPAC = IUPAC(logger=self.logger)
 
     def filter_missing(self, threshold: float) -> "NRemover2":
         """Filters out columns (loci) with missing data proportion greater than the given threshold.
