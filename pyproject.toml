@@ -61,7 +61,6 @@ dependencies = [
     "panel", # required for interactive plots
     "plotly", # required for interactive plots
     "pysam", # required for reading VCF files
-    "pytz",
     "requests", # required for downloading files
     "scikit-learn", # required for filtering and encoding
     "scipy", # required for filtering
