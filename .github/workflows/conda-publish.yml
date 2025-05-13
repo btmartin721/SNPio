@@ -1,0 +1,47 @@
+name: Publish Conda Package
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Only run when pushing version tags like v1.2.4
+
+jobs:
+  build-and-upload:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Miniconda
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-update-conda: true
+          miniforge-variant: Mambaforge
+          python-version: ${{ matrix.python-version }}
+          activate-environment: snpio-build
+          auto-activate-base: false
+
+      - name: Install conda-build and anaconda-client
+        shell: bash -l {0}
+        run: |
+          conda install -y conda-build anaconda-client
+
+      - name: Build Conda package
+        shell: bash -l {0}
+        run: |
+          conda-build recipe/ \
+            --output-folder conda_build_artifacts \
+            --python ${{ matrix.python-version }}
+
+      - name: Upload to Anaconda.org
+        shell: bash -l {0}
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.CONDA_UPLOAD_TOKEN }}
+        run: |
+          anaconda -t $ANACONDA_API_TOKEN upload \
+            conda_build_artifacts/**/snpio-*.tar.bz2 \
+            --user btmartin721 --label main --force
