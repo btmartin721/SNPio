@@ -1,10 +1,18 @@
 #!/bin/bash
+# Fail early on errors
 set -e
 
+# Ensure login shell to activate conda env correctly
 source /opt/anaconda3/etc/profile.d/conda.sh
 conda activate snpio-dev
 
-# Install SNPio and all required deps (only if not already installed)
+echo "✅ Conda environment activated: $CONDA_DEFAULT_ENV"
+
+# Optional: confirm correct python path
+which python
+
+# Install snpio in editable mode with dev dependencies
 pip install -e ".[dev]"
 
+# Now run tests
 pytest tests/

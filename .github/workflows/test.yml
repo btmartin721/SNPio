@@ -1,28 +1,11 @@
-name: Run Tests on Python 3.11 to 3.13
+default_stages: [push]
 
-on: [push, pull_request]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12", "3.13"]
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Upgrade pip and install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install -e ".[dev]" 
-
-      - name: Run pytest
-        run: pytest tests/
+repos:
+  - repo: local
+    hooks:
+      - id: run-tests
+        name: Run tests with full Conda context
+        entry: bash -l ./scripts/run_tests.sh
+        language: system
+        pass_filenames: false
+        stages: [push]
