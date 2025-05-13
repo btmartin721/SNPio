@@ -3,7 +3,7 @@
 This document outlines the changes made to the project with each
 release.
 
-## Version 1.2.3 (2025-04-08)
+## Version 1.2.5 (2025-04-08)
 
 ### Bug Fixes
 

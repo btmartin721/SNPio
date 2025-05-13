@@ -8,7 +8,7 @@ include = ["snpio*"]
 
 [project]
 name = "snpio"
-version = "1.2.4"
+version = "1.2.5"
 description = "SNPio is a Python API for population genetic file processing, filtering, and analysis. It is designed to be a user-friendly tool for the manipulation of population genetic data in a variety of formats. SNPio can be used to filter data based on missingness, MAF and MAC, singletons, biallelic, and monomorphic sites. It can also generate summary statistics for population genetic analyses."
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
