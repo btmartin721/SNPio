@@ -298,7 +298,7 @@ class GenotypeData(BaseGenotypeData):
             v: k for k, v in self.iupac_mapping.items()
         }
 
-        self.iupac = IUPAC()
+        self.iupac = IUPAC(logger=self.logger)
 
         # Ensure the load_aln method is called.
         _ = self.snp_data
