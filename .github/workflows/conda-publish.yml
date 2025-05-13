@@ -16,20 +16,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Conda
+      - name: Set up Conda (using Miniforge)
         uses: conda-incubator/setup-miniconda@v2
         with:
+          # Use Mambaforge for faster installs/solves.
+          # You can also use 'Miniforge' if you prefer regular conda commands.
+          miniforge-variant: Mambaforge 
           python-version: ${{ matrix.python-version }}
           auto-update-conda: true
           activate-environment: snpio-build
           auto-activate-base: false
-          miniforge-variant: Miniconda
+          # The installer-url parameter is generally not needed when using miniforge-variant
+          # but if you ever needed a specific Miniconda installer URL, you would put it here.
+          # installer-url: https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh 
       
-
       - name: Install conda-build and anaconda-client
         shell: bash -l {0}
         run: |
-          conda install -y conda-build anaconda-client
+          # If using Mambaforge, it's good practice to use mamba for installations
+          mamba install -y conda-build anaconda-client
 
       - name: Build Conda package
         shell: bash -l {0}
