@@ -1,4 +1,4 @@
-default_stages: [push]
+default_stages: [pre-push]
 
 repos:
   - repo: local
@@ -8,4 +8,4 @@ repos:
         entry: ./scripts/run_tests.sh
         language: script
         pass_filenames: false
-        stages: [push]
+        stages: [pre-push]
