@@ -1,0 +1,29 @@
+name: snpio-dev
+channels:
+  - conda-forge
+  - defaults
+  - bioconda
+dependencies:
+  - python >=3.11,<3.14
+  - pip
+  - pandas
+  - numpy
+  - matplotlib
+  - seaborn
+  - tqdm
+  - scikit-learn
+  - scipy
+  - h5py
+  - requests
+  - pysam
+  - plotly
+  - bokeh
+  - holoviews
+  - python-kaleido
+  - panel
+  - kneed
+  - statsmodels
+  - toytree
+  - pytz
+  - pip:
+      - -e .[dev]

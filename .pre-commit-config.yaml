@@ -4,7 +4,7 @@ repos:
   - repo: local
     hooks:
       - id: run-tests
-        name: Run tests in snpio-dev
+        name: Run pytest with full Conda context
         entry: ./scripts/run_tests.sh
         language: script
         pass_filenames: false
