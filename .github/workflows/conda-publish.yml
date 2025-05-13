@@ -23,7 +23,8 @@ jobs:
           auto-update-conda: true
           activate-environment: snpio-build
           auto-activate-base: false
-          miniforge-variant: Miniforge
+          miniforge-variant: Miniconda
+      
 
       - name: Install conda-build and anaconda-client
         shell: bash -l {0}
