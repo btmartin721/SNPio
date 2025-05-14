@@ -24,7 +24,7 @@ jobs:
         # Use the checkout action to get your repository code
         uses: actions/checkout@v4
 
-      - name: Set up Conda
+      - name: Set up Conda (using Miniforge3 with explicit URL)
         # Use the setup-miniconda action to set up the Conda environment
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -34,15 +34,17 @@ jobs:
           auto-update-conda: true
           # Create and activate a specific environment for building
           activate-environment: snpio-build
-          # Prefer Mambaforge for faster dependency solving and installation
-          # Change to 'Miniforge' if you prefer standard conda
-          miniforge-variant: Miniforge
+          # Use Miniforge3, the recommended successor to Mambaforge
+          miniforge-variant: Miniforge3
+          # Explicitly provide the installer URL to avoid 404 errors
+          # Use a conditional based on the OS matrix variable
+          installer-url: ${{ matrix.os == 'ubuntu-latest' && 'https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh' || 'https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh' }}
           # Force the use of .tar.bz2 packages (often preferred in CI)
           use-only-tar-bz2: true
           # Specify the channels to use, in order of priority
           channels: conda-forge,bioconda,defaults
-          # Set channel priority to flexible
-          channel-priority: flexible
+          # Set channel priority to strict
+          channel-priority: strict
           # Prevent auto-activation of the base environment
           auto-activate-base: false
 
@@ -50,21 +52,24 @@ jobs:
         # Use a login bash shell to ensure the conda environment is sourced
         shell: bash -l {0}
         run: |
-          # Use mamba install for faster installation if using Mambaforge
-          # If you used miniforge-variant: Miniforge, use 'conda install' here
+          # Miniforge3 also includes mamba, so mamba install is still recommended for speed
           mamba install -y conda-build anaconda-client
 
-      - name: Build Conda package
-        # Use a login bash shell
-        shell: bash -l {0}
-        env:
-          # Set CI environment variable
+        - name: Build Conda package
+          shell: bash -l {0}
+          env:
           CI: "1"
-        run: |
-          # Build the conda package using the recipe in the 'recipe/' directory
-          conda-build recipe/ \
+          run: |
+          conda config --set channel_priority strict
+          conda config --remove-key channels || true
+          conda config --add channels conda-forge
+          conda config --add channels bioconda
+          conda config --add channels defaults
+    
+        conda build recipe/ \
             --output-folder conda_build_artifacts \
-            --python ${{ matrix.python-version }} # Specify the Python version for the build
+            --python ${{ matrix.python-version }}
+        
 
       - name: Upload to Anaconda.org
         # Use a login bash shell
