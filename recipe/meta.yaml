@@ -1,5 +1,5 @@
 {% set name = "snpio" %}
-{% set version = "1.2.19" %}
+{% set version = "1.2.20" %}
 {% set license = "GPL-3.0-or-later" %}
 {% set github_url = "https://github.com/btmartin721/SNPio" %}
 {% set use_local = environ.get("CI", False) %}
@@ -24,16 +24,13 @@ build:
 
 requirements:
   build:
+    - {{ compiler('c') }}
+    - make
+  host:
     - python >=3.11,<3.14
     - pip
     - setuptools
     - wheel
-    - gcc
-  host:
-    - python >=3.11,<3.14
-    - pip
-    - pysam >=0.23.0
-    - libgcc
   run:
     - python >=3.11,<3.14
     - pysam >=0.23.0
