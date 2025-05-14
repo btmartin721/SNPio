@@ -9,10 +9,6 @@ FILES_TO_UPDATE = {
         ("summary", r'(description\s*=\s*)".*"'),
         ("author", r'(author\s*=\s*)".*"'),
     ],
-    "recipes/snpio/meta.yaml": [
-        ("version", r'(version\s*=\s*)"\d+\.\d+\.\d+"'),
-        ("summary", r'(summary:\s*)".*"'),
-    ],
     "recipe/meta.yaml": [
         ("version", r'(version\s*=\s*)"\d+\.\d+\.\d+"'),
         ("summary", r'(summary:\s*)".*"'),

@@ -4,13 +4,6 @@ on:
   push:
     tags:
       - 'v*.*.*'  # Triggers only on tag pushes like v1.0.0
-    branches:
-      - master
-      - main
-  pull_request:
-    branches:
-      - master
-      - main
     
 
 jobs:
