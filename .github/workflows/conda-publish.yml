@@ -30,6 +30,7 @@ jobs:
           auto-update-conda: true
           auto-activate-base: false
           environment-file: etc/environment.yml
+          use-only-tar-bz2: true
 
       - name: Build Conda package
         shell: bash -el {0}
