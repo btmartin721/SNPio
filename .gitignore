@@ -214,3 +214,4 @@ snpio_validation_and_tests/
 snpio_output_benchmarking*/
 dryad_files/
 conda_build_artifacts/
+.commit

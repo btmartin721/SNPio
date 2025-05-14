@@ -17,8 +17,14 @@ repos:
           - pyyaml
           - pytest
 
-      # - id: create-user-manual
-      #   name: Create User Manual
-      #   entry: scripts/create_user_manual.sh # path to script from repo root
-      #   language: script
-      #   stages: [pre-commit]
+      - id: amend-commit-1
+        name: Amend commit with version number
+        entry: scripts/create_commit_flag.sh
+        language: script
+        stages: [pre-commit]
+
+      - id: amend-commit-2
+        name: Amend commit with version number
+        entry: scripts/amend_commit_hook.sh
+        language: script
+        stages: [post-commit]
