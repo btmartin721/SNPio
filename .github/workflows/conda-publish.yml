@@ -24,7 +24,7 @@ jobs:
         # Use the checkout action to get your repository code
         uses: actions/checkout@v4
 
-      - name: Set up Conda (using Mambaforge for speed)
+      - name: Set up Conda
         # Use the setup-miniconda action to set up the Conda environment
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -36,7 +36,7 @@ jobs:
           activate-environment: snpio-build
           # Prefer Mambaforge for faster dependency solving and installation
           # Change to 'Miniforge' if you prefer standard conda
-          miniforge-variant: Mambaforge
+          miniforge-variant: Miniforge
           # Force the use of .tar.bz2 packages (often preferred in CI)
           use-only-tar-bz2: true
           # Specify the channels to use, in order of priority
