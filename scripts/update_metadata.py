@@ -25,6 +25,9 @@ FILES_TO_UPDATE = {
         ("date", r"(\{\\Large\s*)\d+\-\d+\-\d+"),
         ("version", r"(\{\\Large Version:\s*)\d+\.\d+\.\d+"),
     ],
+    "snpio/scripts/tag_release.sh": [
+        ("version", r'(v)"\d+\.\d+\.\d+"'),
+    ],
 }
 
 
