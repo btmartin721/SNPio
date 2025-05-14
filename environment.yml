@@ -1,8 +1,9 @@
 name: snpio-dev
 channels:
   - conda-forge
-  - defaults
   - bioconda
+  - defaults
+
 dependencies:
   - python >=3.11,<3.14
   - pip
@@ -15,7 +16,7 @@ dependencies:
   - scipy
   - h5py
   - requests
-  - pysam
+  - pysam >=0.23.0
   - plotly
   - bokeh
   - holoviews
