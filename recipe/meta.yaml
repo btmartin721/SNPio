@@ -1,5 +1,5 @@
 {% set name = "snpio" %}
-{% set version = "1.2.27" %}
+{% set version = "1.2.28" %}
 {% set license = "GPL-3.0-or-later" %}
 {% set github_url = "https://github.com/btmartin721/SNPio" %}
 {% set use_local = environ.get("CI", False) %}
