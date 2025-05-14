@@ -35,7 +35,7 @@ jobs:
       - name: Install conda-build and anaconda-client
         shell: bash -l {0}
         run: |
-          conda install -y -c conda-forge -c bioconda 'conda-build>=24' anaconda-client
+          conda install -y -c conda-forge -c bioconda 'conda-build>=24' anaconda-client --solver=classic
 
       - name: Build Conda package
         shell: bash -l {0}

@@ -3,7 +3,7 @@
 git add -A ./
 git commit -m "Tag release"
 git push origin master
-git tag v1.2.35
-git push origin v1.2.35
+git tag v1.2.36
+git push origin v1.2.36
 
 
