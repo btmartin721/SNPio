@@ -1,30 +1,27 @@
-name: snpio-dev
+name: snpio-build
 channels:
   - conda-forge
   - bioconda
   - defaults
+channel_priority: flexible
 
 dependencies:
   - python >=3.11,<3.14
-  - pip
-  - pandas
-  - numpy
-  - matplotlib
-  - seaborn
-  - tqdm
-  - scikit-learn
-  - scipy
-  - h5py
-  - requests
   - pysam >=0.23.0
-  - plotly
   - bokeh
+  - h5py
   - holoviews
   - python-kaleido
-  - panel
   - kneed
+  - matplotlib
+  - numpy
+  - pandas
+  - panel
+  - plotly
+  - requests
+  - scikit-learn
+  - scipy
   - statsmodels
+  - seaborn
   - toytree
-  - pytz
-  - pip:
-      - -e .[dev]
+  - tqdm

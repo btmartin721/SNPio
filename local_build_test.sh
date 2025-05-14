@@ -20,6 +20,8 @@ OUTPUT_DIR="conda_build_artifacts"
 # Generate a unique name for the test environment to avoid conflicts
 TEST_ENV_NAME="${PACKAGE_NAME}_test_$(date +%s)"
 
+ANACONDA_USER="btmartin721"
+
 # --- Helper Functions ---
 info() {
     echo "[INFO] $1"
@@ -102,6 +104,22 @@ conda install -n "${TEST_ENV_NAME}" \
     "${PACKAGE_NAME}" -y || error_exit "Failed to install '${PACKAGE_NAME}' into test environment '${TEST_ENV_NAME}'."
 success "'${PACKAGE_NAME}' installed successfully into '${TEST_ENV_NAME}'."
 
+# 4. Locate the built package file
+info "Locating built package file..."
+# Search for .conda first (newer format), then .tar.bz2.
+# -maxdepth 1 ensures we only look in the immediate noarch/ subdir.
+PACKAGE_FILE_PATH=$(find "${PROJECT_ROOT}/${OUTPUT_DIR}/noarch/" -maxdepth 1 -name "${PACKAGE_NAME}*.conda" -print -quit 2>/dev/null)
+
+if [ -z "${PACKAGE_FILE_PATH}" ] || [ ! -f "${PACKAGE_FILE_PATH}" ]; then
+    info "No .conda package found for ${PACKAGE_NAME} in ./${OUTPUT_DIR}/noarch/, looking for .tar.bz2..."
+    PACKAGE_FILE_PATH=$(find "${PROJECT_ROOT}/${OUTPUT_DIR}/noarch/" -maxdepth 1 -name "${PACKAGE_NAME}*.tar.bz2" -print -quit 2>/dev/null)
+fi
+
+if [ -z "${PACKAGE_FILE_PATH}" ] || [ ! -f "${PACKAGE_FILE_PATH}" ]; then
+    error_exit "Built package file not found in ./${OUTPUT_DIR}/noarch/ matching '${PACKAGE_NAME}*.[conda|tar.bz2]'"
+fi
+success "Found built package: ${PACKAGE_FILE_PATH}"
+
 # 4.3 Run test commands (e.g., import and print version)
 info "Running test command in '${TEST_ENV_NAME}': python -c 'import ${PACKAGE_NAME}; print(${PACKAGE_NAME}.__version__)'"
 # Use 'conda run' to execute the command within the specified environment
@@ -120,6 +138,57 @@ read -p "Do you want to remove the test environment ('${TEST_ENV_NAME}') and the
 if [[ "${REMOVE_CHOICE}" == "y" || "${REMOVE_CHOICE}" == "Y" ]]; then
     info "Cleaning up..."
     if conda env list | grep -q "${TEST_ENV_NAME}"; then
+        info "Removing test Conda environment: ${TEST_ENV_NAME}"
+        conda env remove -n "${TEST_ENV_NAME}" -y
+    else
+        info "Test environment '${TEST_ENV_NAME}' not found (already removed or failed creation)."
+    fi
+    if [ -f "${PROJECT_ROOT}/.condarc" ]; then
+        info "Removing local .condarc file from ${PROJECT_ROOT}"
+        rm -f "${PROJECT_ROOT}/.condarc"
+    fi
+    success "Cleanup complete. Build artifacts in ./${OUTPUT_DIR}/ are preserved."
+else
+    info "Skipping cleanup."
+    info "To manually remove the test environment later: conda env remove -n ${TEST_ENV_NAME} -y"
+    info "To manually remove the local .condarc file: rm ${PROJECT_ROOT}/.condarc"
+    info "Build artifacts are in ./${OUTPUT_DIR}/"
+fi
+
+# 6. Upload Section (Optional)
+echo # Newline for better readability
+read -p "Do you want to upload the package '${PACKAGE_FILE_PATH##*/}' to Anaconda.org user '${ANACONDA_USER}'? (y/N): " UPLOAD_CHOICE
+
+if [[ "${UPLOAD_CHOICE}" == "y" || "${UPLOAD_CHOICE}" == "Y" ]]; then
+    info "Preparing to upload package..."
+
+    if ! command -v anaconda &> /dev/null; then
+        error_exit "anaconda-client is not found. Please install it (e.g., 'conda install anaconda-client'). You'll also need to be logged in ('anaconda login') or have the ANACONDA_API_TOKEN environment variable set."
+    fi
+    info "anaconda-client found: $(command -v anaconda)"
+
+    info "Attempting to upload ${PACKAGE_FILE_PATH##*/} to user '${ANACONDA_USER}' on Anaconda.org."
+    info "This will use the ANACONDA_API_TOKEN environment variable if set, or your credentials from 'anaconda login'."
+    info "The package will be uploaded to the 'main' label and will overwrite if it already exists (--force)."
+
+    # anaconda-client automatically uses ANACONDA_API_TOKEN env var if set.
+    # Otherwise, it uses tokens from `anaconda login`.
+    # If neither, it may prompt (if tty) or fail.
+    anaconda upload "${PACKAGE_FILE_PATH}" --user "${ANACONDA_USER}" --label main --force || error_exit "Anaconda upload failed. Ensure you are logged in ('anaconda login') or ANACONDA_API_TOKEN is correctly set."
+    
+    # The package name on anaconda.org will be the 'name' field from your meta.yaml (e.g., 'snpio')
+    success "Package uploaded successfully to Anaconda.org! View at: https://anaconda.org/${ANACONDA_USER}/${PACKAGE_NAME}"
+else
+    info "Skipping upload."
+fi
+
+# 7. Cleanup
+echo # Newline for better readability
+read -p "Do you want to remove the test environment ('${TEST_ENV_NAME}') and the local '.condarc' file? (y/N): " REMOVE_CHOICE
+
+if [[ "${REMOVE_CHOICE}" == "y" || "${REMOVE_CHOICE}" == "Y" ]]; then
+    info "Cleaning up..."
+    if conda env list | grep -qw "${TEST_ENV_NAME}"; then # -q for quiet, -w for whole word
         info "Removing test Conda environment: ${TEST_ENV_NAME}"
         conda env remove -n "${TEST_ENV_NAME}" -y
     else
