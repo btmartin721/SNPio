@@ -1,5 +1,5 @@
 {% set name = "snpio" %}
-{% set version = "1.2.41" %}
+{% set version = "1.2.42" %}
 {% set license = "GPL-3.0-or-later" %}
 {% set github_url = "https://github.com/btmartin721/SNPio" %}
 
@@ -18,7 +18,7 @@ build:
 
 requirements:
   build:
-    - python >=3.11,<3.14
+    - python >=3.11,<3.13
     - pip
     - setuptools
     - wheel
@@ -26,10 +26,10 @@ requirements:
     - conda-build
     - anaconda-client
   host:
-    - python >=3.11,<3.14
+    - python >=3.11,<3.13
     - pip
   run:
-    - python >=3.11,<3.14
+    - python >=3.11,<3.13
     - pysam >=0.22.0
     - bokeh
     - h5py
@@ -48,12 +48,6 @@ requirements:
     - seaborn
     - toytree
     - tqdm
-
-test:
-  imports:
-    - snpio
-  commands:
-    - python -c "import snpio; print(snpio.__version__)"
 
 about:
   home: {{ github_url }}

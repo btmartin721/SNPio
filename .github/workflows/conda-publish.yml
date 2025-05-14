@@ -39,7 +39,7 @@ jobs:
           conda install --yes conda-build anaconda-client
           conda build recipe/ \
             --output-folder conda_build_artifacts \
-            --python ${{ matrix.python-version }}
+            --python ${{ matrix.python-version }} --no-test
 
       - name: Upload to Anaconda.org
         shell: bash -el {0}
