@@ -1,5 +1,5 @@
 {% set name = "snpio" %}
-{% set version = "1.2.13" %}
+{% set version = "1.2.14" %}
 {% set license = "GPL-3.0-or-later" %}
 {% set github_url = "https://github.com/btmartin721/SNPio" %}
 {% set use_local = environ.get("CI", False) %}
@@ -8,31 +8,28 @@ package:
   name: {{ name|lower }}
   version: "{{ version }}"
 
-{% if use_local %}
 source:
+{% if use_local %}
   path: ../
 {% else %}
-source:
   git_url: {{ github_url }}
   git_rev: v{{ version }}
 {% endif %}
 
 build:
   number: 0
-  script: "{{ PYTHON }} -m pip install . --no-deps -vv"
   noarch: python
+  script: "{{ PYTHON }} -m pip install . --no-deps -vv"
+  skip: true  # [python_impl != "cpython"]
 
 requirements:
-  build:
-    - python >=3.11,<3.14
-    - setuptools
-    - wheel
-    - pip
   host:
     - python >=3.11,<3.14
     - pip
+    - pysam >=0.23.0
   run:
     - python >=3.11,<3.14
+    - pysam >=0.23.0
     - bokeh
     - h5py
     - holoviews
@@ -43,7 +40,6 @@ requirements:
     - pandas
     - panel
     - plotly
-    - pysam
     - requests
     - scikit-learn
     - scipy
