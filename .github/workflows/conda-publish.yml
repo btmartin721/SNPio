@@ -30,8 +30,7 @@ jobs:
           auto-update-conda: true
           auto-activate-base: false
           environment-file: etc/environment.yml
-          use-only-tar-bz2: true
-
+ 
       - name: Build Conda package
         shell: bash -el {0}
         env:
@@ -48,5 +47,5 @@ jobs:
           ANACONDA_API_TOKEN: ${{ secrets.CONDA_UPLOAD_TOKEN }}
         run: |
           anaconda -t $ANACONDA_API_TOKEN upload \
-            conda_build_artifacts/**/snpio-*.tar.bz2 \
+            conda_build_artifacts/**/snpio-*.conda \
             --user btmartin721 --label main --force
