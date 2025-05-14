@@ -29,7 +29,7 @@ jobs:
           miniforge-variant: Miniforge3
           installer-url: ${{ matrix.os == 'ubuntu-latest' && 'https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh' || 'https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-MacOSX-x86_64.sh' }}
           use-only-tar-bz2: true
-          channels: conda-forge,bioconda,defaults
+          channels: conda-forge,bioconda
           channel-priority: strict
           auto-activate-base: false
 
