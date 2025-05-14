@@ -23,9 +23,9 @@ jobs:
         uses: conda-incubator/setup-miniconda@v3
         with:
           python-version: ${{ matrix.python-version }}
-          miniforge-version: "latest"
+          miniconda-version: "latest"
           activate-environment: snpio-build
-          channels: conda-forge,bioconda
+          channels: conda-forge,bioconda,defaults
           channel-priority: flexible
           auto-update-conda: true
           auto-activate-base: false
