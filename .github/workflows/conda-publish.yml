@@ -35,7 +35,7 @@ jobs:
       - name: Install conda-build and anaconda-client
         shell: bash -l {0}
         run: |
-          mamba install -y conda-build anaconda-client
+          conda install -y conda-build anaconda-client
 
       - name: Build Conda package
         shell: bash -l {0}
