@@ -1,5 +1,5 @@
 {% set name = "snpio" %}
-{% set version = "1.2.21" %}
+{% set version = "1.2.22" %}
 {% set license = "GPL-3.0-or-later" %}
 {% set github_url = "https://github.com/btmartin721/SNPio" %}
 {% set use_local = environ.get("CI", False) %}
@@ -20,7 +20,6 @@ build:
   number: 0
   noarch: python
   script: "{{ PYTHON }} -m pip install . --no-deps -vv"
-  skip: true  # [python_impl != "cpython"]
 
 requirements:
   host:
@@ -36,9 +35,9 @@ requirements:
     - holoviews
     - python-kaleido
     - kneed
-    - matplotlib >=3.4,<4
-    - numpy >=1.21,<2
-    - pandas >=1.3,<3
+    - matplotlib
+    - numpy
+    - pandas
     - panel
     - plotly
     - requests
