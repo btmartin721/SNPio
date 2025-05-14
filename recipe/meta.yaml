@@ -1,5 +1,5 @@
 {% set name = "snpio" %}
-{% set version = "1.2.34" %}
+{% set version = "1.2.35" %}
 {% set license = "GPL-3.0-or-later" %}
 {% set github_url = "https://github.com/btmartin721/SNPio" %}
 {% set use_local = environ.get("CI", False) %}
@@ -29,6 +29,7 @@ requirements:
     - pip
     - setuptools
     - wheel
+    - requests >=2.9.1,<2.30.0a0
   run:
     - python >=3.11,<3.14
     - pysam >=0.23.0

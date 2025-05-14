@@ -28,14 +28,14 @@ jobs:
           miniforge-variant: Miniforge3
           installer-url: https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
           use-only-tar-bz2: true
-          channels: bioconda,conda-forge,defaults
-          channel-priority: strict
+          channels: conda-forge,bioconda,defaults
+          channel-priority: flexible
           auto-activate-base: false
 
       - name: Install conda-build and anaconda-client
         shell: bash -l {0}
         run: |
-          conda install -y -c bioconda -c conda-forge 'conda-build>=24' anaconda-client
+          conda install -y -c conda-forge -c bioconda 'conda-build>=24' anaconda-client
 
       - name: Build Conda package
         shell: bash -l {0}
@@ -44,8 +44,8 @@ jobs:
         run: |
           conda config --set channel_priority strict
           conda config --remove-key channels || true
-          conda config --add channels bioconda
           conda config --add channels conda-forge
+          conda config --add channels bioconda
           conda config --add channels defaults
 
           conda build recipe/ \
