@@ -26,7 +26,7 @@ FILES_TO_UPDATE = {
         ("version", r"(\{\\Large Version:\s*)\d+\.\d+\.\d+"),
     ],
     "scripts/tag_release.sh": [
-        ("version", r'(.*v)"\d+\.\d+\.\d+"'),
+        ("version", r'(.*\s+v)"\d+\.\d+\.\d+"'),
     ],
 }
 
