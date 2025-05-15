@@ -1,0 +1,16 @@
+# Activate virtual environment
+source /opt/venv/bin/activate
+
+# Pretty prompt
+export PS1="\[\e[1;32m\][SNPio:\w]\$\[\e[0m\] "
+
+# Aliases
+alias ll='ls -alh --color=auto'
+alias snp='snpio'
+alias py='python'
+
+# Info message
+echo -e "\n🔬 Welcome to the SNPio interactive container!"
+echo "📁 Your working directory is /app"
+echo "🧬 Run: snpio --help  | or use: python scripts_and_notebooks/custom_script.py"
+echo "📓 Run: jupyter lab --ip=0.0.0.0 --allow-root --no-browser"

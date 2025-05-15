@@ -1,0 +1,17 @@
+services:
+  snpio:
+    container_name: snpio_container
+    image: snpio:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /app
+    volumes:
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./scripts_and_notebooks:/app/scripts_and_notebooks
+    ports:
+      - "8888:8888"
+    entrypoint: ["bash"]
+    stdin_open: true
+    tty: true
