@@ -571,7 +571,7 @@ class GenotypeData(BaseGenotypeData):
                                     [
                                         a
                                         for a in s.split(",")
-                                        if a not in {"", ".", "''"}
+                                        if a not in {"", ".", "'", "(", ")", " "}
                                     ]
                                     if s not in {".", ""}
                                     else []
