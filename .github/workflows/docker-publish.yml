@@ -4,6 +4,9 @@ on:
   pull_request:
     branches:
       - master
+  push:
+    tags:
+      - 'v*.*.*'  # Triggers only on tag pushes like v1.0.0
 
 jobs:
   docker:
