@@ -347,12 +347,12 @@ class VCFReader(GenotypeData):
                 row_in_chunk = idx % chunk_size
 
                 # Core VCF fields
-                chrom_buf.append(record.chrom)
-                pos_buf.append(record.pos)
-                id_buf.append(record.id or ".")
-                ref_buf.append(record.ref)
-                alt_buf.append(",".join(record.alts or ["."]))
-                qual_buf.append(record.qual or ".")
+                chrom_buf.append(str(record.chrom))
+                pos_buf.append(str(record.pos))
+                id_buf.append(str(record.id) or ".")
+                ref_buf.append(str(record.ref))
+                alt_buf.append(",".join(str(record.alts) or ["."]))
+                qual_buf.append(str(record.qual) or ".")
                 filt_buf.append(next(iter(record.filter.keys()), "."))
                 fmt_buf.append(":".join(record.format.keys()))
 
