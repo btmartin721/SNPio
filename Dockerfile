@@ -26,6 +26,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
+RUN ln -s /usr/bin/python3 /usr/bin/python3 && \
+    ln -s /usr/bin/pip3 /usr/bin/pip3 && \
+    ln -s /usr/bin/python3 /usr/bin/python && \
+    ln -s /usr/bin/pip3 /usr/bin/pip
+
 # Create and activate virtual environment
 RUN python -m venv $VIRTUAL_ENV
 
