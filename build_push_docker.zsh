@@ -41,13 +41,6 @@ if [[ "$VERSION_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 else
     print_error "Invalid version tag format. Expected format: x.y.z"
 fi
-# -----------------------------
-# Check DockerHub login
-# -----------------------------
-print_info "Checking DockerHub login..."
-if ! docker info | grep -q "Username: $DOCKERHUB_USERNAME"; then
-    print_error "You are not logged into DockerHub as $DOCKERHUB_USERNAME. Run: docker login"
-fi
 
 # -----------------------------
 # Build Docker image
