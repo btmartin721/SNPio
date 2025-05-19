@@ -4,8 +4,6 @@ FROM python:3.12-slim
 # Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV VIRTUAL_ENV=/opt/venv
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -26,13 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ln -s /opt/venv/bin/python3 /usr/bin/python3 && \
-    ln -s /opt/venv/bin/pip3 /usr/bin/pip3 && \
-    ln -s /opt/venv/bin/python3 /usr/bin/python && \
-    ln -s /opt/venv/bin/pip3 /usr/bin/pip
-
-# Create and activate virtual environment
-RUN python -m venv $VIRTUAL_ENV
 
 # Upgrade pip and install build tools
 RUN pip install --upgrade pip setuptools wheel build
