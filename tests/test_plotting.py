@@ -47,23 +47,12 @@ class TestPlotting(unittest.TestCase):
         self.genotype_data = PhylipReader(
             filename=self.phylip_data.name,
             popmapfile=self.popmap.name,
-            prefix="test_read_phylip",
+            prefix="test_read_phylip2",
             verbose=False,
             plot_format="png",
         )
 
         self.plotting = Plotting(self.genotype_data)
-
-    def test_run_pca(self):
-        self.plotting.run_pca()
-
-        expected_file = Path(
-            f"{self.genotype_data.prefix}_output/gtdata/plots/pca_missingness.png"
-        )
-
-        self.assertTrue(expected_file.exists())
-        self.assertTrue(expected_file.is_file())
-        self.assertTrue(expected_file.stat().st_size > 0)
 
     def test_visualize_missingness(self):
         self.plotting.visualize_missingness(

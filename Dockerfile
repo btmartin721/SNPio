@@ -23,6 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libhdf5-dev \
     ca-certificates \
     unzip \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Create and activate virtual environment

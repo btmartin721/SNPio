@@ -567,9 +567,18 @@ class GenotypeData(BaseGenotypeData):
 
                             refs = ref.tolist()
                             alts = [
-                                s.split(",") if s not in {".", ""} else []
+                                (
+                                    [
+                                        a
+                                        for a in s.split(",")
+                                        if a not in {"", ".", "''"}
+                                    ]
+                                    if s not in {".", ""}
+                                    else []
+                                )
                                 for s in alt_raw
                             ]
+
                             snp_chunk = self.snp_data[:, start:end].T
 
                             try:
@@ -595,9 +604,7 @@ class GenotypeData(BaseGenotypeData):
                                     if info_chunk[key][i] not in {".", ""}
                                 ]
                                 info_str = ";".join(parts) if parts else "."
-                                alt_str = (
-                                    alt_raw[i] if alt_raw[i] not in {".", ""} else "."
-                                )
+                                alt_str = ",".join(alts[i]) if alts[i] else "."
 
                                 # Assemble FORMAT and sample fields
                                 if write_format_metadata:
@@ -658,6 +665,7 @@ class GenotypeData(BaseGenotypeData):
                         total=n_loci, desc="Writing VCF Records: ", unit=" rec"
                     ) as pbar:
                         for i in range(n_loci):
+
                             alt_str = ",".join(alts[i]) if alts[i] else "."
                             row = [
                                 chrom[i],
