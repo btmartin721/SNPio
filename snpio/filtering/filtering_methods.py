@@ -43,13 +43,9 @@ class FilteringMethods:
         """
         self.nremover: "NRemover2" = nremover_instance
         self.logger: logging.Logger = self.nremover.logger
-        self.resource_data: Dict[str, Any] = self.nremover.genotype_data.resource_data
         self.missing_vals: List[str] = ["N", "-", ".", "?"]
         self.ambiguous_bases: List[str] = ["R", "Y", "S", "W", "K", "M"]
         self.exclude_hets: List[str] = self.missing_vals + self.ambiguous_bases
-
-        if not self.resource_data:
-            self.resource_data: Dict[str, Any] = {}
 
         self.iupac: IUPAC = IUPAC(logger=self.logger)
 
@@ -796,75 +792,77 @@ class FilteringMethods:
 
     def thin_loci(self, size: int | float, remove_all: bool = False) -> "NRemover2":
         """Thins loci that are within `size` bases of another SNP.
-    
+
         If `remove_all_within_distance` is True, all loci that have another SNP within `size`
         base pairs will be removed (i.e., no thinning — all such SNPs are discarded).
-    
+
         Args:
             size (int): The thinning size.
             remove_all (bool): If True, removes all loci within `size` of another.
-    
+
         Returns:
             NRemover2: The NRemover2 object with updated loci indices.
-    
+
         Raises:
             AlignmentFormatError: If filetype is not VCF.
             TypeError: If alignment is None.
         """
-        self.logger.info(f"Thinning loci within {size} bases of another SNP. Mode: {'remove all' if remove_all else 'retain one'}.")
-    
+        self.logger.info(
+            f"Thinning loci within {size} bases of another SNP. Mode: {'remove all' if remove_all else 'retain one'}."
+        )
+
         self.nremover.propagate_chain()
-    
+
         if self.nremover.genotype_data.filetype != "vcf":
             msg = f"Only 'vcf' file type is supported for thinning loci, but got {self.nremover.genotype_data.filetype}"
             self.logger.error(msg)
             raise AlignmentFormatError(msg)
-    
+
         if self.nremover.alignment is None:
             msg = "Alignment must be provided, but got NoneType."
             self.logger.error(msg)
             raise exceptions.AlignmentError(msg)
-    
+
         if not np.any(self.nremover.loci_indices):
-            self.logger.warning("No loci remain in the alignment. Adjust filtering parameters.")
+            self.logger.warning(
+                "No loci remain in the alignment. Adjust filtering parameters."
+            )
             return self.nremover
-    
+
         # Load chrom and pos
         with h5py.File(self.nremover.genotype_data.vcf_attributes_fn, "r") as f:
             chrom_field = f["chrom"][:]
             pos = f["pos"][:]
-    
+
         decoder = np.vectorize(lambda x: x.decode("UTF-8"))
         chrom_field = decoder(chrom_field)
         pos = pos.astype(str)
-    
+
         to_keep = np.ones_like(pos, dtype=bool)
         to_keep[~self.nremover.loci_indices] = False
-    
+
         unique_chroms = np.unique(chrom_field)
-    
+
         for chrom in unique_chroms:
             chrom_mask = chrom_field == chrom
             chrom_positions = pos[chrom_mask].astype(int)
             chrom_global_indices = np.flatnonzero(chrom_mask)
-    
+
             current_keep_mask = to_keep[chrom_global_indices]
             current_chrom_positions = chrom_positions[current_keep_mask]
             current_global_indices = chrom_global_indices[current_keep_mask]
-    
+
             if len(current_chrom_positions) < 2:
                 continue
-    
+
             sorted_order = np.argsort(current_chrom_positions)
             sorted_positions = current_chrom_positions[sorted_order]
             sorted_indices = current_global_indices[sorted_order]
-    
+
             if remove_all:
                 # Mark *both* SNPs in each close pair for removal
                 close = np.where(np.diff(sorted_positions) <= size)[0]
-                bad_idx = np.unique(
-                    np.concatenate([close, close + 1])
-                )
+                bad_idx = np.unique(np.concatenate([close, close + 1]))
                 to_remove = sorted_indices[bad_idx]
                 to_keep[to_remove] = False
             else:
@@ -872,7 +870,7 @@ class FilteringMethods:
                 diff = np.diff(sorted_positions)
                 bad_indices = sorted_indices[:-1][diff <= size]
                 to_keep[bad_indices] = False
-    
+
         if np.count_nonzero(to_keep) == 0:
             self.logger.warning(
                 f"No loci remain in the alignment after {inspect.stack()[0][3]}. Try adjusting the filtering parameters."
@@ -880,12 +878,11 @@ class FilteringMethods:
             n_removed = np.count_nonzero(~to_keep)
             self._append_global_list(inspect.stack()[0][3], n_removed, 1.0)
             return self.nremover
-    
+
         t = None if self.nremover.search_mode else size
         self.nremover._update_loci_indices(to_keep, inspect.stack()[0][3], t)
-    
-        return self.nremover
 
+        return self.nremover
 
     def _append_global_list(
         self, method_name: str, loci_removed: int, loci_removed_prop: float

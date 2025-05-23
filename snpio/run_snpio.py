@@ -16,7 +16,7 @@ import argparse
 import os
 import sys
 
-from snpio import NRemover2, Plotting, PopGenStatistics, VCFReader
+from snpio import NRemover2, Plotting, PopGenStatistics, VCFReader, StructureReader
 
 
 def validate_file(path: str, name: str) -> None:
@@ -75,10 +75,11 @@ def main():
     print(f"  🐛 Debug:           {args.debug}")
     print()
 
-    genotype_data = VCFReader(
+    genotype_data = StructureReader(
         filename=args.input,
         popmapfile=args.popmap,
         force_popmap=True,
+        allele_encoding={"0": "A", "1": "C", "2": "G", "3": "T", "-9": "N"},
         exclude_pops=["OG", "DS"],
         prefix=args.prefix,
         plot_format=args.plot_format,
@@ -96,7 +97,6 @@ def main():
         .filter_biallelic(exclude_heterozygous=True)
         .filter_monomorphic(exclude_heterozygous=True)
         .filter_singletons(exclude_heterozygous=True)
-        .thin_loci(100)
         .resolve()
     )
 
@@ -111,7 +111,9 @@ def main():
 
     neis_dist = pgs.neis_genetic_distance(n_permutations=10, n_jobs=1, use_pvalues=True)
 
-    gd_filt.write_vcf(f"results/{args.prefix}_output/filtered.vcf")
+    gd_filt.write_structure(
+        f"results/{args.prefix}_output/filtered.str", popids=True, marker_names=True
+    )
 
     plotter = Plotting(
         genotype_data,

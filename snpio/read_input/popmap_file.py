@@ -407,14 +407,14 @@ class ReadPopmap:
                 invalid_popdict_samp = [
                     False if samp in samples else True for samp in self._popdict.keys()
                 ]
-                if any(invalid_samp_popdict):
+                if any(invalid_samp_popdict) and not force:
                     for samp in samples:
                         if samp not in self._popdict:
                             msg = f"SampleID missing from the population map: {samp}"
                             self.logger.error(msg)
                             raise exceptions.PopmapKeyError(samp)
 
-                if any(invalid_popdict_samp):
+                if any(invalid_popdict_samp) and not force:
                     for samp in self._popdict.keys():
                         if samp not in samples:
                             msg = f"PopulationID missing from the alignment: {samp}"
