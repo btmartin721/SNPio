@@ -1,4 +1,5 @@
 import copy
+import itertools
 import logging
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Literal, Tuple
@@ -377,8 +378,8 @@ class GenotypeData(BaseGenotypeData):
             ValueError: If no valid samples are found after subsetting.
         """
         if self.popmapfile is not None:
-            if not isinstance(self.popmapfile, str):
-                msg = f"Invalid popmapfile type provided. Expected str, but got: {type(self.popmapfile)}"
+            if not isinstance(self.popmapfile, (str, Path)):
+                msg = f"Invalid popmapfile type provided. Expected str or pathlib.Path, but got: {type(self.popmapfile)}"
                 self.logger.error(msg)
                 raise exceptions.PopmapFileNotFoundError(msg)
 
@@ -395,6 +396,11 @@ class GenotypeData(BaseGenotypeData):
             # Subset the popmap and samples based on the population criteria.
             self.subset_with_popmap(pm, self.samples, **kwargs)
             pm.get_pop_counts(self)
+
+        else:
+            msg = "Popmap file not provided but is required. Please provide a valid popmap file."
+            self.logger.error(msg)
+            raise exceptions.PopmapFileNotFoundError(msg)
 
     def subset_with_popmap(
         self,
@@ -765,26 +771,13 @@ class GenotypeData(BaseGenotypeData):
         self,
         output_file: str | Path,
         onerow: bool = False,
+        popids: bool = False,
+        marker_names: bool = False,
         genotype_data: Any = None,
         snp_data: np.ndarray | None = None,
         samples: List[str] | None = None,
     ) -> None:
-        """Write the stored alignment as a STRUCTURE file.
-
-        This method writes the stored alignment as a STRUCTURE file. If genotype_data is provided, the SNP data and sample IDs are extracted from it. Otherwise, the SNP data and sample IDs must be provided.
-
-        Args:
-            output_file (str): Name of the output STRUCTURE file.
-            onerow (bool): If True, write the STRUCTURE file in one-row format. If False, write in two-row format.
-            genotype_data (GenotypeData, optional): GenotypeData instance.
-            snp_data (List[List[str]], optional): SNP data in IUPAC format. Must be provided if genotype_data is None.
-            samples (List[str]], optional): List of sample IDs. Must be provided if snp_data is not provided.
-            verbose (bool, optional): If True, status updates are printed.
-
-        Raises:
-            TypeError: If genotype_data and snp_data are both provided.
-            TypeError: If samples are not provided when snp_data is provided.
-        """
+        """Write the stored alignment as a STRUCTURE file."""
         if not isinstance(output_file, Path):
             output_file = Path(output_file)
         output_file.parent.mkdir(exist_ok=True, parents=True)
@@ -792,47 +785,83 @@ class GenotypeData(BaseGenotypeData):
         if genotype_data is not None and snp_data is None:
             snp_data = genotype_data.snp_data
             samples = genotype_data.samples
-
         elif genotype_data is None and snp_data is None:
             snp_data = self.snp_data
             samples = self.samples
-
         elif genotype_data is None and snp_data is not None and samples is None:
-            msg = "If snp_data is provided, samples argument must also be provided."
-            self.logger.error(msg)
-            raise TypeError(msg)
+            raise TypeError(
+                "If snp_data is provided, samples argument must also be provided."
+            )
 
-        self.logger.info(f"Writing STRUCTURE file as: {output_file}...")
+        self.logger.info(f"Writing STRUCTURE file to: {output_file}")
 
+        # --- Determine marker names ---
+        marker_names_list = []
+        if marker_names:
+            if (
+                self.from_vcf
+                and getattr(self, "vcf_attributes_fn", None)
+                and Path(self.vcf_attributes_fn).is_file()
+            ):
+                try:
+                    with h5py.File(self.vcf_attributes_fn, "r") as h5:
+                        chrom = h5["chrom"][:].astype(str)
+                        pos = h5["pos"][:].astype(str)
+                        marker_names_list = [
+                            f"{str(c)}_{str(p)}" for c, p in zip(chrom, pos)
+                        ]
+                except Exception as e:
+                    self.logger.warning(f"Failed to read VCF attributes: {e}")
+            elif hasattr(self, "marker_names") and self.marker_names:
+                marker_names_list = list(self.marker_names)
+            else:
+                marker_names_list = [f"locus_{i}" for i in range(self.num_snps)]
+
+        # --- Write file ---
         try:
             with open(output_file, "w") as fout:
-                for sample, sample_data in zip(samples, snp_data):
-                    # Convert IUPAC codes back to genotype format
-                    # (e.g., 0/0, 1/1, 2/2, 0/1, etc.)
+                # Header row with marker names (only once)
+                if marker_names and marker_names_list:
+                    header_prefix = []
+                    for _ in range(self.allele_start_col):
+                        header_prefix.append("\t")
+                    if onerow:
+                        header_prefix += itertools.chain.from_iterable(
+                            zip(marker_names_list, marker_names_list)
+                        )
+                    else:
+                        header_prefix += marker_names_list
+                    fout.write("\t".join(header_prefix) + "\n")
+
+                for idx, (sample, sample_data) in enumerate(zip(samples, snp_data)):
                     genotypes = [
                         self._iupac_to_genotype(iupac) for iupac in sample_data
                     ]
 
                     if onerow:
-                        # Flatten the genotype pairs and write to file in
-                        # one-row format
-                        genotype_pairs = [
-                            allele
-                            for genotype in genotypes
-                            for allele in genotype.split("/")
-                        ]
-                        fout.write(f"{sample}\t" + "\t".join(genotype_pairs) + "\n")
+                        genotype_pairs = [a for gt in genotypes for a in gt.split("/")]
+                        row = [sample]
+                        if popids:
+                            row.append(str(self.populations[idx]))
+                        row.extend(genotype_pairs)
+                        fout.write("\t".join(row) + "\n")
                     else:
-                        # Write the two alleles in two separate rows for two-row format
-                        first_row = [genotype.split("/")[0] for genotype in genotypes]
-                        second_row = [genotype.split("/")[1] for genotype in genotypes]
-                        fout.write(f"{sample}\t" + "\t".join(first_row) + "\n")
-                        fout.write(f"{sample}\t" + "\t".join(second_row) + "\n")
+                        first_row = [gt.split("/")[0] for gt in genotypes]
+                        second_row = [gt.split("/")[1] for gt in genotypes]
 
-            self.logger.info("Successfully wrote STRUCTURE file.")
+                        row1 = [sample]
+                        row2 = [sample]
+                        if popids:
+                            row1.append(str(self.populations[idx]))
+                            row2.append(str(self.populations[idx]))
+                        row1.extend(first_row)
+                        row2.extend(second_row)
+                        fout.write("\t".join(row1) + "\n")
+                        fout.write("\t".join(row2) + "\n")
+
+            self.logger.info("STRUCTURE file written successfully.")
         except Exception as e:
-            msg = f"An error occurred while writing the STRUCTURE file: {e}"
-            self.logger.error(msg)
+            self.logger.error(f"Failed to write STRUCTURE file: {e}")
             raise e
 
     def missingness_reports(
@@ -956,25 +985,76 @@ class GenotypeData(BaseGenotypeData):
             ValueError: If the genotype is not valid.
         """
         try:
-            iupac_dict = self.iupac.get_gt2iupac()
+            if self.allele_encoding is None:
+                iupac_dict = self.iupac.get_gt2iupac()
+            else:
+                # Static map from nucleotide pairs to IUPAC codes
+                iupac_dict = self._get_custom_gt2iupac()
 
             # Validate genotype format
             if not isinstance(genotype, str) or "/" not in genotype:
                 self.logger.error(f"Invalid genotype format: {genotype}")
                 raise exceptions.InvalidGenotypeError(f"Invalid format: {genotype}")
 
-            gt = iupac_dict.get(genotype, "N")  # Default to 'N' for undefined genotypes
-
-            if gt == "N":
-                self.logger.warning(
-                    f"Undefined genotype: {genotype}, defaulting to 'N'"
-                )
+            gt = iupac_dict.get(str(genotype), "N")  # Default to 'N' for undefined.
 
             return gt
 
         except Exception as e:
             self.logger.error(f"Error processing genotype {genotype}: {e}")
             raise
+
+    def _get_custom_gt2iupac(self):
+        iupac_ambig_dict = {
+            "AA": "A",
+            "TT": "T",
+            "CC": "C",
+            "GG": "G",
+            "AT": "W",
+            "TA": "W",
+            "AC": "M",
+            "CA": "M",
+            "AG": "R",
+            "GA": "R",
+            "CT": "Y",
+            "TC": "Y",
+            "CG": "S",
+            "GC": "S",
+            "GT": "K",
+            "TG": "K",
+            "AN": "N",
+            "NA": "N",
+            "TN": "N",
+            "NT": "N",
+            "CN": "N",
+            "NC": "N",
+            "GN": "N",
+            "NG": "N",
+            "NN": "N",
+        }
+
+        # Reverse: integer to base (as strings) → e.g., "1": "A"
+        allele_map = {str(k): v.upper() for k, v in self.allele_encoding.items()}
+
+        # Homozgyotes (e.g., "1/1": "A")
+        iupac_dict = {
+            f"{k}/{k}": iupac_ambig_dict.get(base + base, "N")
+            for k, base in allele_map.items()
+        }
+
+        # Heterozygotes (e.g., "1/2": "W")
+        for (k1, b1), (k2, b2) in itertools.combinations(allele_map.items(), 2):
+            key1 = f"{k1}/{k2}"
+            key2 = f"{k2}/{k1}"  # ensure both orders are covered
+            code = iupac_ambig_dict.get(b1 + b2, "N")
+            iupac_dict[key1] = code
+            iupac_dict[key2] = code
+
+        # Add common missing data codes
+        iupac_dict["-1/-1"] = "N"
+        iupac_dict["-9/-9"] = "N"
+
+        return iupac_dict
 
     def _iupac_to_genotype(self, iupac_code: str) -> str:
         """Convert an IUPAC code to its corresponding genotype string.
