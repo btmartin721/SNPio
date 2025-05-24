@@ -1,5 +1,7 @@
+#!/usr/bin/env python3
+
 """
-Update version strings across key files like pyproject.toml, meta.yaml, and conf.py.
+Update version strings across pyproject.toml, meta.yaml, and conf.py.
 
 Usage:
     python scripts/update_versions.py <new_version>
@@ -32,7 +34,13 @@ def update_file(path: str | Path, pattern: str, replacement: str) -> None:
 def update_pyproject(version: str) -> None:
     """Update the version in pyproject.toml."""
     path = Path("pyproject.toml")
-    data = tomllib.loads(path.read_bytes())
+    if not path.exists():
+        print("Error: pyproject.toml not found.")
+        sys.exit(1)
+
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+
     data["project"]["version"] = version
     path.write_text(tomli_w.dumps(data))
     print(f"Updated pyproject.toml version to {version}")
@@ -46,9 +54,11 @@ def main():
     version = sys.argv[1]
 
     update_pyproject(version)
+
     update_file(
         "recipe/meta.yaml", r'(version\s*=\s*)"\d+\.\d+\.\d+"', rf'\1"{version}"'
     )
+
     update_file(
         "snpio/docs/source/conf.py",
         r'(release\s*=\s*)"\d+\.\d+\.\d+"',
