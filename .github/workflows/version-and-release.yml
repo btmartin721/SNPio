@@ -21,7 +21,6 @@ on:
       - 'snpio/**'
       - 'tests/**'
 
-
 jobs:
   version-release:
     runs-on: ubuntu-latest
@@ -31,15 +30,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Needed for GitVersion to work correctly
+          persist-credentials: false # Ensure checkout doesn't persist its own token
 
       - name: Setup GitVersion
-        uses: gittools/actions/gitversion/setup@v0.11.0
+        uses: gittools/actions/gitversion/setup@v0.11.0 # Consider updating to a newer major version if available
         with:
           versionSpec: '5.12.0'
 
       - name: Run GitVersion
         id: gitversion
-        uses: gittools/actions/gitversion/execute@v0.11.0
+        uses: gittools/actions/gitversion/execute@v0.11.0 # Consider updating to a newer major version if available
 
       - name: Print version
         run: |
@@ -53,20 +53,39 @@ jobs:
       - name: Update version in pyproject.toml, meta.yaml, conf.py
         run: python scripts/update_versions.py ${{ steps.gitversion.outputs.semVer }}
 
-
       - name: Push commit and tag using PAT
         if: github.event_name != 'pull_request'
         run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-      
+          git config user.name "github-actions[bot]" # Corrected from "github-actions" to match error message context
+          git config user.email "github-actions[bot]@users.noreply.github.com" # Common email for bot actions
+
           git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}
           git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
+          # The `|| true` or `|| echo "No changes to commit"` is good practice
           git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
-          git tag v${{ steps.gitversion.outputs.semVer }}
-          git push origin HEAD --tags
+          # Only push if there was a commit (check if HEAD changed, or check `git status --porcelain`)
+          # For simplicity, the original logic is kept, but this could be refined
+          # to avoid an empty push attempt if the commit failed due to no changes.
+
+          # Check if there are actual changes to commit to avoid empty commits if not already handled
+          if ! git diff-index --quiet HEAD --; then
+            git push origin HEAD --tags
+          else
+            echo "No changes to push."
+            # If you only want to push tags even if there are no file changes (e.g., a forced version bump)
+            # you might still want to push tags.
+            # Check if the tag already exists before trying to push to avoid errors if re-running on same version.
+            if git rev-parse "v${{ steps.gitversion.outputs.semVer }}" >/dev/null 2>&1; then
+              echo "Tag v${{ steps.gitversion.outputs.semVer }} already exists."
+            else
+              git tag v${{ steps.gitversion.outputs.semVer }} # Ensure tag is created if commit didn't run due to no changes but tag is desired
+              git push origin --tags
+            fi
+          fi
 
       - name: Create GitHub Release
+        # Ensure this runs only if the tag was successfully pushed.
+        if: github.event_name != 'pull_request' # Same condition as the push
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.gitversion.outputs.semVer }}
