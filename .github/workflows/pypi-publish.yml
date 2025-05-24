@@ -1,10 +1,9 @@
-name: Publish to TestPyPI and PyPI
+name: Publish to TestPyPI, PyPI, and Docker
 
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers only on tag pushes like v1.0.0
-    
+      - 'v*.*.*'  # Only run on semantic version tag pushes
 
 jobs:
   build-and-publish:
@@ -24,7 +23,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install build twine
 
-      - name: Clean dist/ directory
+      - name: Clean dist directory
         run: rm -rf dist/
 
       - name: Build package
@@ -36,13 +35,51 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
         run: |
           twine upload --repository testpypi dist/*
-          echo "Package published to TestPyPI successfully."
+          echo "TestPyPI upload complete."
 
-      # Uncomment the block below to enable PyPI publishing as well
       - name: Publish to PyPI
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.SNPIO_API_TOKEN2_PYPI }}
         run: |
           twine upload dist/*
-          echo "Package published to PyPI successfully."
+          echo "Published to PyPI."
+
+      ##########################################
+      # Docker build and push after PyPI upload
+      ##########################################
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_BTMARTIN721 }}
+
+      - name: Extract version from tag
+        id: extract_version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: btmartin721/snpio
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            btmartin721/snpio:latest
+            btmartin721/snpio:${{ steps.extract_version.outputs.VERSION }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Confirm Docker success
+        run: echo "Docker image built for version ${{ steps.extract_version.outputs.VERSION }}"
