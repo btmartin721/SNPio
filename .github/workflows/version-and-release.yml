@@ -54,22 +54,17 @@ jobs:
         run: python scripts/update_versions.py ${{ steps.gitversion.outputs.semVer }}
 
 
-      - name: Commit and tag new version
+      - name: Push commit and tag using PAT
         if: github.event_name != 'pull_request'
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-
-          # ⚠️ Set remote URL BEFORE all Git commands
-          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}
-
+      
+          git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}
           git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
           git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
           git tag v${{ steps.gitversion.outputs.semVer }}
           git push origin HEAD --tags
-
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
