@@ -46,8 +46,11 @@ jobs:
           echo "Published to PyPI."
 
       ##########################################
-      # Docker build and push after PyPI upload
+      # Docker multi-arch build and push
       ##########################################
+
+      - name: Set up QEMU for cross-platform builds
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -70,12 +73,13 @@ jobs:
         with:
           images: btmartin721/snpio
 
-      - name: Build and push Docker image
+      - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             btmartin721/snpio:latest
             btmartin721/snpio:${{ steps.extract_version.outputs.VERSION }}
