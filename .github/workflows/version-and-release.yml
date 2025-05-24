@@ -56,13 +56,17 @@ jobs:
 
       - name: Commit and tag new version
         if: github.event_name != 'pull_request'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-
+      
           git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
           git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
           git tag v${{ steps.gitversion.outputs.semVer }}
+      
+          git remote set-url origin https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}
           git push origin HEAD --tags
 
       - name: Create GitHub Release
