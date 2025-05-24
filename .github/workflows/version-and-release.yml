@@ -1,0 +1,74 @@
+name: Auto Version and Tag SNPio Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'pyproject.toml'
+      - 'recipe/meta.yaml'
+      - 'snpio/**'
+      - 'tests/**'
+  pull_request:
+    branches:
+      - main
+      - master
+    paths:
+      - 'pyproject.toml'
+      - 'recipe/meta.yaml'
+      - 'snpio/**'
+      - 'tests/**'
+
+
+jobs:
+  version-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for GitVersion to work correctly
+
+      - name: Setup GitVersion
+        uses: gittools/actions/gitversion/setup@v0.11.0
+
+      - name: Run GitVersion
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v0.11.0
+
+      - name: Print version
+        run: |
+          echo "FullSemVer: ${{ steps.gitversion.outputs.fullSemVer }}"
+          echo "SemVer:     ${{ steps.gitversion.outputs.semVer }}"
+          echo "Tag:        v${{ steps.gitversion.outputs.semVer }}"
+
+      - name: Install version update dependencies
+        run: pip install tomli-w pyyaml
+
+      - name: Update version in pyproject.toml, meta.yaml, conf.py
+        run: python scripts/update_versions.py ${{ steps.gitversion.outputs.semVer }}
+
+
+      - name: Commit and tag new version
+        if: github.event_name != 'pull_request'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+          git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
+          git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
+          git tag v${{ steps.gitversion.outputs.semVer }}
+          git push origin HEAD --tags
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.gitversion.outputs.semVer }}
+          name: Release v${{ steps.gitversion.outputs.semVer }}
+          body: |
+            Auto-generated release from GitVersion
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
