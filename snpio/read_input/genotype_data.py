@@ -33,94 +33,51 @@ class GenotypeData(BaseGenotypeData):
 
     Attributes:
         inputs (dict): GenotypeData keyword arguments as a dictionary.
-
         num_snps (int): Number of SNPs in the dataset.
-
         num_inds (int): Number of individuals in the dataset.
-
         populations (List[str | int]): Population IDs.
-
         popmap (dict): Dictionary object with SampleIDs as keys and popIDs as values.
-
         popmap_inverse (dict or None): Inverse dictionary of popmap, where popIDs are keys and lists of sampleIDs are values.
-
         samples (List[str]): Sample IDs in input order.
-
         snpsdict (dict or None): Dictionary with SampleIDs as keys and lists of genotypes as values.
-
         snp_data (List[List[str]]): Genotype data as a 2D list.
-
         loci_indices (List[int]): Column indices for retained loci in filtered alignment.
-
         sample_indices (List[int]): Row indices for retained samples in the alignment.
-
         ref (List[str]): List of reference alleles of length num_snps.
-
         alt (List[str]): List of alternate alleles of length num_snps.
-
         iupac_mapping (dict): Mapping of allele tuples to IUPAC codes.
-
         reverse_iupac_mapping (dict): Mapping of IUPAC codes to allele tuples.
-
         missing_vals (List[str]): List of missing value characters.
-
         replace_vals (List[pd.NA]): List of missing value replacements.
-
         logger (logging.Logger): Logger object.
-
         debug (bool): If True, display debug messages.
-
         plot_kwargs (dict): Plotting keyword arguments.
-
         supported_filetypes (List[str]): List of supported filetypes.
-
         kwargs (dict): GenotypeData keyword arguments.
-
         chunk_size (int): Chunk size for reading in large files.
-
         plot_format (str): Format to save report plots.
-
         plot_fontsize (int): Font size for plots.
-
         plot_dpi (int): Resolution in dots per inch for plots.
-
         plot_despine (bool): If True, remove the top and right spines from plots.
-
         show_plots (bool): If True, display plots in the console.
-
         prefix (str): Prefix to use for output directory.
-
         verbose (bool): If True, display verbose output.
 
     Methods:
         read_popmap: Read population map from file to map samples to populations.
-
         subset_with_popmap: Subset popmap and samples based on population criteria.
-
         write_popmap: Write the population map to a file.
-
         missingness_reports: Generate missingness reports and plots.
-
         _make_snpsdict: Make a dictionary with SampleIDs as keys and a list of SNPs associated with the sample as the values.
-
         _genotype_to_iupac: Convert a genotype string to its corresponding IUPAC code.
-
         _iupac_to_genotype: Convert an IUPAC code to its corresponding genotype string.
-
         calc_missing: Calculate missing value statistics based on a DataFrame.
-
         copy: Create a deep copy of the GenotypeData object.
-
         read_popmap: Read in a popmap file.
-
         missingness_reports: Create missingness reports from GenotypeData object.
-
         _report2file: Write a DataFrame to a CSV file.
-
         _genotype_to_iupac: Convert a genotype string to its corresponding IUPAC code.
-
         _iupac_to_genotype: Convert an IUPAC code to its corresponding genotype string.
-
         get_reverse_iupac_mapping: Create a reverse mapping from IUPAC codes to allele tuples.
 
     Example:
@@ -167,39 +124,22 @@ class GenotypeData(BaseGenotypeData):
 
         Args:
             filename (str, optional): Path to input file containing genotypes. Defaults to None.
-
             filetype (str, optional): Type of input genotype file. Possible values include: 'phylip', 'structure', 'vcf', 'tree', or '012'. Defaults to None.
-
             popmapfile (str, optional): Path to population map file. If supplied and filetype is one of the STRUCTURE formats, then the structure file is assumed to have NO popID column. Defaults to None.
-
             force_popmap (bool, optional): If True, then samples not present in the popmap file will be excluded from the alignment. If False, then an error is raised if samples are present in the popmap file that are not present in the alignment. Defaults to False.
-
             exclude_pops (List[str], optional): List of population IDs to exclude from the alignment. Defaults to None.
-
             include_pops (List[str], optional): List of population IDs to include in the alignment. Populations not present in the include_pops list will be excluded. Defaults to None.
-
             plot_format (str, optional): Format to save report plots. Valid options include: 'pdf', 'svg', 'png', and 'jpeg'. Defaults to 'png'.
-
             plot_fontsize (int, optional): Font size for plots. Defaults to 12.
-
             plot_dpi (int, optional): Resolution in dots per inch for plots. Defaults to 300.
-
             plot_despine (bool, optional): If True, remove the top and right spines from plots. Defaults to True.
-
             show_plots (bool, optional): If True, display plots in the console. Defaults to False.
-
             prefix (str, optional): Prefix to use for output directory. Defaults to "gtdata".
-
             verbose (bool, optional): If True, display verbose output. Defaults to False.
-
             loci_indices (np.ndarray, optional): Column indices for retained loci in filtered alignment. Defaults to None.
-
             sample_indices (np.ndarray, optional): Row indices for retained samples in the alignment. Defaults to None.
-
             chunk_size (int, optional): Chunk size for reading in large files. Defaults to 1000.
-
             logger (logging.Logger, optional): Logger object. Defaults to None.
-
             debug (bool, optional): If True, display debug messages. Defaults to False.
 
         Raises:
@@ -230,7 +170,13 @@ class GenotypeData(BaseGenotypeData):
         self.show_plots = show_plots
         self.chunk_size = chunk_size
 
-        self.supported_filetypes: List[str] = ["vcf", "phylip", "structure", "tree"]
+        self.supported_filetypes: set = {
+            "vcf",
+            "phylip",
+            "structure",
+            "tree",
+            "genepop",
+        }
         self._snp_data = None
         self.from_vcf = False
 
@@ -299,7 +245,8 @@ class GenotypeData(BaseGenotypeData):
             v: k for k, v in self.iupac_mapping.items()
         }
 
-        self.iupac = IUPAC(logger=self.logger)
+        if not hasattr(self, "iupac"):
+            self.iupac = IUPAC(logger=self.logger)
 
         # Ensure the load_aln method is called.
         _ = self.snp_data
@@ -310,21 +257,7 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             Dict[Tuple[str, str], str]: Mapping of allele tuples to IUPAC codes.
         """
-        return {
-            ("A", "A"): "A",
-            ("C", "C"): "C",
-            ("G", "G"): "G",
-            ("T", "T"): "T",
-            ("A", "G"): "R",
-            ("C", "T"): "Y",
-            ("G", "C"): "S",
-            ("A", "T"): "W",
-            ("G", "T"): "K",
-            ("A", "C"): "M",
-            ("C", "G"): "S",
-            ("A", "C"): "M",
-            ("N", "N"): "N",
-        }
+        return self.iupac.get_tuple_to_iupac()
 
     def get_reverse_iupac_mapping(self) -> Dict[str, Tuple[str, str]]:
         """Creates a reverse mapping from IUPAC codes to allele tuples.
@@ -356,9 +289,7 @@ class GenotypeData(BaseGenotypeData):
         if snp_data is None:
             snp_data = self.snp_data
 
-        snpsdict = {}
-        for ind, seq in zip(samples, snp_data):
-            snpsdict[ind] = seq
+        snpsdict = {ind: seq for ind, seq in zip(samples, snp_data)}
         return snpsdict
 
     def read_popmap(self) -> None:
@@ -499,8 +430,7 @@ class GenotypeData(BaseGenotypeData):
             raise exceptions.EmptyIterableError(msg)
 
         with open(filename, "w") as fout:
-            for s, p in zip(self.samples, self.populations):
-                fout.write(f"{s},{p}\n")
+            [fout.write(f"{s},{p}\n") for s, p in zip(self.samples, self.populations)]
 
     def write_vcf(
         self,
@@ -534,7 +464,9 @@ class GenotypeData(BaseGenotypeData):
                     hdf5_file_path = self.vcf_attributes_fn
                 h5p = Path(hdf5_file_path)
                 if not h5p.is_file():
-                    raise FileNotFoundError(f"HDF5 file not found: {h5p}")
+                    msg = f"HDF5 file not found: {h5p}"
+                    self.logger.error(msg)
+                    raise FileNotFoundError(msg)
 
                 with h5py.File(h5p, "r") as h5, open(of, "w") as f:
                     f.write(self.build_vcf_header())
@@ -691,6 +623,9 @@ class GenotypeData(BaseGenotypeData):
             self.logger.error(f"Error writing VCF file: {e}")
             raise
 
+        if not hasattr(self, "_is_bgzipped"):
+            self._is_bgzipped = lambda x: False
+
         # bgzip & tabix
         bgz = of if self._is_bgzipped(of) else self.bgzip_file(of)
         self.tabix_index(bgz)
@@ -777,7 +712,29 @@ class GenotypeData(BaseGenotypeData):
         snp_data: np.ndarray | None = None,
         samples: List[str] | None = None,
     ) -> None:
-        """Write the stored alignment as a STRUCTURE file."""
+        """Write the stored alignment as a STRUCTURE file.
+
+        This method writes the stored alignment as a STRUCTURE file. The STRUCTURE format is a text format used for population structure analysis. The first line contains the number of samples and the number of loci. Each subsequent line contains the sample ID, population ID (if popids is True), and genotype data.
+
+        Args:
+            output_file (str): Name of the output STRUCTURE file.
+            onerow (bool, optional): If True, write genotypes in one row per sample. If False, write two rows per sample (one for each allele). Defaults to False.
+            popids (bool, optional): If True, include population IDs in the output file. Defaults to False.
+            marker_names (bool, optional): If True, include marker names in the header row. Defaults to False.
+            genotype_data (GenotypeData, optional): GenotypeData instance. If provided, snp_data and samples are loaded from it.
+            snp_data (np.ndarray | None, optional): SNP data. If provided, samples must also be provided.
+            samples (List[str] | None, optional): List of sample IDs. Must be provided if snp_data is not None.
+
+        Raises:
+            TypeError: If genotype_data and snp_data are both provided.
+            TypeError: If samples are not provided when snp_data is provided.
+            ValueError: If samples and snp_data are not the same length.
+
+        Note:
+            If genotype_data is provided, the snp_data and samples are loaded from the GenotypeData instance.
+            If snp_data is provided, the samples must also be provided.
+            If genotype_data is not provided, the snp_data and samples must be provided.
+        """
         if not isinstance(output_file, Path):
             output_file = Path(output_file)
         output_file.parent.mkdir(exist_ok=True, parents=True)
@@ -789,9 +746,9 @@ class GenotypeData(BaseGenotypeData):
             snp_data = self.snp_data
             samples = self.samples
         elif genotype_data is None and snp_data is not None and samples is None:
-            raise TypeError(
-                "If snp_data is provided, samples argument must also be provided."
-            )
+            msg = "If snp_data is provided, samples argument must also be provided."
+            self.logger.error(msg)
+            raise TypeError(msg)
 
         self.logger.info(f"Writing STRUCTURE file to: {output_file}")
 
@@ -817,13 +774,18 @@ class GenotypeData(BaseGenotypeData):
             else:
                 marker_names_list = [f"locus_{i}" for i in range(self.num_snps)]
 
+        if hasattr(self, "allele_start_col"):
+            allele_start_col = self.allele_start_col
+        else:
+            allele_start_col = 2 if popids else 1
+
         # --- Write file ---
         try:
             with open(output_file, "w") as fout:
                 # Header row with marker names (only once)
                 if marker_names and marker_names_list:
                     header_prefix = []
-                    for _ in range(self.allele_start_col):
+                    for _ in range(allele_start_col):
                         header_prefix.append("\t")
                     if onerow:
                         header_prefix += itertools.chain.from_iterable(
@@ -863,6 +825,87 @@ class GenotypeData(BaseGenotypeData):
         except Exception as e:
             self.logger.error(f"Failed to write STRUCTURE file: {e}")
             raise e
+
+    def write_genepop(
+        self,
+        output_file: str | Path,
+        genotype_data: Any = None,
+        snp_data: np.ndarray | None = None,
+        samples: List[str] | None = None,
+        marker_names: List[str] | None = None,
+        title: str = "GenePop export from SNPio",
+    ) -> None:
+        """Write the SNP data in GenePop format.
+
+        This method writes the SNP data in GenePop format, which is a text format used for population genetics data. The first line contains a title, followed by locus names, and then the sample IDs with their corresponding genotypes.
+
+        Args:
+            output_file (str | Path): File path to write to.
+            genotype_data (GenotypeData): Object with .snp_data and .samples.
+            snp_data (np.ndarray | None): Optional SNP data matrix.
+            samples (List[str] | None): Optional list of sample IDs.
+            marker_names (List[str] | None): Optional list of locus names.
+            title (str): First line of the GenePop file.
+
+        Raises:
+            ValueError: If required data is not available.
+        """
+        if not isinstance(output_file, Path):
+            output_file = Path(output_file)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+
+        if genotype_data is not None:
+            snp_data = genotype_data.snp_data
+            samples = genotype_data.samples
+            marker_names = getattr(genotype_data, "marker_names", None)
+        elif snp_data is not None and samples is not None:
+            pass
+        else:
+            msg = "Must provide either genotype_data or both snp_data and samples."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if marker_names is None:
+            marker_names = [f"Locus{i+1}" for i in range(snp_data.shape[1])]
+
+        try:
+            with open(output_file, "w") as fout:
+                fout.write(f"{title}\n")
+                for name in marker_names:
+                    fout.write(f"{name}\n")
+                fout.write("Pop\n")
+
+                for i, sample in enumerate(samples):
+                    alleles = snp_data[i]
+                    # Assuming genotype format is IUPAC, convert to 2-digit
+                    # diploid pairs
+                    pairs = [self._iupac_to_genepop(gt) for gt in alleles]
+                    fout.write(f"{sample} , {' '.join(pairs)}\n")
+
+            self.logger.info(f"GenePop file written to: {output_file}")
+
+        except Exception as e:
+            msg = f"Error writing GenePop file: {e}"
+            self.logger.error(msg)
+            raise RuntimeError(msg)
+
+    def _iupac_to_genepop(self, iupac: str) -> str:
+        """Convert IUPAC code to two-digit allele encoding."""
+        iupac_to_bases = {
+            "A": ("01", "01"),
+            "C": ("02", "02"),
+            "G": ("03", "03"),
+            "T": ("04", "04"),
+            "M": ("01", "02"),
+            "R": ("01", "03"),
+            "W": ("01", "04"),
+            "S": ("02", "03"),
+            "Y": ("02", "04"),
+            "K": ("03", "04"),
+            "N": ("00", "00"),
+        }
+        a1, a2 = iupac_to_bases.get(iupac, ("00", "00"))
+        return f"{a1}{a2}"
 
     def missingness_reports(
         self,
@@ -1544,10 +1587,10 @@ class GenotypeData(BaseGenotypeData):
 
         if isinstance(self._snp_data, (np.ndarray, pd.DataFrame, list)):
             if isinstance(self._snp_data, list):
-                return np.array(self._snp_data)
+                return np.array(self._snp_data, dtype="<U1")
             elif isinstance(self._snp_data, pd.DataFrame):
-                return self._snp_data.to_numpy()
-            return self._snp_data  # already numpy.ndarray
+                return self._snp_data.to_numpy(dtype="<U1")
+            return self._snp_data.astype("<U1")  # Ensure dtype is Unicode string
         else:
             msg = f"Invalid 'snp_data' type. Expected numpy.ndarray, pandas.DataFrame, or list, but got: {type(self._snp_data)}"
             self.logger.error(msg)
@@ -1567,9 +1610,11 @@ class GenotypeData(BaseGenotypeData):
         """
         if isinstance(value, (np.ndarray, pd.DataFrame, list)):
             if isinstance(value, list):
-                value = np.array(value)
+                value = np.array(value, dtype="<U1")
             elif isinstance(value, pd.DataFrame):
-                value = value.to_numpy()
+                value = value.to_numpy(dtype="<U1")
+            else:
+                value = value.astype("<U1")
             self._snp_data = value
             self._validate_seq_lengths()
         else:
@@ -1592,7 +1637,7 @@ class GenotypeData(BaseGenotypeData):
                 if len(row) != n_snps:
                     msg = f"Invalid sequence length for Sample {self.samples[i]}. Expected {n_snps}, but got: {len(row)}"
                     self.logger.error(msg)
-                    raise SequenceLengthError(self.samples[i])
+                    raise exceptions.SequenceLengthError(self.samples[i])
 
     def set_alignment(
         self,
