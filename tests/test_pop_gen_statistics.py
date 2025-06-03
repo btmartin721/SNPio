@@ -137,6 +137,7 @@ def generate_population_map_file(populations: Dict[str, list] | None = None) -> 
 
 
 class TestPopGenStatistics(unittest.TestCase):
+    """Unit tests for PopGenStatistics.summary_statistics() method."""
 
     def setUp(self):
         """Set up common variables for tests."""
