@@ -1,5 +1,4 @@
 import logging
-import random
 import re
 import tempfile
 import textwrap
@@ -10,7 +9,6 @@ from typing import List, Tuple
 import numpy as np
 import pysam
 
-from snpio.utils.custom_exceptions import NoValidAllelesError
 from snpio.utils.logging import LoggerManager
 
 # IUPAC decoding dictionary
@@ -50,11 +48,7 @@ class BaseGenotypeData:
                 - "vcf.gz": gzipped VCF file.
         """
         self.filename: str | None = filename
-
-        self.filetype: str | None = filetype if filetype is not None else None
-
-        if filetype is not None:
-            self.filetype = filetype.lower()
+        self.filetype: str | None = filetype.lower() if filetype is not None else None
 
         # Initialize as None, load on demand
         self._snp_data: List[List[str]] | None = None
@@ -66,7 +60,7 @@ class BaseGenotypeData:
         logman = LoggerManager(
             __name__, prefix=self.prefix, verbose=self.verbose, debug=self.debug
         )
-        self.logger: logging.Logger | None = logman.get_logger()
+        self.logger: logging.Logger = logman.get_logger()
 
     def _load_data(self) -> None:
         """Method to load data from file based on filetype"""
