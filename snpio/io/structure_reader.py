@@ -1,3 +1,4 @@
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, List, Literal
 
@@ -11,6 +12,7 @@ from snpio.utils.custom_exceptions import (
     StructureAlignmentSampleMismatch,
 )
 from snpio.utils.logging import LoggerManager
+from snpio.utils.misc import IUPAC
 
 
 class StructureReader(GenotypeData):
@@ -119,6 +121,7 @@ class StructureReader(GenotypeData):
         # logger setup
         kwargs = dict(prefix=prefix, verbose=verbose, debug=debug)
         self.logger = LoggerManager(name=__name__, **kwargs).get_logger()
+        self.iupac = IUPAC(logger=self.logger)
 
         self.resource_data: Dict[str, Any] = {}
 
@@ -157,122 +160,185 @@ class StructureReader(GenotypeData):
             debug=debug,
         )
 
-    def _validate_allele_encoding(self):
-        if self.allele_encoding is not None:
-            if not isinstance(self.allele_encoding, dict):
-                msg = f"allele_encoding must be a dictionary, not {type(self.allele_encoding)}"
-                self.logger.error(msg)
-                raise TypeError(msg)
-            if not all(isinstance(k, (int, str)) for k in self.allele_encoding.keys()):
-                msg = f"allele_encoding keys must be int or str, not {type(k)}"
-                self.logger.error(msg)
-                raise TypeError(msg)
-            if not all(isinstance(v, str) for v in self.allele_encoding.values()):
-                msg = f"allele_encoding values must be str, not {type(v)}"
-                self.logger.error(msg)
-                raise TypeError(msg)
+    def _validate_allele_encoding(self) -> None:
+        """Validate the allele_encoding dictionary.
 
-            allele_encoding_values = list(self.allele_encoding.values())
-
-            if not all(a in {"A", "C", "G", "T", "N"} for a in allele_encoding_values):
-                msg = (
-                    "allele_encoding values must be A, C, G, T, or N, but got:"
-                    + ",".join(np.unique(allele_encoding_values).tolist())
-                )
-                self.logger.error(msg)
-                raise ValueError(msg)
-
-    def load_aln(self) -> None:
-        """Load STRUCTURE file, parse optional header, and convert genotypes.
-        The STRUCTURE file format is a tab-delimited text file with the following structure:
-        - First line (optional): marker names (if `has_marker_names=True`)
-        - Second line (optional): population IDs (if `has_popids=True`)
-        - Subsequent lines: sample names and genotypes
-        - Genotypes are represented as pairs of alleles (e.g., "1/1", "1/2", "2/2")
-        - In one-row format, each genotype is represented by pairs of consecutive alleles on the same line.
-        - In two-row format, each genotype is represented by two lines, with the first line containing the first allele and the second line containing the second allele (e.g., "1" and "1" on separate lines).
-        - Each sample ID and population ID (if `has_popids=True`) should be repeated for each row of alleles if the file is in two-row format.
-        - The first column is always the sample name, and the second column is the population ID if `has_popids=True`.
-        - The `allele_start_col` parameter specifies the zero-based index where the alleles begin. The rest of the columns are genotypes, which are converted to IUPAC codes.
-        - The `allele_start_col` parameter specifies the zero-based index where the alleles begin. If `has_popids=True`, the second column must be the population IDs. If `has_marker_names=True`, the first line must be the marker names.
+        Ensures:
+            - allele_encoding is a dictionary (if not None).
+            - Keys are int or str.
+            - Values are str and valid IUPAC bases: A, C, G, T, N.
 
         Raises:
-            AlignmentFileNotFoundError: if the file does not exist.
-            AlignmentFormatError: if the file format is incorrect.
-            StructureAlignmentSampleMismatch: if the number of samples does not match the number of genotypes.
+            TypeError: If allele_encoding is not a dict or has invalid key/value types.
+            ValueError: If values are not valid IUPAC nucleotides.
         """
-        if not self.filename or not Path(self.filename).is_file():
+        if self.allele_encoding is None:
+            return
+
+        if not isinstance(self.allele_encoding, dict):
+            msg = f"allele_encoding must be a dictionary, not {type(self.allele_encoding).__name__}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        keys = self.allele_encoding.keys()
+        values = self.allele_encoding.values()
+
+        invalid_keys = [k for k in keys if not isinstance(k, (int, str))]
+        if invalid_keys:
+            msg = f"allele_encoding keys must be int or str, but got: {[type(k).__name__ for k in invalid_keys]}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        invalid_values = [v for v in values if not isinstance(v, str)]
+        if invalid_values:
+            msg = f"allele_encoding values must be str, but got: {[type(v).__name__ for v in invalid_values]}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        valid_nucleotides = {"A", "C", "G", "T", "N"}
+        unique_values = set(values)
+        non_iupac = unique_values - valid_nucleotides
+        if non_iupac:
+            msg = (
+                "allele_encoding values must be one of A, C, G, T, N. "
+                f"Invalid values found: {sorted(non_iupac)}"
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+    def _validate_alleles(
+        self, flat: List[str], line_number: int, check_ploidy: bool
+    ) -> None:
+        """Validate allele codes for a single STRUCTURE line.
+
+        Ensures:
+            - All alleles are valid according to the allele encoding.
+            - The number of alleles is even (for ploidy).
+
+        Args:
+            flat (List[str]): Flattened list of allele values as strings.
+            line_number (int): Line number in the file (1-indexed). Used for printing error reports.
+            check_ploidy (bool): If True, checks that the number of alleles is even.
+
+        Raises:
+            AlignmentFormatError: If any allele is invalid or the number of alleles is odd.
+        """
+        flat_str = [str(a) for a in flat]
+        unique_alleles = set(flat_str)
+
+        # Validate allele encodings
+        if self.allele_encoding:
+            valid_alleles = set(map(str, self.allele_encoding.keys()))
+            invalid_alleles = unique_alleles - valid_alleles
+            if invalid_alleles:
+                msg = (
+                    f"Invalid allele(s) in line {line_number}. "
+                    f"Expected {sorted(valid_alleles)}, but got: "
+                    f"{sorted(invalid_alleles)}"
+                )
+                self.logger.error(msg)
+                raise AlignmentFormatError(msg)
+        else:
+            default_valid = {"1", "2", "3", "4", "-9"}
+            invalid_alleles = unique_alleles - default_valid
+            if invalid_alleles:
+                msg = (
+                    f"Invalid allele(s) in line {line_number}. "
+                    f"Expected {sorted(default_valid)}, but got: {sorted(invalid_alleles)}"
+                )
+                self.logger.error(msg)
+                raise AlignmentFormatError(msg)
+
+        # Check ploidy (expect even number of alleles)
+        if check_ploidy and len(flat_str) % 2 != 0:
+            msg = f"Expected even number of alleles in line {line_number}, got {len(flat_str)}"
+            self.logger.error(msg)
+            raise AlignmentFormatError(msg)
+
+    def load_aln(self) -> None:
+        """Efficiently load a STRUCTURE file with optional header and population IDs.
+
+        Reads STRUCTURE files in one-row or two-row format, validating alleles and converting them to IUPAC codes.
+
+        Uses lazy streaming and vectorized NumPy operations to optimize performance and memory usage.
+
+        Raises:
+            AlignmentFileNotFoundError: If the STRUCTURE file does not exist.
+            AlignmentFormatError: If the STRUCTURE file format is incorrect.
+            StructureAlignmentSampleMismatch: If the number of samples does not match the number of genotypes.
+        """
+        path = Path(self.filename)
+        if not path.is_file():
             raise AlignmentFileNotFoundError(self.filename)
 
         self.logger.info(f"Reading STRUCTURE file {self.filename}...")
-
-        with open(self.filename, "r") as fin:
-            lines = fin.readlines()
-
-        # 1) strip off marker-name header if present
-        if self._has_marker_names:
-            hdr = lines[0].strip().split()
-            self.marker_names = hdr
-            data_lines = lines[1:]
-        else:
-            self.marker_names = None
-            data_lines = lines
-
-        # 2) detect one-row vs two-row
-        first = data_lines[0].split()
-        second = data_lines[1].split() if len(data_lines) > 1 else []
-        self._onerow = first[0] != (second[0] if second else None)
 
         samples = []
         populations = []
         raw_snps = []
 
-        try:
-            if self._onerow:
-                # pair every two alleles into one genotype
-                for i, ln in enumerate(data_lines):
-                    toks = ln.strip().split()
-                    samples.append(toks[0])
+        # Read file lazily
+        with open(path, "r") as fin:
+            lines = iter(fin)
 
+            # Marker name header (optional)
+            if self._has_marker_names:
+                self.marker_names = next(lines).strip().split()
+            else:
+                self.marker_names = None
+
+            # Peek at first two data lines to determine format
+            peek_lines = deque()
+            while len(peek_lines) < 2:
+                line = next(lines).strip()
+                if line:
+                    peek_lines.append(line)
+
+            first = peek_lines[0].split()
+            second = peek_lines[1].split() if len(peek_lines) > 1 else []
+            self._onerow = first[0] != (second[0] if second else None)
+
+            # Reinsert peeked lines back into the iterator
+            data_lines = iter(peek_lines + deque(lines))
+
+            if self._onerow:
+                for i, line in enumerate(data_lines):
+                    toks = line.strip().split()
+                    if not toks:
+                        continue
+
+                    samples.append(toks[0])
                     if self._has_popids:
                         populations.append(toks[1])
 
                     flat = toks[self.allele_start_col :]
+                    self._validate_alleles(flat, line_number=i + 1, check_ploidy=True)
 
-                    if self.allele_encoding:
-                        # check for valid alleles
-                        if not all(str(a) in self.allele_encoding for a in flat):
-                            msg = f"Invalid allele in line {i + 1}. Expected {np.unique(list(self.allele_encoding.keys()))}, but got: {np.unique(flat)}"
-                            self.logger.error(msg)
-                            raise AlignmentFormatError(msg)
-                    else:
-                        if not all(str(a) in {"1", "2", "3", "4", "-9"} for a in flat):
-                            msg = f"Invalid allele in line {i + 1}. Expected {{'1', '2', '3', '4', '-9'}}, but got: {np.unique(flat)}"
-                            self.logger.error(msg)
-                            raise AlignmentFormatError(msg)
-
-                    if len(flat) % 2 != 0:
-                        msg = f"Expected even number of alleles, got {len(flat)}"
-                        self.logger.error(msg)
-                        raise AlignmentFormatError(msg)
-
-                    merged = np.array(
-                        [f"{flat[i]}/{flat[i+1]}" for i in range(0, len(flat), 2)]
-                    )
+                    flat_arr = np.asarray(flat, dtype=str)
+                    merged = np.char.add(flat_arr[::2], "/")
+                    merged = np.char.add(merged, flat_arr[1::2])
                     raw_snps.append(merged)
+
             else:
-                # zip loci across two lines
-                for i in range(0, len(data_lines), 2):
-                    a = data_lines[i].split()
-                    b = data_lines[i + 1].split()
+                line_buffer = []
+                for i, line in enumerate(data_lines):
+                    line_buffer.append(line.strip())
+                    if len(line_buffer) < 2:
+                        continue  # wait for the second line
+
+                    a = line_buffer[0].split()
+                    b = line_buffer[1].split()
+                    line_buffer.clear()
 
                     if len(a) != len(b):
-                        msg = f"Unequal number of alleles in lines {i + 1} and {i + 2}"
+                        msg = f"Unequal number of alleles in lines {i} and {i+1}"
                         self.logger.error(msg)
                         raise AlignmentFormatError(msg)
 
                     if a[0] != b[0]:
-                        msg = f"Sample mismatch: {a[0]} vs {b[0]}"
+                        msg = (
+                            f"Sample mismatch in lines {i} and {i+1}: {a[0]} vs {b[0]}"
+                        )
                         self.logger.error(msg)
                         raise AlignmentFormatError(msg)
 
@@ -283,74 +349,47 @@ class StructureReader(GenotypeData):
                             msg = f"Population mismatch: {a[1]} vs {b[1]}"
                             self.logger.error(msg)
                             raise AlignmentFormatError(msg)
-
                         populations.append(a[1])
 
                     alleles1 = a[self.allele_start_col :]
                     alleles2 = b[self.allele_start_col :]
 
-                    if self.allele_encoding:
-                        if not all(str(a) in self.allele_encoding for a in alleles1):
-                            msg = f"Invalid allele in line {i + 1}. Expected {np.unique(list(self.allele_encoding.keys()))}, but got: {np.unique(alleles1)}"
-                            self.logger.error(msg)
-                            raise AlignmentFormatError(msg)
+                    self._validate_alleles(alleles1, line_number=i, check_ploidy=False)
+                    self._validate_alleles(
+                        alleles2, line_number=i + 1, check_ploidy=False
+                    )
 
-                        if not all(str(a) in self.allele_encoding for a in alleles2):
-                            msg = f"Invalid allele in line {i + 2}. Expected {np.unique(list(self.allele_encoding.keys()))}, but got: {np.unique(alleles2)}"
-                            self.logger.error(msg)
-                            raise AlignmentFormatError(msg)
-                    else:
-                        if not all(
-                            str(a) in {"1", "2", "3", "4", "-9"} for a in alleles1
-                        ):
-                            msg = f"Invalid allele in line {i + 1}. Expected {{'1', '2', '3', '4', '-9'}}, but got: {np.unique(alleles1)}"
-                            self.logger.error(msg)
-                            raise AlignmentFormatError(msg)
+                    arr1 = np.asarray(alleles1, dtype=str)
+                    arr2 = np.asarray(alleles2, dtype=str)
 
-                        if not all(
-                            str(a) in {"1", "2", "3", "4", "-9"} for a in alleles2
-                        ):
-                            msg = f"Invalid allele in line {i + 2}. Expected {{'1', '2', '3', '4', '-9'}}, but got: {np.unique(alleles2)}"
-                            self.logger.error(msg)
-                            raise AlignmentFormatError(msg)
-
-                    merged = np.array([f"{x}/{y}" for x, y in zip(alleles1, alleles2)])
+                    merged = np.char.add(arr1, "/")
+                    merged = np.char.add(merged, arr2)
                     raw_snps.append(merged)
 
-            # dedupe samples
-            self.samples = np.unique(samples).tolist()
+        # Validate sample count and deduplicate
+        self.samples = np.unique(samples).tolist()
 
-            if self._has_popids and len(self.samples) != len(populations):
+        if self._has_popids:
+            if len(self.samples) != len(populations):
                 msg = f"Mismatch between samples and populations: {len(self.samples)} vs {len(populations)}"
                 self.logger.error(msg)
                 raise AlignmentFormatError(msg)
 
-            if populations and self._has_popids:
-                of = Path(f"{self.prefix}_output", "gtdata")
-                of.mkdir(parents=True, exist_ok=True)
+            # Save popmap
+            out_path = Path(f"{self.prefix}_output", "gtdata", "popmap.txt")
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "w") as fout:
+                for sample, pop in zip(self.samples, populations):
+                    fout.write(f"{sample}\t{pop}\n")
+            self.popmapfile = str(out_path)
 
-                of = of / "popmap.txt"
+        if len(self.samples) != len(raw_snps):
+            raise StructureAlignmentSampleMismatch(len(self.samples), len(raw_snps))
 
-                with open(of, "w") as fout:
-                    for sample, pop in zip(self.samples, populations):
-                        fout.write(f"{sample}\t{pop}\n")
+        # Convert to IUPAC codes with a vectorized or list-based approach
+        self.snp_data = np.array(
+            [list(map(self._genotype_to_iupac, row)) for row in raw_snps], dtype="<U1"
+        )
 
-                self.popmapfile = str(of)
-
-            if len(self.samples) != len(raw_snps):
-                raise StructureAlignmentSampleMismatch(len(self.samples), len(raw_snps))
-
-            # map "n/m" → IUPAC
-            self.snp_data = np.array(
-                [list(map(self._genotype_to_iupac, row)) for row in raw_snps],
-                dtype="<U1",
-            )
-
-            self.logger.info("STRUCTURE file successfully loaded!")
-            self.logger.info(
-                f"Found {self.num_snps} SNPs and {self.num_inds} individuals."
-            )
-
-        except (AlignmentError, Exception) as e:
-            self.logger.error(f"Error reading STRUCTURE file: {e}")
-            raise
+        self.logger.info("STRUCTURE file successfully loaded!")
+        self.logger.info(f"Found {self.num_snps} SNPs and {self.num_inds} individuals.")
