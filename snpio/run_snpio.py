@@ -75,11 +75,12 @@ def main():
     print(f"  🐛 Debug:           {args.debug}")
     print()
 
-    genotype_data = StructureReader(
+    genotype_data = VCFReader(
         filename=args.input,
         popmapfile=args.popmap,
         force_popmap=True,
-        allele_encoding={"0": "A", "1": "C", "2": "G", "3": "T", "-9": "N"},
+        chunk_size=5000,
+        # allele_encoding={"0": "A", "1": "C", "2": "G", "3": "T", "-9": "N"},
         exclude_pops=["OG", "DS"],
         prefix=args.prefix,
         plot_format=args.plot_format,
@@ -87,17 +88,29 @@ def main():
         debug=args.debug,
     )
 
+    genotype_data.write_structure(
+        f"{args.prefix}_output/gtdata/alignments/output.str",
+        popids=True,
+        marker_names=True,
+    )
+
     nrm = NRemover2(genotype_data)
 
     gd_filt = (
-        nrm.filter_missing_sample(0.8)
+        nrm.filter_monomorphic(exclude_heterozygous=True)
+        .filter_missing_sample(0.8)
         .filter_missing(0.5)
         .filter_missing_pop(0.5)
         .filter_maf(0.01)
         .filter_biallelic(exclude_heterozygous=True)
-        .filter_monomorphic(exclude_heterozygous=True)
         .filter_singletons(exclude_heterozygous=True)
         .resolve()
+    )
+
+    gd_filt.write_structure(
+        f"{args.prefix}_output/gtdata/alignments/filtered.str",
+        popids=True,
+        marker_names=True,
     )
 
     nrm.plot_sankey_filtering_report()
@@ -106,7 +119,7 @@ def main():
     pgs = PopGenStatistics(gd_filt, verbose=args.verbose, debug=args.debug)
 
     summary_stats = pgs.summary_statistics(
-        n_permutations=10, n_jobs=1, use_pvalues=True
+        n_permutations=10, n_jobs=2, use_pvalues=True
     )
 
     neis_dist = pgs.neis_genetic_distance(n_permutations=10, n_jobs=1, use_pvalues=True)
@@ -122,7 +135,7 @@ def main():
         debug=args.debug,
     )
 
-    plotter.run_pca()
+    # plotter.run_pca()
 
 
 if __name__ == "__main__":
