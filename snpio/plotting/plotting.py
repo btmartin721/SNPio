@@ -465,20 +465,38 @@ class Plotting:
         sns.set_style("white")
         sns.despine()
 
-        sns.histplot(
-            dist,
-            bins=30,
-            kde=True,
-            color="darkorchid",
-            alpha=0.7,
-            label="Permutation Distribution",
-            fill=True,
-            legend=True,
-        )
+        if dist.size == 0:
+            self.logger.warning(
+                f"No permutation distribution data available for {pop1_label} vs {pop2_label}. Skipping plot."
+            )
+            return
+
+        try:
+            sns.histplot(
+                dist,
+                bins="auto",
+                kde=True,
+                color="darkorchid",
+                alpha=0.7,
+                label="Permutation Distribution",
+                fill=True,
+                legend=True,
+            )
+        except Exception as e:
+            self.logger.warning(
+                f"Error plotting permutation histogram for populations {pop1_label} and {pop2_label}: {e}"
+            )
+            return
+
         plt.axvline(obs_fst, color="orange", linestyle="--", label="Observed Fst")
+
         plt.axvline(
-            dist.mean(), color="limegreen", linestyle="--", label="Mean Permuted Fst"
+            dist.mean(),
+            color="limegreen",
+            linestyle="--",
+            label="Mean Permuted Fst",
         )
+
         plt.title(f"Permutation Dist: {pop1_label} vs {pop2_label}")
         plt.xlabel("Fst")
         plt.ylabel("Frequency")
