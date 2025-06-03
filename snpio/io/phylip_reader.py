@@ -12,6 +12,7 @@ from snpio.utils.custom_exceptions import (
     SequenceLengthError,
 )
 from snpio.utils.logging import LoggerManager
+from snpio.utils.misc import IUPAC
 
 
 class PhylipReader(GenotypeData):
@@ -122,6 +123,8 @@ class PhylipReader(GenotypeData):
         self.debug = debug
 
         self.resource_data = {}
+
+        self.iupac = IUPAC(logger=self.logger)
 
         # Initialize the parent class GenotypeData
         super().__init__(
