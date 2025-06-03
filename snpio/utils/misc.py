@@ -1,10 +1,9 @@
 import logging
+from itertools import permutations
 from typing import Dict, List
 
 import numpy as np
 import pandas as pd
-
-from snpio.utils.logging import LoggerManager
 
 
 class IUPAC:
@@ -46,6 +45,10 @@ class IUPAC:
         Raises:
             ValueError: If `multilab_value` is not between 0 and 1.
         """
+        if logger is None:
+            msg = "Logger is a required argument for IUPAC class."
+            self.logger.error(msg)
+            raise TypeError(msg)
 
         self.multilab_value: float = multilab_value
         self.gt2iupac: Dict[str, str] = self.get_gt2iupac()
@@ -54,11 +57,7 @@ class IUPAC:
         self.onehot_dict: Dict[str, List[float]] = self.get_onehot_dict()
         self.ambiguous_dna_values: Dict[str, str] = self.get_iupac_ambiguous()
 
-        if logger is not None:
-            self.logger = logger
-        else:
-            logman = LoggerManager(__name__, prefix="snpio", verbose=False, debug=False)
-            self.logger: logging.Logger = logman.get_logger()
+        self.logger = logger
 
         if multilab_value <= 0 or multilab_value > 1:
             msg: str = (
@@ -66,6 +65,106 @@ class IUPAC:
             )
             self.logger.error(msg)
             raise ValueError(msg)
+
+        # IUPAC ambiguity codes for unordered heterozygous pairs
+        self.iupac_ambiguity = {
+            frozenset(["A", "C"]): "M",
+            frozenset(["A", "G"]): "R",
+            frozenset(["A", "T"]): "W",
+            frozenset(["C", "G"]): "S",
+            frozenset(["C", "T"]): "Y",
+            frozenset(["G", "T"]): "K",
+        }
+
+    def get_phased_encoding(self) -> Dict[str, str]:
+        """Get a dictionary of phased encoding for IUPAC codes.
+
+        This method returns a dictionary that maps IUPAC codes to their phased encoding. The phased encoding is used to represent the alleles in a phased manner, where each allele is represented as "A/A", "T/T", etc.
+
+        Returns:
+            Dict[str, str]: A dictionary mapping IUPAC codes to their phased encoding.
+        """
+        phased_encoding = {
+            "A": "A/A",
+            "T": "T/T",
+            "C": "C/C",
+            "G": "G/G",
+            "N": "N/N",
+            ".": "N/N",
+            "?": "N/N",
+            "-": "N/N",
+            "W": "A/T",
+            "S": "C/G",
+            "Y": "C/T",
+            "R": "A/G",
+            "K": "G/T",
+            "M": "A/C",
+            "H": "A/C",
+            "B": "A/G",
+            "D": "C/T",
+            "V": "A/G",
+        }
+
+        return phased_encoding
+
+    def get_tuple_to_iupac(self) -> dict[tuple[str, str], str]:
+        """Return a dictionary mapping base tuples to IUPAC codes.
+
+        The IUPAC codes are used to represent ambiguous bases in DNA sequences.
+
+        Returns:
+            dict[tuple[str, str], str]: A dictionary mapping base tuples to IUPAC codes.
+        """
+        iupac_base_map = {
+            frozenset(["A", "G"]): "R",
+            frozenset(["C", "T"]): "Y",
+            frozenset(["G", "C"]): "S",
+            frozenset(["A", "C"]): "M",
+            frozenset(["G", "T"]): "K",
+            frozenset(["A", "T"]): "W",
+            frozenset(["A", "C", "G"]): "V",
+            frozenset(["A", "C", "T"]): "H",
+            frozenset(["A", "G", "T"]): "D",
+            frozenset(["C", "G", "T"]): "B",
+            frozenset(["A", "C", "G", "T"]): "N",
+            frozenset(["A"]): "A",
+            frozenset(["C"]): "C",
+            frozenset(["G"]): "G",
+            frozenset(["T"]): "T",
+            frozenset(["N"]): "N",
+        }
+
+        return {
+            perm: code
+            for bases, code in iupac_base_map.items()
+            for perm in permutations(bases, len(bases))
+        }
+
+    def encode_genepop_pair(
+        self, allele1: str, allele2: str, allele_map: dict[str, str]
+    ) -> str:
+        """Convert a pair of allele codes to IUPAC code.
+
+        Args:
+            allele1 (str): Encoded allele (e.g., "01", "001").
+            allele2 (str): Encoded allele (e.g., "02", "003").
+            allele_map (dict[str, str]): Mapping of allele strings to bases (e.g., "01" → "A").
+
+        Returns:
+            str: IUPAC code (A, C, G, T, M, R, W, S, Y, K) or "N" if invalid/missing.
+        """
+        base1 = allele_map.get(allele1, "N")
+        base2 = allele_map.get(allele2, "N")
+
+        if base1 == "N" or base2 == "N":
+            if hasattr(self, "logger"):
+                self.logger.debug(f"Unknown alleles: {allele1}/{allele2} → N")
+            return "N"
+
+        if base1 == base2:
+            return base1
+
+        return self.iupac_ambiguity.get(frozenset([base1, base2]), "N")
 
     def get_iupac_int_map(self) -> Dict[str, int]:
         """Get a dictionary of IUPAC ambiguity codes to integers.
@@ -104,10 +203,10 @@ class IUPAC:
     def get_iupac_ambiguous(self) -> Dict[str, str]:
         """Get a dictionary of IUPAC ambiguity values.
 
-        This dictionary contains the IUPAC ambiguity values for DNA sequences. The keys are the IUPAC ambiguity codes and the values are the corresponding DNA bases or ambiguity codes as strings.
+        This dictionary contains the IUPAC ambiguity values for DNA sequences. The keys are the IUPAC ambiguity codes and the values are the corresponding DNA bases or ambiguity codes as strings with no delimiter.
 
         Returns:
-            Dict[str, str]: A dictionary of IUPAC ambiguity values.
+            Dict[str, str]: A dictionary of IUPAC ambiguity values with no delimiter.
 
 
         Example:
@@ -134,38 +233,15 @@ class IUPAC:
             "N": "GATC",
         }
 
-    def get_gt2iupac_0based(self) -> Dict[str, str]:
+    def get_gt2iupac(self) -> Dict[str, str]:
         """Get a dictionary of genotype to IUPAC ambiguity codes.
 
-        This method returns a dictionary of genotype to IUPAC ambiguity codes. The keys are the genotypes and the values are the corresponding IUPAC ambiguity codes. The genotype values are 0-based, meaning that the first genotype is represented by 0.
+        This method returns a dictionary of genotype to IUPAC ambiguity codes. The keys are the genotypes in the format "1/1", "2/2", etc., and the values are the corresponding IUPAC ambiguity codes. The IUPAC ambiguity codes are used to represent ambiguous bases in DNA sequences.
 
-        Returns:
-            Dict[str, str]: A dictionary of genotype to IUPAC ambiguity codes.
-
-        """
-        return {
-            "0/0": "A",
-            "1/1": "C",
-            "2/2": "G",
-            "3/3": "T",
-            "0/1": "M",  # A/C
-            "1/0": "M",
-            "0/2": "R",  # A/G
-            "2/0": "R",
-            "0/3": "W",  # A/T
-            "3/0": "W",
-            "1/2": "S",  # C/G
-            "2/1": "S",
-            "1/3": "Y",  # C/T
-            "3/1": "Y",
-            "2/3": "K",  # G/T
-            "3/2": "K",
-            "-9/-9": "N",  # Missing data
-            "-1/-1": "N",
-        }
-
-    def get_gt2iupac(self) -> Dict[str, str]:
-        """Get a dictionary of genotype to IUPAC ambiguity codes."
+        Example:
+            >>> iupac_data = IUPAC()
+            >>> print(iupac_data.gt2iupac)
+            >>> # Outputs: {'1/1': 'A', '2/2': 'C', '3/3': 'G', '4/4': 'T', '1/2': 'M', '1/3': 'R', '1/4': 'W', '2/3': 'S', '2/4': 'Y', '3/4': 'K', '-9/-9': 'N', '-1/-1': 'N'}
 
         Returns:
             Dict[str, str]: A dictionary of genotype to IUPAC ambiguity codes.
@@ -188,6 +264,13 @@ class IUPAC:
     def get_iupac2gt(self) -> Dict[str, str]:
         """Get a dictionary of IUPAC ambiguity codes to genotype.
 
+        This method returns a dictionary of IUPAC ambiguity codes to genotype. The keys are the IUPAC ambiguity codes and the values are the corresponding genotypes in the format "1/1", "2/2", etc. The IUPAC ambiguity codes are used to represent ambiguous bases in DNA sequences.
+
+        Example:
+            >>> iupac_data = IUPAC()
+            >>> print(iupac_data.iupac2gt)
+            >>> # Outputs: {'A': '1/1', 'C': '2/2', 'G': '3/3', 'T': '4/4', 'M': '1/2', 'R': '1/3', 'W': '1/4', 'S': '2/3', 'Y': '2/4', 'K': '3/4', 'N': '-9/-9'}
+
         Returns:
             Dict[str, str]: A dictionary of IUPAC ambiguity codes to genotype.
         """
@@ -209,6 +292,8 @@ class IUPAC:
         """Get a dictionary of IUPAC ambiguity codes to integers.
 
         This dictionary is used to convert IUPAC ambiguity codes to integers. It differs from the `get_iupac_int_map` function in that it only includes the main IUPAC codes and not the extended codes.
+
+        The integer values are assigned as follows: `A=0, T=1, G=2, C=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9`.
 
         Returns:
             Dict[str, int]: A dictionary of IUPAC ambiguity codes to integers.
@@ -234,6 +319,8 @@ class IUPAC:
 
     def get_onehot_dict(self) -> Dict[str, List[float]]:
         """Get a dictionary of IUPAC ambiguity codes to one-hot encoded vectors.
+
+        This method returns a dictionary where each key is an IUPAC ambiguity code and the value is a one-hot encoded vector representing that code. The one-hot encoding is a list of floats where the index corresponding to the IUPAC code is set to `multilab_value` and all other indices are set to 0.0.
 
         Returns:
             Dict[str, List[float]]: A dictionary of IUPAC ambiguity codes to one-hot encoded vectors
@@ -316,26 +403,6 @@ class IUPAC:
             bool: True if the attribute exists, False otherwise.
         """
         return hasattr(self, key)
-
-    def __len__(self) -> List[int]:
-        """Return the number of main data dictionaries.
-
-        Returns:
-            List[int]: The number of main data dictionaries.
-        """
-        return len(
-            [attr for attr in vars(self) if isinstance(getattr(self, attr), dict)]
-        )
-
-    def __iter__(self):
-        """Iterate over main dictionary attributes.
-
-        Returns:
-            Generator[str, Dict[str, Dict[str, str | List[float]]]]: A generator of main dictionary attributes
-        """
-        for attr, value in vars(self).items():
-            if isinstance(value, dict):
-                yield attr, value
 
 
 def validate_input_type(
