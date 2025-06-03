@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 class LoggerManager:
-    """A modular and fully-featured logger class for managing logging across modules.
+    """A logger class for managing logging across modules.
 
     This class sets up a logger with the specified name, log file, and logging level. It supports logging to both stdout and a file, with customizable formats and date formats.
 
@@ -60,22 +60,24 @@ class LoggerManager:
             log_format (str, optional): Format of the log messages.
             date_format (str, optional): Format of the date in log messages.
         """
-        self.name = name
-        self.logger = logging.getLogger(name)
-        self.verbose = verbose
+        self.name: str = name
+        self.logger: logging.Logger = logging.getLogger(name)
+        self.verbose: bool = verbose
 
         # Set default log level to INFO
         self.logger.setLevel(logging.INFO)
 
         # Determine log level
-        if level is not None:
-            self.logger.setLevel(level)
+        if level:
+            self.set_level(level)
         elif debug:
-            self.logger.setLevel(logging.DEBUG)
+            self.set_level("DEBUG")
         else:
-            self.logger.setLevel(logging.INFO)
+            self.set_level("INFO")
 
-        formatter = logging.Formatter(fmt=log_format, datefmt=date_format)
+        formatter: logging.Formatter = logging.Formatter(
+            fmt=log_format, datefmt=date_format
+        )
 
         # Check if handlers already exist to prevent duplicates
         if not self.logger.handlers:
@@ -105,13 +107,9 @@ class LoggerManager:
                 handlers.append(file_handler)
 
             # Apply verbose filtering if necessary
+            hlevel: int = logging.NOTSET if verbose else logging.WARNING
             for handler in handlers:
-                if not verbose:
-                    # Set handler level to ERROR to suppress INFO and WARNING
-                    handler.setLevel(logging.ERROR)
-                else:
-                    # Ensure handler level is not set (inherits logger level)
-                    handler.setLevel(logging.NOTSET)
+                handler.setLevel(hlevel)
                 self.logger.addHandler(handler)
 
     def get_logger(self) -> logging.Logger:
@@ -130,37 +128,20 @@ class LoggerManager:
         """
         loglevel: int = logging.NOTSET
 
-        if self.verbose:
-            if level == "DEBUG":
-                loglevel = logging.DEBUG
-            elif level == "INFO":
-                loglevel = logging.INFO
-            elif level == "WARNING":
-                loglevel = logging.WARNING
-            elif level == "ERROR":
-                loglevel = logging.ERROR
-            elif level == "CRITICAL":
-                loglevel = logging.CRITICAL
-            else:
-                raise ValueError(
-                    "Invalid logging level. Choose from DEBUG, INFO, WARNING, ERROR, CRITICAL."
-                )
-
+        if level == "DEBUG":
+            loglevel = logging.DEBUG
+        elif level == "INFO":
+            loglevel = logging.INFO
+        elif level == "WARNING":
+            loglevel = logging.WARNING
+        elif level == "ERROR":
+            loglevel = logging.ERROR
+        elif level == "CRITICAL":
+            loglevel = logging.CRITICAL
         else:
-            if level == "DEBUG":
-                loglevel = logging.DEBUG
-            elif level == "INFO":
-                loglevel = logging.ERROR
-            elif level == "WARNING":
-                loglevel = logging.ERROR
-            elif level == "ERROR":
-                loglevel = logging.ERROR
-            elif level == "CRITICAL":
-                loglevel = logging.CRITICAL
-            else:
-                raise ValueError(
-                    "Invalid logging level. Choose from DEBUG, INFO, WARNING, ERROR, CRITICAL."
-                )
+            raise ValueError(
+                "Invalid logging level. Choose from DEBUG, INFO, WARNING, ERROR, CRITICAL."
+            )
 
         self.logger.setLevel(loglevel)
 
