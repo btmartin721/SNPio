@@ -244,6 +244,8 @@ class VCFReader(GenotypeData):
             self.num_records = ilen(vcf)
             vcf.reset()
 
+            self.chunk_size = min(self.chunk_size, self.num_records)
+
             self.vcf_attributes_fn, self.snp_data, self.samples = (
                 self.get_vcf_attributes(vcf, chunk_size=self.chunk_size)
             )
