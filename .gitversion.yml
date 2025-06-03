@@ -1,0 +1,20 @@
+mode: ContinuousDeployment
+branches:
+  main:
+    regex: ^main$
+    increment: Patch
+    prevent-increment-of-merged-branch-version: true
+    track-merge-target: false
+    is-source-branch-for: []
+    is-release-branch: true
+    tag: ""
+  master:
+    regex: ^master$
+    increment: Patch
+    prevent-increment-of-merged-branch-version: true
+    track-merge-target: false
+    is-source-branch-for: []
+    is-release-branch: true
+    tag: ""
+ignore:
+  sha: []
