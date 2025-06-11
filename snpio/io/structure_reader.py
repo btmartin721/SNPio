@@ -6,7 +6,6 @@ import numpy as np
 
 from snpio.read_input.genotype_data import GenotypeData
 from snpio.utils.custom_exceptions import (
-    AlignmentError,
     AlignmentFileNotFoundError,
     AlignmentFormatError,
     StructureAlignmentSampleMismatch,
