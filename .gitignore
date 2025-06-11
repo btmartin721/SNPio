@@ -1,13 +1,28 @@
+#===============================================================================
+# OS Files
+#===============================================================================
+.DS_Store
+
+#===============================================================================
 # Byte-compiled / optimized / DLL files
+#===============================================================================
 __pycache__/
 *.py[cod]
 *$py.class
 
+#===============================================================================
 # Python C extensions
+#===============================================================================
 *.so
 
+#===============================================================================
 # Distribution / packaging
+#===============================================================================
 .Python
+.installed.cfg
+*.egg
+*.egg-info/
+MANIFEST
 build/
 develop-eggs/
 dist/
@@ -18,53 +33,69 @@ lib/
 lib64/
 parts/
 sdist/
+share/python-wheels/
 var/
 wheels/
 pip-wheel-metadata/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
+#===============================================================================
 # Installer logs
+#===============================================================================
 pip-log.txt
 pip-delete-this-directory.txt
 
+#===============================================================================
 # Dependency files
+#===============================================================================
 Pipfile
 # Pipfile.lock
 
+#===============================================================================
 # Environments
+#===============================================================================
 .env
 .venv
+.venv*
 env/
-venv/
-ENV/
 env.bak/
+venv/
 venv.bak/
-.snpio-release
-.snpio-pypitest
-.snpio-pip
-.snpio-pip/bin/python
-.snpio-test
-.snpio-*/
-python
-python3
+ENV/
 
+# pyenv
+.python-version
+
+#===============================================================================
+# PEP 582
+#===============================================================================
+__pypackages__/
+
+#===============================================================================
 # Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
+#===============================================================================
 .cache
-nosetests.xml
-coverage.xml
-*.cover
+.coverage
 .hypothesis/
 .pytest_cache/
+.tox/
+.nox/
+*.cover
+coverage.xml
+htmlcov/
+nosetests.xml
 
+#===============================================================================
+# Type Checkers
+#===============================================================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+#===============================================================================
 # Web Frameworks
+#===============================================================================
+
 # Django
 *.log
 local_settings.py
@@ -78,22 +109,31 @@ instance/
 # Scrapy
 .scrapy
 
+#===============================================================================
 # Task Runners and Schedulers
+#===============================================================================
+
 # Celery
 celerybeat-schedule
 celerybeat.pid
 
+#===============================================================================
 # Translation files
+#===============================================================================
 *.mo
 *.pot
 
+#===============================================================================
 # Documentation
+#===============================================================================
 docs/_build/
 docs/build/
-# mkdocs
 /site
 
+#===============================================================================
 # IDE and Notebook files
+#===============================================================================
+
 # Jupyter
 .ipynb_checkpoints
 
@@ -108,48 +148,30 @@ ipython_config.py
 # Rope
 .ropeproject
 
-# Type Checkers
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre
-.pyre/
-
+#===============================================================================
 # AppMap
+#===============================================================================
 appmap.yml
 
-# PEP 582
-__pypackages__/
-
-# pyenv
-.python-version
-
+#===============================================================================
 # SageMath
+#===============================================================================
 *.sage.py
 
+#===============================================================================
 # Project-Specific Files
+#===============================================================================
+.snpio-*/
+.snpio-pip
+.snpio-pip/bin/python
+.snpio-pypitest
+.snpio-release
+.snpio-test
 sfs_*
 snpio_plots/
 snpio_output/
-unfiltered_reports/
-snpio/example_data/vcf_files/phylogen.vcf
-vcf_attributes.h5
-phylogen.vcf
-phylogen.vcf.gz
-phylogen.vcf.gz.csi
-phylogen.vcf.gz.tbi
-gtdata_test.vcf
-nremover_test.vcf
-gtdata_test.vcf
-nremover_test.phy
-nremover_test.str
-test.popmap
-test.popmap.rearr.txt
-
-# Output and Benchmarking files
 snpio_filtered_output/
+unfiltered_reports/
 vcf_output/
 logs/
 profile_stats_*.txt
@@ -159,23 +181,31 @@ header.txt
 filtered_missingness_report.png
 pca_missingness.html
 filtering_results_sankey_thresholds*.html
+snpio/example_data/vcf_files/phylogen.vcf
+vcf_attributes.h5
+phylogen.vcf
+phylogen.vcf.gz
+phylogen.vcf.gz.csi
+phylogen.vcf.gz.tbi
+gtdata_test.vcf
+nremover_test.vcf
+nremover_test.phy
+nremover_test.str
+test.popmap
+test.popmap.rearr.txt
+.commit
+snpio_workflow.*
+snpio_workflow_*.png
+snpio_workflow_*.pdf
+snpio_workflow_*.svg
+snpio_workflow_*.html
+dryad_files/
+conda_build_artifacts/
 
-# OS files
-.DS_Store
-
-# Miscellaneous
-all_packages.txt
-*.csv
-*.lock
-*.h5
-_minted-input
-header.txt
-keybindings.json
-tasks.json
-
-.venv*
-
-# Analysis/ Validation files
+#===============================================================================
+# Analysis / Validation files
+#===============================================================================
+MAS/
 MAS_*
 analysis_compare*_output/
 real_data*_output/
@@ -186,23 +216,8 @@ simulated_genotypes.txt
 SNPio_HierFstat_*
 simulated_comparison*_output/
 simulated_comparison_*/
-scripts/simulated_data_*
-scripts/simulated_data.*
-adegenet_analysis.R
-validation/
-*.RData
-*.Rhistory
-*.R
-BOX_analysis_output/
-BOX_analysis_final*
 test_write_*_output/
-snpio_workflow.*
 test_write_output/
-BOX_analysis*_output/
-snpio_workflow_*.png
-snpio_workflow_*.pdf
-snpio_workflow_*.svg
-snpio_workflow_*.html
 test_write.*
 bayescan.*
 flow_diagram_clustered_mini.*
@@ -211,7 +226,44 @@ test_*_output/
 snpio_dryad_tests_*_output/
 snpio_dryad_tests_output/
 snpio_validation_and_tests/
-snpio_output_benchmarking*/
-dryad_files/
-conda_build_artifacts/
-.commit
+BOX_analysis_output/
+BOX_analysis_final*
+BOX_analysis*_output/
+adegenet_analysis.R
+validation/
+*.RData
+*.Rhistory
+*.R
+
+#===============================================================================
+# Benchmarking / Profiling scripts and results
+#===============================================================================
+benchmark_results_4Jun25/
+benchmark_results_6Jun25/
+proc_*benchmark_*.py
+proc_*benchmark_*.zsh
+flow_diagram.py
+flow_diagram_clustered.py
+flow_diagram_clustered_mini.py
+run_snpio_benchmarks*.py
+run_snpio_filters.py
+run_snpio_nremover*.zsh
+run_hyperfine*.zsh
+run_memory*.zsh
+run_benchmark*.zsh
+proc_filter_benchmark_results.zsh
+proc_filter_behchmark_results.zsh
+Rplots.pdf
+
+#===============================================================================
+# Miscellaneous
+#===============================================================================
+all_packages.txt
+*.csv
+*.lock
+*.h5
+_minted-input
+keybindings.json
+tasks.json
+python
+python3
