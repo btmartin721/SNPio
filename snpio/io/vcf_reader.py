@@ -1,3 +1,4 @@
+import gc
 from collections import deque
 from functools import lru_cache
 from itertools import count
@@ -589,10 +590,20 @@ class VCFReader(GenotypeData):
         Raises:
             FileNotFoundError: If the VCF attributes file is not found.
         """
-        if snp_data.size == 0 or np.count_nonzero(loci_indices) == 0:
-            self.logger.warning(
-                "No loci left after filtering. Skipping VCF attribute update."
-            )
+        new_size = np.count_nonzero(loci_indices)
+        new_sample_size = np.count_nonzero(sample_indices)
+
+        if snp_data.size == 0 or new_size == 0 or new_sample_size == 0:
+            if snp_data.size == 0:
+                self.logger.warning("snp_data is empty. Skipping VCF attribute update.")
+            elif new_size == 0:
+                self.logger.warning(
+                    "No loci left after filtering. Skipping VCF attribute update."
+                )
+            elif new_sample_size == 0:
+                self.logger.warning(
+                    "No samples left after filtering. Skipping VCF attribute update."
+                )
             return
 
         self.snp_data = snp_data
@@ -608,10 +619,12 @@ class VCFReader(GenotypeData):
             self.logger.error(msg)
             raise FileNotFoundError(msg)
 
-        new_size = np.count_nonzero(loci_indices)
-
         def process_chunk(
-            dataset_name: str, dtype: Any, fw: h5py.File, fr: h5py.File
+            dataset_name: str,
+            dtype: Any,
+            fw: h5py.File,
+            fr: h5py.File,
+            sample_size: int | None = None,
         ) -> None:
             """Process a chunk of data and write it to the HDF5 file.
 
@@ -620,14 +633,22 @@ class VCFReader(GenotypeData):
                 dtype (Any): The data type of the dataset.
                 fw (h5py.File): The HDF5 file to write to.
                 fr (h5py.File): The HDF5 file to read from.
+                sample_size (int | None): The size of the sample to process. Defaults to None.
             """
-            chunk_size_inner = self.chunk_size
+            new_shape = (new_size, sample_size) if sample_size else (new_size,)
+
+            chunk_size_inner = min(self.chunk_size, new_size)
             dset_size = fr[dataset_name].shape[0]
             fw.create_dataset(
                 dataset_name,
                 dtype=dtype,
-                shape=(new_size,),
-                maxshape=(None,),
+                shape=new_shape,
+                maxshape=new_shape,
+                chunks=(
+                    (chunk_size_inner, sample_size)
+                    if sample_size
+                    else (chunk_size_inner,)
+                ),
                 compression="lzf",
             )
 
@@ -637,11 +658,17 @@ class VCFReader(GenotypeData):
 
             while start_idx < dset_size:
                 end_idx = min(start_idx + chunk_size_inner, dset_size)
-                chunk = fr[dataset_name][start_idx:end_idx]
 
+                # Get the chunk of data from the original dataset
+                chunk = fr[dataset_name][start_idx:end_idx]
                 chunk_indices = global_indices[start_idx:end_idx]
                 mask = loci_indices[chunk_indices]
-                filtered_chunk = chunk[mask]
+
+                filtered_chunk = (
+                    chunk[mask]
+                    if sample_size is None
+                    else chunk[mask][self.sample_indices]
+                )
 
                 # Cast to proper dtype to avoid HDF5 conversion errors
                 filtered_chunk = np.array(filtered_chunk, dtype=dtype)
@@ -652,27 +679,48 @@ class VCFReader(GenotypeData):
                 write_idx += filtered_chunk.size
                 start_idx = end_idx
 
+                del chunk, filtered_chunk, mask
+                gc.collect()
+
         with h5py.File(hdf5_file_filt, "w") as fw, h5py.File(hdf5_file_path, "r") as fr:
-            string_dtype = h5py.string_dtype(encoding="utf-8")
 
             datasets_to_process = [
-                ("chrom", string_dtype),
-                ("pos", np.int32),
-                ("id", string_dtype),
-                ("ref", string_dtype),
-                ("alt", string_dtype),
-                ("qual", string_dtype),
-                ("filt", string_dtype),
-                ("fmt", string_dtype),
+                ("chrom", h5py.string_dtype(encoding="utf-8")),
+                ("pos", h5py.string_dtype(encoding="utf-8")),
+                ("id", h5py.string_dtype(encoding="utf-8")),
+                ("ref", h5py.string_dtype(encoding="utf-8", length=1)),
+                ("alt", h5py.string_dtype(encoding="utf-8", length=10)),
+                ("qual", h5py.string_dtype(encoding="utf-8", length=10)),
+                ("filt", h5py.string_dtype(encoding="utf-8", length=4)),
+                ("fmt", h5py.string_dtype(encoding="utf-8")),
             ]
 
-            for dataset_name, dtype in datasets_to_process:
+            [
                 process_chunk(dataset_name, dtype, fw, fr)
+                for dataset_name, dtype in datasets_to_process
+            ]
 
             if "info" in fr:
                 fw.create_group("info")
-                for key in fr["info"]:
-                    process_chunk(f"info/{key}", string_dtype, fw, fr)
+                [
+                    process_chunk(
+                        f"info/{key}", h5py.string_dtype(encoding="utf-8"), fw, fr
+                    )
+                    for key in fr["info"]
+                ]
+
+            if self.store_format_fields and "fmt_metadata" in fr:
+                fw.create_group("fmt_metadata")
+                [
+                    process_chunk(
+                        f"fmt_metadata/{fmt_key}",
+                        h5py.string_dtype(encoding="utf-8"),
+                        fw,
+                        fr,
+                        sample_size=new_sample_size,
+                    )
+                    for fmt_key in fr["fmt_metadata"]
+                ]
 
         self.vcf_attributes_fn = hdf5_file_filt
         return self.vcf_attributes_fn
