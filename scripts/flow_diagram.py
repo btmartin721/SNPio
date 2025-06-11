@@ -30,8 +30,9 @@ def create_snpio_clustered_diagram(output_filename: str = "snpio_workflow_cluste
 
     # INPUT Cluster
     with dot.subgraph(name="cluster_input") as c:
-        c.attr(label="Input", color=color_input, style="filled", fillcolor="#E0F3F8")
-        c.node("Input", "VCF Input (VCFReader)", fillcolor=color_input)
+        c.attr(label="File IO", color=color_input, style="filled", fillcolor="#E0F3F8")
+        c.node("InputVCF", "VCF Input (VCFReader)", fillcolor=color_input)
+        c.node("InputGenePop", "GenePop Input (GenePopReader)", fillcolor=color_input)
 
     # FILTERING Cluster
     with dot.subgraph(name="cluster_filtering") as c:
@@ -110,14 +111,21 @@ def create_snpio_clustered_diagram(output_filename: str = "snpio_workflow_cluste
             fillcolor="#DDDDDD",
         )
         c.node(
-            "Export", "Export Outputs (VCF, PHYLIP, STRUCTURE)", fillcolor=color_export
+            "Export",
+            "Export Outputs (VCF, PHYLIP, STRUCTURE, GenePop)",
+            fillcolor=color_export,
         )
 
     # Edges (Connections)
-    dot.edge("Input", "FilterMissing")
-    dot.edge("Input", "FilterAllele")
-    dot.edge("Input", "FilterBiallelic")
-    dot.edge("Input", "FilterThinning")
+    dot.edge("InputVCF", "FilterMissing")
+    dot.edge("InputVCF", "FilterAllele")
+    dot.edge("InputVCF", "FilterBiallelic")
+    dot.edge("InputVCF", "FilterThinning")
+
+    dot.edge("InputGenePop", "FilterMissing")
+    dot.edge("InputGenePop", "FilterAllele")
+    dot.edge("InputGenePop", "FilterBiallelic")
+    dot.edge("InputGenePop", "FilterThinning")
 
     dot.edge("FilterMissing", "ResolveFilters")
     dot.edge("FilterAllele", "ResolveFilters")
