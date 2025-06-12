@@ -1,15 +1,15 @@
 Example script
 ===============
 
-The ``run_snpio.py`` script provides a template you can use to get started. It demonstrates how to use the main classes in the package. The script reads a VCF file, a popmap file, and a tree file, and then runs various analyses on the data. The script also demonstrates how to encode genotypes into different formats, filter the data, and parse a tree file. The script is located in the ``snpio`` directory. To run the script, navigate to the ``snpio`` directory and run the following command:
+The ``run_snpio.py`` script provides a template you can use to get started. It demonstrates how to use the main classes in the package. The script reads a VCF file, a popmap file, and a tree file, and then runs various analyses on the data. The script also demonstrates how to encode genotypes into different formats, filter the data, and parse a tree file. The script is located in the ``snpio`` directory. To run the script, run the following command from the project root directory, assuming you have installed the package and its dependencies:
 
 .. code-block:: shell
 
-   python3 run_snpio.py
+   python3 snpio/run_snpio.py
 
 It will then run the example data.
 
-Below is the code for the script:
+Below is the code for the example script:
 
 .. code-block:: python
 
@@ -22,12 +22,8 @@ Below is the code for the script:
       PopGenStatistics,
       TreeParser,
       VCFReader,
+      GenePopReader,
    )
-
-   # Uncomment the following line to import the Benchmark class.
-   # NOTE: For development purposes. Comment out for normal use.
-   # from snpio.utils.benchmarking import Benchmark
-
 
    def main():
       # Read the alignment, popmap, and tree files.
@@ -40,66 +36,22 @@ Below is the code for the script:
          plot_format="pdf",
       )
 
-      pgs = PopGenStatistics(gd, verbose=True)
-
-      summary_stats = pgs.summary_statistics(save_plots=True)
-
-      df_fst_outliers_boot, df_fst_outlier_pvalues_boot = pgs.detect_fst_outliers(
-         correction_method="bonf",
-         use_bootstrap=True,
-         n_bootstraps=1000,
-         n_jobs=1,
-         tail_direction="upper",
-      )
-
-      df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
-         correction_method="bonf", use_bootstrap=False, n_jobs=1
-      )
-
-      # NOTE: Takes a while to run.
-      amova_results = pgs.amova(
-         regionmap={
-            "EA": "Eastern",
-            "GU": "Eastern",
-            "TT": "Eastern",
-            "TC": "Eastern",
-               "DS": "Ornate",
-         },
-         n_bootstraps=10,
-         n_jobs=1,
-         random_seed=42,
-      )
-
-      nei_dist_df, nei_pvals_df = pgs.neis_genetic_distance(n_bootstraps=1000)
-
-      dstats_df, overall_results = pgs.calculate_d_statistics(
-         method="patterson",
-         population1="EA",
-         population2="GU",
-         population3="TT",
-         outgroup="ON",
-         num_bootstraps=10,
-         n_jobs=1,
-         max_individuals_per_pop=6,
-      )
-
-      # # Run PCA and make missingness report plots.
+      # Run PCA and make missingness report plots.
       plotting = Plotting(genotype_data=gd)
       gd_components, gd_pca = plotting.run_pca()
       gd.missingness_reports()
 
       nrm = NRemover2(gd)
 
+      # Run NRemover2 across multiple thresholds to optimize filtering.
       nrm.search_thresholds(
          thresholds=[0.25, 0.5, 0.75, 1.0],
          maf_thresholds=[0.0],
          mac_thresholds=[2, 5],
       )
 
-      # Plot benchmarking results.
-      # NOTE: For development purposes. Comment out for normal use.
-      # Benchmark.plot_performance(nrm.genotype_data, nrm.genotype_data.resource_data)
-
+      # Filter the genotype data using NRemover2 with a series of filters.
+      # The filters are applied in the order they are called.
       gd_filt = (
          nrm.filter_missing_sample(0.75)
          .filter_missing(0.75)
@@ -111,15 +63,75 @@ Below is the code for the script:
          .resolve()
       )
 
+      # Make a Sankey plot of the filtering process.
+      # This will show how many samples and variants were kept and removed at each step.
       nrm.plot_sankey_filtering_report()
 
-      # # Make missingness report plots.
+      # # Make missingness report plots again after filtering.
+      # This will show the missingness of samples and variants after filtering.
       plotting2 = Plotting(genotype_data=gd_filt)
       filt_components, filt_pca = plotting2.run_pca()
       gd_filt.missingness_reports(prefix="filtered")
 
-      # # Write the filtered VCF file.
+      # Write the filtered data to a new VCF file.
       gd_filt.write_vcf("snpio/example_data/vcf_files/nremover_test.vcf")
+
+      # Initialize the PopGenStatistics class with the genotype data object.
+      pgs = PopGenStatistics(gd_filt, verbose=True)
+
+      # Estimates observed and expected heterozygosity, nucleotide diversity, and Weir and Cockerham's Fst.
+      summary_stats = pgs.summary_statistics(       
+         n_permutations=100,
+         n_jobs=1,
+         save_plots=True,
+         use_pvalues=True
+      )
+
+      # Detect Fst outliers using different methods.
+      df_fst_outliers_boot, df_fst_outlier_pvalues_boot = pgs.detect_fst_outliers(
+            correction_method="fdr",
+            alpha=0.05,
+            use_dbscan=False,
+            n_permutations=1000,
+            n_jobs=1,
+            alternative="upper",
+            seed=42,
+            kde_bandwidth="scott"
+      )
+
+      # Detect Fst outliers using DBSCAN.
+      # This method is much faster but may not be as accurate as the bootstrapping method.
+      df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
+         correction_method="fdr",
+         alpha=0.05,    
+         use_dbscan=True,
+         n_jobs=1,
+         seed=42,
+         alternative="upper",
+      )
+
+      # Calculate Nei's genetic distance and p-values.
+      # This will return two dataframes: one with the distances and one with the p-values.
+      nei_dist_df, nei_pvals_df = pgs.neis_genetic_distance(
+         n_permutations=100,
+         n_jobs=1,
+         use_pvalues=True,
+         palette="magma",
+         supress_plot=False,
+      )
+
+      # Calculate D statistics using Patterson's D statistic method.
+      # This will return a dataframe with the D statistics and a dictionary with the overall results.
+      dstats_df, overall_results = pgs.calculate_d_statistics(
+         method="patterson",
+         population1="EA",
+         population2="GU",
+         population3="TT",
+         outgroup="ON",
+         num_bootstraps=10,
+         n_jobs=1,
+         max_individuals_per_pop=6,
+      )
 
       # # Encode the genotypes into 012, one-hot, and integer formats.
       ge = GenotypeEncoder(gd_filt)

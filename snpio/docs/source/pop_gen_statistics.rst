@@ -10,16 +10,20 @@ The ``PopGenStatistics`` class is designed to perform a suite of population gene
 Key Features
 ------------
 
-- Comprehensive suite of population genetic analyses for unlinked SNP datasets.
-- Calculation of Patterson's, partitioned, and/ or D-foil D-statistics.
-- Fst outlier detection using DBSCAN or bootstrapping. Supports one-tailed and two-tailed P-values.
 - Estimation of heterozygosity, nucleotide diversity, and summary statistics.
 - Nei's Distance matrix estimation and visualization between populations with dynamic ordering.
+- Weir and Cockerham's (1984) Fst estimation.
+
+Experimental Features
+~~~~~~~~~~~~~~~~~~~~~
+
+- D-statistics calculation (Patterson's D, partitioned D, and D-foil).
+- Detection of Fst outliers using bootstrapping and DBSCAN clustering.
 - Hierarchical AMOVA with bootstrapping and parallel bootstrapping computation.
 
-----------------
+-------------
 Dependencies
-----------------
+-------------
 
 PopGenStatistics is a part of the ``snpio`` package, which includes classes such as ``GenotypeEncoder``, ``Plotting``, and modules for calculating D-statistics. It depends on packages such as ``numpy``, ``pandas``, ``scipy``, ``scikit-learn``, ``statsmodels``, ``seaborn``, and ``plotly``.
 
@@ -30,13 +34,15 @@ Quick Start
 .. code-block:: python
 
     # Import classes and initialize GenotypeData with SNP data.
-    from snpio import VCFReader
-    from snpio.popgenstats import PopGenStatistics
+    from snpio import VCFReader, PopGenStatistics
+
+    filename = "example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz"
+    popmapfile = "example_data/popmaps/phylogen_nomx.popmap"
 
     # Load SNP data and metadata into a GenotypeData object
     genotype_data = VCFReader(
-        filename="example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz",
-        popmapfile="example_data/popmaps/phylogen_nomx.popmap",
+        filename=filename,
+        popmapfile=popmapfile,
         force_popmap=True,  # Remove samples not in the popmap or alignment.
         verbose=True,
     )
@@ -75,25 +81,21 @@ Methods Overview
 Calculated Statistics
 ---------------------
 
-- D-statistics (Patterson's, Partitioned, and D-foil)
-- Fst outliers and pairwise Fst values
+- D-statistics (Patterson's, Partitioned, and D-foil) (Experimental)
+- Fst outliers (using bootstrapping and DBSCAN) (Experimental)
 - Observed heterozygosity (Ho)
 - Expected heterozygosity (He)
 - Nucleotide diversity (Pi)
-- Weir and Cockerham's Fst (from summary statistics)
-- AMOVA results (variance components and Phi statistics)
+- Weir and Cockerham's Fst
+- AMOVA results (variance components and Phi statistics) (Experimental)
 - Nei's genetic distance matrix between populations
-- Summary statistics (Ho, He, Pi, Fst)
 
 ---------------------------------
 Advanced Usage and Best Practices
 ---------------------------------
 
-- **Distance Matrix Sorting:**  
-  The ``plot_dist_matrix`` method employs dynamic ordering based on the sum of distances, ensuring that the populations with the highest overall divergence are highlighted.
-
 - **Parallelization and Reproducibility:**  
-  Many methods, including ``amova``, now support parallel computation via setting ``n_jobs=-1`` (or any positive integer value), and users are encouraged to define a random seed for consistent results.
+  Many methods now support parallel computation via setting ``n_jobs=-1`` (or any positive integer value), and users are encouraged to define a random seed for consistent results.
 
 ----------------------
 Additional Information

@@ -3,6 +3,34 @@
 This document outlines the changes made to the project with each
 release.
 
+## Version 1.4.0 (2025-06-12)
+
+Fixed a critical bug introduced in v1.3.9 where `VCFReader` would fail due to a typing issue with HDF5 file IO.
+
+## Version 1.3.9 (2025-06-11)
+
+There have been a lot of changes since the last major release, including bug fixes, enhancements, and new features.
+
+### Bug Fixes (v1.3.9)
+
+- Fixed bug where the `PopGenStatistics` class did not have the `verbose` and `debug` attributes.
+- Fixed lots of bugs with VCFReader class when reading and writing VCF files.
+- Fixed bugs in StructureReader and PhylipReader classes when reading and writing STRUCTURE and PHYLIP files.
+- Fixed bug where the `PopGenStatistics` class did not have the `genotype_data` attribute.
+
+### Enhancements
+
+- VCFReader is now much faster, with benchmarks showing a 40 percent speedup when reading VCF files.
+- Added optional `store_format_data` parameter to the `VCFReader` class to store FORMAT metadata in the HDF5 file. Set this to `True` to store FORMAT metadata in the HDF5 file. This can be useful if the format metadata is needed for downstream analysis, but it does drastically slow down the reading and writing of VCF files.
+- Added support for reading and writing GenePop files with the `GenePopReader` class.
+- `StructureReader` now supports `has_popids` and `has_marker_names` parameters to indicate whether the STRUCTURE file has population IDs column and marker names header row. This allows for more flexibility when reading STRUCTURE files.
+- General improvements to code for performance and maintainability.
+
+### Features
+
+- Added new `GenePopReader` class to read and write GenePop files. This class can read GenePop files and convert them to any of the other supported formats. `write_genepop()` method can be used to write the data to a GenePop file from any of the supported formats (VCF, PHYLIP, STRUCTURE, GENEPOP).
+- All file formats are interoperable and can be converted to and from each other. This means that you can read a VCF file, convert it to a PHYLIP file, and then convert it to a STRUCTURE file, and so on.
+
 ## Version 1.23 (2025-04-08)
 
 ### Bug Fixes
