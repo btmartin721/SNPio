@@ -660,13 +660,13 @@ class VCFReader(GenotypeData):
 
             datasets_to_process = [
                 ("chrom", h5py.string_dtype(encoding="utf-8")),
-                ("pos", h5py.string_dtype(encoding="utf-8")),
-                ("id", h5py.string_dtype(encoding="utf-8")),
-                ("ref", h5py.string_dtype(encoding="utf-8", length=1)),
-                ("alt", h5py.string_dtype(encoding="utf-8", length=10)),
-                ("qual", h5py.string_dtype(encoding="utf-8", length=10)),
-                ("filt", h5py.string_dtype(encoding="utf-8", length=4)),
-                ("fmt", h5py.string_dtype(encoding="utf-8")),
+                ("pos",   np.int64),                              
+                ("id",    h5py.string_dtype(encoding="utf-8")),
+                ("ref",   h5py.string_dtype(encoding="utf-8", length=1)),
+                ("alt",   h5py.string_dtype(encoding="utf-8", length=10)),
+                ("qual",  h5py.string_dtype(encoding="utf-8", length=10)),
+                ("filt",  h5py.string_dtype(encoding="utf-8", length=4)),
+                ("fmt",   h5py.string_dtype(encoding="utf-8")),
             ]
 
             [
