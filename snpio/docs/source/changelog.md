@@ -3,7 +3,7 @@
 This document outlines the changes made to the project with each
 release.
 
-## Version 1.4.0 (2025-06-12)
+## Version 1.3.9 (2025-06-12)
 
 Fixed a critical bug introduced in v1.3.9 where `VCFReader` would fail due to a typing issue with HDF5 file IO.
 

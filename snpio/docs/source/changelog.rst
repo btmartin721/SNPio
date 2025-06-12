@@ -4,7 +4,7 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
-Version 1.4.0 (2025-06-12)
+Version 1.3.9 (2025-06-12)
 --------------------------
 
 Bug Fixes
