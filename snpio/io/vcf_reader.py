@@ -266,7 +266,6 @@ class VCFReader(GenotypeData):
         self.logger.debug(f"snp_data shape: {self.snp_data.shape}")
 
         return self
-
     def get_vcf_attributes(
         self, vcf: pysam.VariantFile, chunk_size: int = 1000
     ) -> Tuple[Path, np.ndarray, np.ndarray]:
@@ -292,15 +291,16 @@ class VCFReader(GenotypeData):
         h5_path = self.vcf_attributes_fn
         h5_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # buffers for chunked write; POS as integer
         chrom_buf = np.empty((chunk_size,), dtype=object)
-        pos_buf = np.empty((chunk_size,), dtype=object)
-        id_buf = np.empty((chunk_size,), dtype=object)
-        qual_buf = np.empty((chunk_size,), dtype=object)
-        ref_buf = np.empty((chunk_size,), dtype=object)
-        alt_buf = np.empty((chunk_size,), dtype=object)
-        filt_buf = np.empty((chunk_size,), dtype=object)
-        fmt_buf = np.empty((chunk_size,), dtype=object)
-        info_buf = {k: np.empty((chunk_size,), dtype=object) for k in info_keys}
+        pos_buf   = np.empty((chunk_size,), dtype=np.int64)
+        id_buf    = np.empty((chunk_size,), dtype=object)
+        qual_buf  = np.empty((chunk_size,), dtype=object)
+        ref_buf   = np.empty((chunk_size,), dtype=object)
+        alt_buf   = np.empty((chunk_size,), dtype=object)
+        filt_buf  = np.empty((chunk_size,), dtype=object)
+        fmt_buf   = np.empty((chunk_size,), dtype=object)
+        info_buf  = {k: np.empty((chunk_size,), dtype=object) for k in info_keys}
         snp_matrix = np.empty((n_vars, n_samples), dtype="<U1")
 
         # Preallocated FORMAT buffers
@@ -311,6 +311,7 @@ class VCFReader(GenotypeData):
                 if k != "GT"
             }
 
+        # Overwrite existing file if present
         if h5_path.exists() and h5_path.is_file():
             self.logger.warning(f"File {h5_path} already exists. Overwriting.")
             h5_path.unlink()
@@ -319,33 +320,23 @@ class VCFReader(GenotypeData):
 
         @lru_cache(maxsize=None)
         def cached_convert(gt_pair: Tuple[int, int], alleles: Tuple[str, ...]) -> str:
-            """Convert genotype pair to IUPAC code using cached function.
-
-            This method uses a Least Recently Used (LRU) cache to store previously computed IUPAC codes for genotype pairs, improving performance for repeated queries.
-
-            Args:
-                gt_pair (Tuple[int, int]): Genotype pair (allele indices).
-                alleles (Tuple[str, ...]): Tuple of allele strings.
-
-            Returns:
-                str: IUPAC code for the genotype pair.
-            """
-            # Convert allele indices to bases
+            """Convert genotype pair to IUPAC code using cached function."""
             bases = tuple(alleles[i] if i is not None else "N" for i in gt_pair)
             return iupac_map[tuple(set(bases))] if bases else "N"
 
         with h5py.File(h5_path, "w") as h5:
-            # Core field datasets
+            # core fields: POS as integer, others as utf-8 strings
             for name in ("chrom", "pos", "id", "ref", "alt", "qual", "filt", "fmt"):
-                match name:
-                    case "ref":
-                        dtype = h5py.string_dtype(encoding="utf-8", length=1)
-                    case "alt" | "qual":
-                        dtype = h5py.string_dtype(encoding="utf-8", length=10)
-                    case "filt":
-                        dtype = h5py.string_dtype(encoding="utf-8", length=4)
-                    case _:
-                        dtype = h5py.string_dtype(encoding="utf-8")
+                if name == "pos":
+                    dtype = np.int64
+                elif name == "ref":
+                    dtype = h5py.string_dtype(encoding="utf-8", length=1)
+                elif name in ("alt", "qual"):
+                    dtype = h5py.string_dtype(encoding="utf-8", length=10)
+                elif name == "filt":
+                    dtype = h5py.string_dtype(encoding="utf-8", length=4)
+                else:
+                    dtype = h5py.string_dtype(encoding="utf-8")
 
                 h5.create_dataset(
                     name,
@@ -353,41 +344,35 @@ class VCFReader(GenotypeData):
                     maxshape=(n_vars,),
                     chunks=(chunk_size,),
                     dtype=dtype,
-                    compression="lzf",
+                    compression="lzf"
                 )
 
             # INFO datasets
             info_grp = h5.create_group("info")
-
-            [
+            for key in info_keys:
                 info_grp.create_dataset(
                     key,
                     shape=(n_vars,),
                     maxshape=(n_vars,),
                     chunks=(chunk_size,),
                     dtype=h5py.string_dtype(encoding="utf-8"),
-                    compression="lzf",
+                    compression="lzf"
                 )
-                for key in info_keys
-            ]
 
             # FORMAT datasets
             if self.store_format_fields:
                 fmt_grp = h5.create_group("fmt_metadata")
-
-                # Create datasets for each FORMAT key
-                [
+                for key in fmt_data_buf:
                     fmt_grp.create_dataset(
                         key,
                         shape=(n_vars, n_samples),
                         maxshape=(n_vars, n_samples),
                         chunks=(chunk_size, n_samples),
                         dtype=h5py.string_dtype(encoding="utf-8"),
-                        compression="lzf",
+                        compression="lzf"
                     )
-                    for key in fmt_data_buf
-                ]
 
+            # Iterate and fill buffers
             for idx, record in enumerate(
                 tqdm(
                     vcf.fetch(),
@@ -399,15 +384,15 @@ class VCFReader(GenotypeData):
             ):
                 row_in_chunk = idx % chunk_size
 
-                # Core VCF fields
+                # Core VCF fields (leave POS as an integer)
                 chrom_buf[row_in_chunk] = str(record.chrom)
-                pos_buf[row_in_chunk] = str(record.pos)
-                id_buf[row_in_chunk] = str(record.id) or "."
-                ref_buf[row_in_chunk] = str(record.ref)
-                alt_buf[row_in_chunk] = ",".join(str(record.alts) or ["."])
-                qual_buf[row_in_chunk] = str(record.qual) or "."
-                filt_buf[row_in_chunk] = next(iter(record.filter.keys()), ".")
-                fmt_buf[row_in_chunk] = ":".join(record.format.keys())
+                pos_buf[row_in_chunk]   = record.pos
+                id_buf[row_in_chunk]    = str(record.id) or "."
+                ref_buf[row_in_chunk]   = str(record.ref)
+                alt_buf[row_in_chunk]   = ",".join(str(record.alts) or ["."])
+                qual_buf[row_in_chunk]  = str(record.qual) or "."
+                filt_buf[row_in_chunk]  = next(iter(record.filter.keys()), ".")
+                fmt_buf[row_in_chunk]   = ":".join(record.format.keys())
 
                 # INFO fields
                 for key in info_keys:
@@ -419,21 +404,12 @@ class VCFReader(GenotypeData):
                     else:
                         info_buf[key][row_in_chunk] = str(val)
 
-                # FORMAT fields (per sample)
+                # FORMAT fields
                 if self.store_format_fields:
-                    self._store_format_fields(
-                        fmt_data_buf, record, samples, row_in_chunk
-                    )
-
-                # Pre-load alleles
-                alleles_tuple = tuple(record.alleles)
+                    self._store_format_fields(fmt_data_buf, record, samples, row_in_chunk)
 
                 # Convert genotypes to IUPAC codes
-                # Use cached_convert to speed up repeated genotype conversions
-                # This is a vectorized operation over the samples
-                # NOTE: GT is a tuple of allele indices, e.g., (0, 1) for (A, T)
-                # NOTE: This used to be two separate list comprehensions, but now uses a single vectorized operation for efficiency
-                # If GT is missing, it will return "N" for both alleles
+                alleles_tuple = tuple(record.alleles)
                 snp_matrix[idx, :] = np.array(
                     [
                         cached_convert(
@@ -445,19 +421,19 @@ class VCFReader(GenotypeData):
                     dtype="<U1",
                 )
 
-                # Write full chunk
+                # When chunk is full, write out
                 if (idx + 1) % chunk_size == 0:
                     start = idx + 1 - chunk_size
                     end = idx + 1
 
                     h5["chrom"][start:end] = chrom_buf
-                    h5["pos"][start:end] = pos_buf
-                    h5["id"][start:end] = id_buf
-                    h5["ref"][start:end] = ref_buf
-                    h5["alt"][start:end] = alt_buf
-                    h5["qual"][start:end] = qual_buf
-                    h5["filt"][start:end] = filt_buf
-                    h5["fmt"][start:end] = fmt_buf
+                    h5["pos"][start:end]   = pos_buf
+                    h5["id"][start:end]    = id_buf
+                    h5["ref"][start:end]   = ref_buf
+                    h5["alt"][start:end]   = alt_buf
+                    h5["qual"][start:end]  = qual_buf
+                    h5["filt"][start:end]  = filt_buf
+                    h5["fmt"][start:end]   = fmt_buf
 
                     for key in info_keys:
                         h5["info"][key][start:end] = info_buf[key]
@@ -467,16 +443,15 @@ class VCFReader(GenotypeData):
                         for fmt_key, buf in fmt_data_buf.items():
                             fmt_grp[fmt_key][start:end, :] = buf
 
-                    # Reset core buffers
+                    # reset buffers
                     chrom_buf = np.empty((chunk_size,), dtype=object)
-                    pos_buf = np.empty((chunk_size,), dtype=object)
-                    id_buf = np.empty((chunk_size,), dtype=object)
-                    ref_buf = np.empty((chunk_size,), dtype=object)
-                    alt_buf = np.empty((chunk_size,), dtype=object)
-                    qual_buf = np.empty((chunk_size,), dtype=object)
-                    filt_buf = np.empty((chunk_size,), dtype=object)
-                    fmt_buf = np.empty((chunk_size,), dtype=object)
-
+                    pos_buf   = np.empty((chunk_size,), dtype=np.int64)
+                    id_buf    = np.empty((chunk_size,), dtype=object)
+                    qual_buf  = np.empty((chunk_size,), dtype=object)
+                    ref_buf   = np.empty((chunk_size,), dtype=object)
+                    alt_buf   = np.empty((chunk_size,), dtype=object)
+                    filt_buf  = np.empty((chunk_size,), dtype=object)
+                    fmt_buf   = np.empty((chunk_size,), dtype=object)
                     if self.store_format_fields:
                         fmt_data_buf = {
                             fmt_key: np.empty((chunk_size, n_samples), dtype=object)
@@ -484,27 +459,26 @@ class VCFReader(GenotypeData):
                         }
 
             # Final partial chunk
-            remainder = len(chrom_buf)
-            if remainder > 0:
-                if not np.all(chrom_buf == None):
-                    start = n_vars - remainder
-                    end = n_vars
+            remainder = n_vars % chunk_size
+            if remainder:
+                start = n_vars - remainder
+                end = n_vars
 
-                    h5["chrom"][start:end] = chrom_buf
-                    h5["pos"][start:end] = pos_buf
-                    h5["id"][start:end] = id_buf
-                    h5["ref"][start:end] = ref_buf
-                    h5["alt"][start:end] = alt_buf
-                    h5["qual"][start:end] = qual_buf
-                    h5["filt"][start:end] = filt_buf
-                    h5["fmt"][start:end] = fmt_buf
+                h5["chrom"][start:end] = chrom_buf[:remainder]
+                h5["pos"][start:end]   = pos_buf[:remainder]
+                h5["id"][start:end]    = id_buf[:remainder]
+                h5["ref"][start:end]   = ref_buf[:remainder]
+                h5["alt"][start:end]   = alt_buf[:remainder]
+                h5["qual"][start:end]  = qual_buf[:remainder]
+                h5["filt"][start:end]  = filt_buf[:remainder]
+                h5["fmt"][start:end]   = fmt_buf[:remainder]
 
-                    for key in info_keys:
-                        h5["info"][key][start:end] = info_buf[key]
+                for key in info_keys:
+                    h5["info"][key][start:end] = info_buf[key][:remainder]
 
-                    if self.store_format_fields:
-                        for fmt_key, buf in fmt_data_buf.items():
-                            fmt_grp[fmt_key][start:end, :] = buf[:remainder, :]
+                if self.store_format_fields:
+                    for fmt_key, buf in fmt_data_buf.items():
+                        fmt_grp[fmt_key][start:end, :] = buf[:remainder, :]
 
         return h5_path, snp_matrix, samples
 
