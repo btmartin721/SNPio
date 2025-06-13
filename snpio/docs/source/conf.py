@@ -5,7 +5,7 @@ import sys
 project = "SNPio"
 copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
 author = "Drs. Bradley T. Martin and Tyler K. Chafin"
-release = "1.3.12"
+release = "1.3.13"
 
 # -- Path setup -----------------------------------------------------------
 # Add the project's root directory to sys.path
