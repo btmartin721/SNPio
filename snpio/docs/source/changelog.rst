@@ -4,7 +4,12 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
-Version 1.3.9 (2025-06-12)
+Version 1.3.12 (2025-06-15)
+--------------------------
+
+Updated documentation to reflect the latest changes and features to the API in the last few releases. The documentation now includes detailed explanations of the new `GenePopReader` class, the `PopGenStatistics` class methods, and the overall functionality of the library.
+
+Version 1.3.11 (2025-06-12)
 --------------------------
 
 Bug Fixes

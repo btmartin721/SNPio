@@ -118,8 +118,8 @@ Example SNPio usage:
     plot_fontsize=20, 
     plot_dpi=300, 
     despine=True, 
-    prefix="snpio_example"
-)
+    prefix="snpio_example",
+  )
 
 
 You can also include or exclude any populations from the analysis by using the ``include_pops`` and ``exclude_pops`` parameters. For example:
@@ -139,8 +139,8 @@ You can also include or exclude any populations from the analysis by using the `
     despine=True, 
     prefix="snpio_example", 
     include_pops=["ON", "DS", "EA", "GU"], 
-    exclude_pops=["MX", "YU", "CH", "OG"]
-)
+    exclude_pops=["MX", "YU", "CH", "OG"],
+  )
 
 The ``include_pops`` and ``exclude_pops`` parameters are optional and can be used to filter the populations included in the analysis. If both parameters are provided, the populations in ``include_pops`` will be included, and the populations in ``exclude_pops`` will be excluded. However, there cannot be overlap between the two lists of population IDs. If there is overlap, an error will be raised.
 
@@ -226,8 +226,8 @@ Reading Genotype Data
 
 SNPio provides readers for different file formats. Here are examples of how to read genotype data from various file formats: VCF, PHYLIP, and STRUCTURE.
 
-VCFReader:
-~~~~~~~~~~
+VCFReader
+^^^^^^^^^
 
 .. code-block:: python
 
@@ -246,8 +246,8 @@ VCFReader:
 
 This will read in the genotype data from a VCF file and apply the population map, if provided.
 
-PhylipReader:
-~~~~~~~~~~~~~
+PhylipReader
+^^^^^^^^^^^^
 
 If you would like to read a Phylip file, you can use the ``PhylipReader`` class:
 
@@ -272,8 +272,8 @@ If you would like to read a Phylip file, you can use the ``PhylipReader`` class:
 
 This will read the genotype data from a PHYLIP file and apply the population map (if provided).
 
-StructureReader:
-~~~~~~~~~~~~~~~~
+StructureReader
+^^^^^^^^^^^^^^^
 
 If you would like to read in a Structure file, you can use the ``StructureReader`` class. For example:
 
@@ -299,7 +299,7 @@ If you would like to read in a Structure file, you can use the ``StructureReader
 This will read the genotype data from a STRUCTURE file and apply the population map (if provided).
 
 StructureReader options
-^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~
 
 - ``has_popids`` (bool): If set to ``True``, the STRUCTURE file should contain population IDs as the second tab-delimited column of the STRUCTURE file. If the population information is not provided in the STRUCTURE file, you can still provide a population map file to assign samples to populations.
 
@@ -460,8 +460,8 @@ The ``NRemover2`` class provides a variety of filtering methods to clean your ge
   # Write the filtered VCF to a new file
   gd_filt.write_vcf("filtered_output.vcf")
 
-Key Methods in NRemover2:
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Key Methods in NRemover2
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 +--------------------------+--------------------------------------------------+
 | **Function/Method**      | **Description**                                  |
@@ -523,7 +523,7 @@ Key Methods in NRemover2:
 
 
 Additional Methods in NRemover2
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 ``search_thresholds()`` searches a range of filtering thresholds for all missing data, minor allele frequency (MAF), and minor allele count (MAC) filters. This method helps you find the optimal thresholds for your dataset. It will plot the threshold search results so you can visualize the impact of different thresholds on the dataset.
 

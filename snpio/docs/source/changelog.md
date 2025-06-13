@@ -3,7 +3,13 @@
 This document outlines the changes made to the project with each
 release.
 
-## Version 1.3.9 (2025-06-12)
+## Version 1.3.12 (2025-06-12)
+
+### Updates
+
+- Updated documentation for clarity and updates for new API features added or enhanced in the last few versions.
+
+## Version 1.3.11 (2025-06-12)
 
 Fixed a critical bug introduced in v1.3.9 where `VCFReader` would fail due to a typing issue with HDF5 file IO.
 
@@ -40,7 +46,7 @@ There have been a lot of changes since the last major release, including bug fix
 
 ## Version 1.2.1 (2025-01-06)
 
-### Features
+### Features 1.2.1
 
 - Improved the <span class="title-ref">PopGenStatistics</span> class to include new functionality to calculate genetic distances between populations:  
   - calculate genetic distances between populations using the
@@ -60,7 +66,7 @@ There have been a lot of changes since the last major release, including bug fix
   - \`n_jobs\`: The number of jobs to run in parallel.
   - \`random_seed\`: The random seed for reproducibility.
 
-### Enhancements
+### Enhancements 1.2.1
 
 - Improved the <span class="title-ref">PopGenStatistics</span> class to
   include new functionality to calculate observed and expected
@@ -125,7 +131,7 @@ The following method have been deprecated:
   <span class="title-ref">weir_cockerham_fst_between_populations()</span>
   instead.
 
-### Bug Fixes
+### Bug Fixes 1.2.1
 
 - Fixed bug where the <span class="title-ref">PopGenStatistics</span>
   class did not have the <span class="title-ref">verbose</span> and

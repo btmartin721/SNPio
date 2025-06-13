@@ -268,22 +268,9 @@ class DStatistics:
             method (str): Method to use for D-statistic calculation. Options are "patterson", "partitioned", or "dfoil".
             n_jobs (int): Number of parallel jobs to run. Defaults to -1 (use all available cores).
             debug (bool): Whether to enable debug mode. Defaults to False.
+
         Returns:
-            Tuple[
-                List[
-                    Tuple[
-                        Tuple[str, str, str, str | None, str],
-                        float | None,
-                        float | None,
-                        float | None,
-                    ]
-                ],
-                float | None,
-                float | None,
-            ]: Tuple containing:
-                - List of tuples with sample combinations, mean D-statistics, Z-scores, and P-values.
-                - Overall Z-score.
-                - Overall P-value.
+            Tuple[List[Tuple[Tuple[str, str, str, str | None, str], float | None, float | None, float | None]], float | None, float | None]: Tuple containing: List of tuples with sample combinations, mean D-statistics, Z-scores, and P-values. Overall Z-score. Overall P-value.
         """
         method = method.lower()
         if method not in {"patterson", "partitioned", "dfoil"}:
@@ -472,11 +459,12 @@ class DStatistics:
     ) -> float | None:
         """Calculate the partitioned D-statistic for all individual combinations across populations.
 
+        This method calculates the partitioned D-statistic for all individual combinations across populations. The partitioned D-statistic is a measure of the degree of allele sharing between populations and is used to infer the presence of gene flow between populations.
+
         Args:
             alignment (np.ndarray): SNP data with individuals as rows and SNP sites as columns.
             d1_inds (List[int]): Indices of individuals in population 1.
-            d2_inds (List[int]): Indices of individuals in population
-                2.
+            d2_inds (List[int]): Indices of individuals in population 2.
             d3_inds (List[int]): Indices of individuals in population 3.
             d4_inds (List[int]): Indices of individuals in population 4.
             outgroup_inds (List[int]): Indices of individuals in the outgroup.
@@ -485,15 +473,18 @@ class DStatistics:
             snp_indices (List[int] | None): Indices of SNP sites to consider. If None, all SNPs are used.
 
         Returns:
-            float | None: List of tuples with sample combinations and partitioned D-statistics.
-                If no valid patterns are found, returns None.
+            float | None: List of tuples with sample combinations and partitioned D-statistics. If no valid patterns are found, returns None.
+
         Note:
             The partitioned D-statistic is calculated using the formula:
+
                 .. math:: D = (ABCD - DCBA) / (ABCD + DCBA)
+
             where ABCD and DCBA are the counts of the respective patterns.
             This method is used to detect gene flow between populations.
             The function returns a list of tuples, each containing the sample combination and the corresponding partitioned D-statistic.
             If no valid patterns are found for a sample combination, the D-statistic is set to None.
+
         Example:
             >>> import numpy as np
             >>> alignment = np.array(
@@ -612,8 +603,7 @@ class DStatistics:
             snp_indices (np.ndarray | List[int] | None): Indices of SNP sites to consider. If None, all SNPs are used.
 
         Returns:
-            List[float | None]: List of tuples with sample combinations and DFOIL statistics.
-                If no valid patterns are found, returns None.
+            List[float | None]: List of tuples with sample combinations and DFOIL statistics. If no valid patterns are found, returns None.
 
         Note:
             This function calculates the DFOIL statistic for all individual combinations across populations.
@@ -623,8 +613,10 @@ class DStatistics:
             The DFOIL statistic is calculated using the formula:
 
                 .. math:: DFOIL = (ABBA - BABA + FABA - FOAB) / (ABBA + BABA + FABA + FOAB)
+
             where ABBA, BABA, FABA, and FOAB are the counts of the respective patterns.
             This method is used to detect gene flow between populations.
+
         Example:
             >>> DStatistics.dfoil_statistic(
             >>>     alignment,
