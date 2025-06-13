@@ -1,16 +1,16 @@
-=================
+==========
 Changelog
-=================
+==========
 
 This document outlines the changes made to the project with each release.
 
-Version 1.3.12 (2025-06-15)
---------------------------
+Version 1.3.14 (2025-06-15)
+---------------------------
 
 Updated documentation to reflect the latest changes and features to the API in the last few releases. The documentation now includes detailed explanations of the new `GenePopReader` class, the `PopGenStatistics` class methods, and the overall functionality of the library.
 
 Version 1.3.11 (2025-06-12)
---------------------------
+---------------------------
 
 Bug Fixes
 ~~~~~~~~~
@@ -46,10 +46,10 @@ Features
 - All file formats are interoperable and can be converted to and from each other. This means that you can read a VCF file, convert it to a PHYLIP file, and then convert it to a STRUCTURE file, and so on.
 
 Version 1.2.1 (2025-01-06)
-----------------------------
+--------------------------
 
 Features
-~~~~~~~~~
+~~~~~~~~
 
 - Improved the `PopGenStatistics` class to include new functionality to calculate genetic distances between populations:
     -  calculate genetic distances between populations using the `neis_genetic_distance()` method. The method calculates Nei's genetic distance between populations and returns a pandas DataFrame with the genetic distances.
@@ -84,7 +84,7 @@ Enhancements
 - Improved the `PopGenStatistics` class to include new functionality to calculate genetic distances between populations. The method calculates Nei's genetic distance between populations and returns a pandas DataFrame with the genetic distances.
 
 Changes
-~~~~~~~~
+~~~~~~~
 
 - Much of the code has been refactored to improve readability and maintainability. This includes moving the `neis_genetic_distance()` method to the `genetic_distance` module, the `amova()` method to the `amova` module, and the `fst_outliers()` method to the `fst_outliers` module. The `summary_statistics()` method has been moved to the `summary_statistics` module, and the D-statistics methods have been moved to the `d_statistics` module.
 
@@ -96,7 +96,7 @@ The following method have been deprecated:
 - `wrights_fst()`: Uses `weir_cockerham_fst_between_populations()` instead.
 
 Bug Fixes
-~~~~~~~~~~
+~~~~~~~~~
 
 - Fixed bug where the `PopGenStatistics` class did not have the `verbose` and `debug` attributes.
 - Fixed bug where the `PopGenStatistics` class did not have the `genotype_data` attribute.
@@ -104,10 +104,10 @@ Bug Fixes
 - Fixed bug with `VCFReader` class when a non-tabix-indexed and uncompressed VCF file was read. The bug caused an error when reading an uncompressed VCF file.
 
 Version 1.2.0 (2024-11-07)
-----------------------------
+--------------------------
 
 Features
-~~~~~~~~~
+~~~~~~~~
 
 - Added new functionality to calculate several population genetic statistics using the `PopGenStatistics` class, including:
     - Wright's Fst 
@@ -130,10 +130,10 @@ Features
 Bootstrapping is performed for D-statistics and Fst outliers, and the results are saved as CSV files. The results are also returned as pandas DataFrames and dictionaries. The D-statistics are plotted, and the Fst outliers are plotted and saved as a CSV file. The summary statistics are plotted and returned as a dictionary.
 
 Version 1.1.3 (2024-10-25)
-----------------------------
+--------------------------
 
 Features
-~~~~~~~~~
+~~~~~~~~
 
 - Updated tree parsing functionality and added it to the ``TreeParser`` class in the ``analysis/tree_parser.py`` module to conform to refactor, and added new functionality to parse, modify, draw, and save Newick and NEXUS tree files.
 - ``siterates`` and ``qmatrix`` files now dynamically determine if they are in IQ-TREE format or if they are just in a simple tab-delimited or comma-delimited format.
@@ -143,12 +143,12 @@ Features
 - Added documentation for tree parsing.
 
 Bug Fixes
-~~~~~~~~~~
+~~~~~~~~~
 
 - Fixed bug where the ``PhylipReader`` and ``StructureReader`` classes did not have the ``verbose`` and ``debug`` attributes.
 
 Changes
-~~~~~~~~
+~~~~~~~
 
 - ``q`` property is now called ``qmat`` for clarity and easier searching in files.
 - Removed redundant ``siterates_iqtree`` and ``qmatrix_iqtree`` arguments attributes from the ``GenotypeData``, ``VCFReader``, ``PhylipReader``, ``StructureReader``, and ``TreeParser`` classes.
@@ -156,10 +156,10 @@ Changes
 - Added error handling for ``siterates`` and ``qmatrix`` files.
 
 Version 1.1.0 (2024-10-08)
-----------------------------
+--------------------------
 
 Features
-~~~~~~~~~
+~~~~~~~~
 
 - Full refactor of the codebase to improve user-friendliness, maintainability and readability.
     - Method chaining: All functions now return the object itself, allowing for method chaining and custom filtering orders with ``NRemover2``.
@@ -182,48 +182,48 @@ Features
     - Full documentation for all functions.
 
 Version 1.0.5 (2023-09-16)
-----------------------------
+--------------------------
 
 Features
-~~~~~~~~~
+~~~~~~~~
 
 - Added ``thin`` and ``random_subset`` options to ``nremover()`` function. ``thin`` removes loci within ``thin`` bases of the nearest locus. ``random_subset`` randomly subsets the loci using an integer or proportion.
 
 Changes
-~~~~~~~~
+~~~~~~~
 
 - Changed ``unlinked`` to ``unlinked_only`` option for clarity
 
 Version 1.0.4 (2023-09-10)
------------------------------
+--------------------------
 
 Features
-~~~~~~~~~
+~~~~~~~~
 
 - Added functionality to filter out linked SNPs using CHROM and POS fields from VCF file.
 
 Performance
-~~~~~~~~~~~~
+~~~~~~~~~~~
 
 - Made the Sankey plot function more modular and dynamic for easier maintainability.
 
 Bug Fixes
-~~~~~~~~~~
+~~~~~~~~~
 
 - Fix spacing between printed STDOUT.
 
 Version 1.0.3.3 (2023-09-01)
 
 Bug Fixes
-~~~~~~~~~~
+~~~~~~~~~
 
 - Fixed bug where CHROM VCF field had strings cut off at 10 characters.
 
 Version 1.0.3.2 (2023-08-28)
------------------------------
+----------------------------
 
 Bug Fixes
-~~~~~~~~~~
+~~~~~~~~~
 
 - Fixed copy method for pysam.VariantHeader objects.
 
@@ -254,14 +254,13 @@ Version 1.0.2 (2023-08-13)
 --------------------------
 
 Bug Fixes
-~~~~~~~~~~
+~~~~~~~~~
 
 - Fix for VCF FORMAT field being in wrong order.
 
 Version 1.0.1 (2023-08-09)
 
 Bug Fixes
-
 ~~~~~~~~~~
 
 - Band-aid fix for incorrect order of sampleIDs in VCF files.
