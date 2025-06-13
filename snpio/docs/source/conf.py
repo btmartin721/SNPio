@@ -7,7 +7,7 @@ copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
 author = "Drs. Bradley T. Martin and Tyler K. Chafin"
 release = "1.3.12"
 
-# -- Path setup --------------------------------------------------------------
+# -- Path setup -----------------------------------------------------------
 # Add the project's root directory to sys.path
 sys.path.insert(0, os.path.abspath("../../../"))
 
