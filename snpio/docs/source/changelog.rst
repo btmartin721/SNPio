@@ -4,7 +4,12 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
-Version 1.3.14 (2025-06-15)
+Version 1.3.14 (2025-06-12)
+---------------------------
+
+Fix sphinx documentation build issues that were introduced in the last release. The documentation now builds correctly without any errors or warnings.
+
+Version 1.3.13 (2025-06-12)
 ---------------------------
 
 Updated documentation to reflect the latest changes and features to the API in the last few releases. The documentation now includes detailed explanations of the new `GenePopReader` class, the `PopGenStatistics` class methods, and the overall functionality of the library.

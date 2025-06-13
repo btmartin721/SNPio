@@ -5,7 +5,9 @@ release.
 
 ## Version 1.3.14 (2025-06-12)
 
-### Updates
+Fix sphinx documentation build issues that were introduced in the last release. The documentation now builds correctly without any errors or warnings.
+
+## Version 1.3.13 (2025-06-12)
 
 - Updated documentation for clarity and updates for new API features added or enhanced in the last few versions.
 
