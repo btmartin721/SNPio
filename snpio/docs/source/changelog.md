@@ -3,6 +3,10 @@
 This document outlines the changes made to the project with each
 release.
 
+## Version 1.3.15 (2025-06-14)
+
+Documentation and CI/CD build updates.
+
 ## Version 1.3.14 (2025-06-12)
 
 Fix sphinx documentation build issues that were introduced in the last release. The documentation now builds correctly without any errors or warnings.
