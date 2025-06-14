@@ -1,20 +1,17 @@
-mode: ContinuousDeployment
+mode: Mainline
+commit-message-incrementing: Enabled
 branches:
   main:
     regex: ^main$
-    increment: Patch
-    prevent-increment-of-merged-branch-version: true
-    track-merge-target: false
-    is-source-branch-for: []
+    increment: Minor
     is-release-branch: true
+    prevent-increment-of-merged-branch-version: false
     tag: ""
   master:
     regex: ^master$
-    increment: Patch
-    prevent-increment-of-merged-branch-version: true
-    track-merge-target: false
-    is-source-branch-for: []
+    increment: Minor
     is-release-branch: true
+    prevent-increment-of-merged-branch-version: false
     tag: ""
 ignore:
   sha: []

@@ -1,0 +1,39 @@
+name: 🧾 Commit Lint
+
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  lint-commits:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch full git history for all commits in the PR
+        run: git fetch --prune --unshallow || true
+
+      - name: Get commit messages
+        id: commits
+        run: |
+          echo "messages<<EOF" >> $GITHUB_OUTPUT
+          git log origin/${{ github.base_ref }}..HEAD --pretty=format:%s >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Lint commit messages
+        run: |
+          echo "Checking commit messages..."
+          echo "${{ steps.commits.outputs.messages }}" | while read -r line; do
+            echo "Validating: $line"
+            if ! echo "$line" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?(!)?: .+'; then
+              echo "❌ Invalid commit message: $line"
+              echo "💡 Expected format: 'type(scope?): subject'"
+              echo "📖 See https://www.conventionalcommits.org/en/v1.0.0/"
+              exit 1
+            fi
+          done
+        shell: bash
