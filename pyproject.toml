@@ -1,20 +1,34 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = [
+    "setuptools",
+    "wheel",
+]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["."]
-include = ["snpio*"]
+where = [
+    ".",
+]
+include = [
+    "snpio*",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "./tests",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
 
 [project]
 name = "snpio"
-version = "1.3.9"
+version = "1.3.14"
 description = "SNPio is a Python API for population genetic file processing, filtering, and analysis. It is designed to be a user-friendly tool for the manipulation of population genetic data in a variety of formats. SNPio can be used to filter data based on missingness, MAF and MAC, singletons, biallelic, and monomorphic sites. It can also generate summary statistics for population genetic analyses."
 readme = "README.md"
-license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
 authors = [
-    { name = "Drs. Bradley T. Martin and Tyler K. Chafin", email = "evobio721@gmail.com" }
+    { name = "Drs. Bradley T. Martin and Tyler K. Chafin", email = "evobio721@gmail.com" },
 ]
 keywords = [
     "genomics",
@@ -33,7 +47,7 @@ keywords = [
     "minor allele count",
     "biallelic",
     "monomorphic",
-    "singleton"
+    "singleton",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -49,40 +63,51 @@ classifiers = [
     "Operating System :: MacOS",
 ]
 dependencies = [
-    "bokeh", # required for interactive plots
-    "h5py", # required for saving VCF metadata
-    "holoviews", # required for interactive plots (Sankey plot)
-    "kaleido", # required for plotly to save static images
-    "kneed", # required for determining optimal PCA components
-    "matplotlib", # required for plotting
-    "numpy", # required for data manipulation
-    "pandas", # required for data manipulation
-    "panel", # required for interactive plots
-    "plotly", # required for interactive plots
-    "pysam", # required for reading VCF files
-    "requests", # required for downloading files
-    "scikit-learn", # required for filtering and encoding
-    "scipy", # required for filtering
-    "statsmodels", # required for PopGenStatistics
-    "seaborn", # required for plotting
-    "toytree", # required for tree loading
-    "tqdm" # progress bar
+    "bokeh",
+    "h5py",
+    "holoviews",
+    "kaleido",
+    "kneed",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "panel",
+    "plotly",
+    "pysam",
+    "requests",
+    "scikit-learn",
+    "scipy",
+    "statsmodels",
+    "seaborn",
+    "toytree",
+    "tqdm",
 ]
+
+[project.license]
+text = "GPL-3.0-or-later"
 
 [project.urls]
 "Source Code" = "https://github.com/btmartin721/SNPio"
 "Bug Tracker" = "https://github.com/btmartin721/SNPio/issues"
-"Documentation" = "https://snpio.readthedocs.io/en/latest/"
-"Changelog" = "https://snpio.readthedocs.io/en/latest/changelog.html"
+Documentation = "https://snpio.readthedocs.io/en/latest/"
+Changelog = "https://snpio.readthedocs.io/en/latest/changelog.html"
 
 [project.optional-dependencies]
-docs = ["sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints"]
-dev = ["memory-profiler", "psutil", "sphinx", "sphinx-rtd-theme", "sphinx-autodoc-typehints", "pytest", "pre-commit", "pyyaml"]
+docs = [
+    "sphinx",
+    "sphinx-rtd-theme",
+    "sphinx-autodoc-typehints",
+]
+dev = [
+    "memory-profiler",
+    "psutil",
+    "sphinx",
+    "sphinx-rtd-theme",
+    "sphinx-autodoc-typehints",
+    "pytest",
+    "pre-commit",
+    "pyyaml",
+]
 
 [project.scripts]
 snpio = "snpio.run_snpio:main"
-
-[tool.pytest.ini_options]
-testpaths = ["./tests"]
-filterwarnings = ["ignore::DeprecationWarning"]
-
