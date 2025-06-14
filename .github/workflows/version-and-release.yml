@@ -56,29 +56,37 @@ jobs:
       - name: Push commit and tag using PAT
         if: github.event_name != 'pull_request'
         run: |
-          git config user.name "github-actions[bot]" # Corrected from "github-actions" to match error message context
-          git config user.email "github-actions[bot]@users.noreply.github.com" # Common email for bot actions
-
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}
-          git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
-          # The `|| true` or `|| echo "No changes to commit"` is good practice
-          git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
-          # Only push if there was a commit (check if HEAD changed, or check `git status --porcelain`)
-          # For simplicity, the original logic is kept, but this could be refined
-          # to avoid an empty push attempt if the commit failed due to no changes.
 
-          # Check if there are actual changes to commit to avoid empty commits if not already handled
+          git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
+          git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
+
           if ! git diff-index --quiet HEAD --; then
             git push origin HEAD --tags
           else
             echo "No changes to push."
-            # If you only want to push tags even if there are no file changes (e.g., a forced version bump)
-            # you might still want to push tags.
-            # Check if the tag already exists before trying to push to avoid errors if re-running on same version.
+
+            # Check if tag already exists
             if git rev-parse "v${{ steps.gitversion.outputs.semVer }}" >/dev/null 2>&1; then
-              echo "Tag v${{ steps.gitversion.outputs.semVer }} already exists."
+              echo "⚠️ Tag v${{ steps.gitversion.outputs.semVer }} already exists."
+
+              OLD_VER="${{ steps.gitversion.outputs.semVer }}"
+              echo "Current GitVersion SemVer: $OLD_VER"
+              MAJ=$(echo "$OLD_VER" | cut -d. -f1)
+              MIN=$(echo "$OLD_VER" | cut -d. -f2)
+              PATCH=$(echo "$OLD_VER" | cut -d. -f3)
+
+              NEW_VER="${MAJ}.${MIN}.$((PATCH + 1))"
+              echo "🔁 Fallback bump to v$NEW_VER"
+
+              # Tag and push the fallback version
+              git tag "v$NEW_VER"
+              git push origin "v$NEW_VER"
             else
-              git tag v${{ steps.gitversion.outputs.semVer }} # Ensure tag is created if commit didn't run due to no changes but tag is desired
+              echo "Tag does not exist, pushing tag normally"
+              git tag "v${{ steps.gitversion.outputs.semVer }}"
               git push origin --tags
             fi
           fi
