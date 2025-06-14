@@ -23,9 +23,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install build twine
 
+      - name: Extract version from tag
+        id: extract_version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+  
+      - name: Update version files
+        run: python scripts/update_versions.py $VERSION
+  
       - name: Clean dist directory
         run: rm -rf dist/
-
+  
       - name: Build package
         run: python -m build
 
@@ -63,11 +70,6 @@ jobs:
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_BTMARTIN721 }}
-
-      - name: Extract version from tag
-        id: extract_version
-        run: |
-          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Docker image metadata
         id: meta
