@@ -29,17 +29,17 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Needed for GitVersion to work correctly
-          persist-credentials: false # Ensure checkout doesn't persist its own token
+          fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup GitVersion
-        uses: gittools/actions/gitversion/setup@v0.11.0 # Consider updating to a newer major version if available
+        uses: gittools/actions/gitversion/setup@v0.11.0
         with:
           versionSpec: '5.12.0'
 
       - name: Run GitVersion
         id: gitversion
-        uses: gittools/actions/gitversion/execute@v0.11.0 # Consider updating to a newer major version if available
+        uses: gittools/actions/gitversion/execute@v0.11.0
 
       - name: Print version
         run: |
@@ -65,41 +65,43 @@ jobs:
 
           if ! git diff-index --quiet HEAD --; then
             git push origin HEAD --tags
+            echo "v${{ steps.gitversion.outputs.semVer }}" > .version_tag
           else
             echo "No changes to push."
-
-            # Check if tag already exists
             if git rev-parse "v${{ steps.gitversion.outputs.semVer }}" >/dev/null 2>&1; then
               echo "⚠️ Tag v${{ steps.gitversion.outputs.semVer }} already exists."
-
               OLD_VER="${{ steps.gitversion.outputs.semVer }}"
-              echo "Current GitVersion SemVer: $OLD_VER"
               MAJ=$(echo "$OLD_VER" | cut -d. -f1)
               MIN=$(echo "$OLD_VER" | cut -d. -f2)
               PATCH=$(echo "$OLD_VER" | cut -d. -f3)
-
               NEW_VER="${MAJ}.${MIN}.$((PATCH + 1))"
               echo "🔁 Fallback bump to v$NEW_VER"
 
-              # Tag and push the fallback version
+              python scripts/update_versions.py $NEW_VER
+              git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
+              git commit -m "chore: fallback bump version to $NEW_VER" || echo "No fallback file changes to commit"
+              git push origin HEAD
               git tag "v$NEW_VER"
               git push origin "v$NEW_VER"
+              echo "v$NEW_VER" > .version_tag
             else
-              echo "Tag does not exist, pushing tag normally"
               git tag "v${{ steps.gitversion.outputs.semVer }}"
               git push origin --tags
+              echo "v${{ steps.gitversion.outputs.semVer }}" > .version_tag
             fi
           fi
 
+      - name: Set tag name output
+        id: read_tag
+        run: echo "tag_name=$(cat .version_tag)" >> $GITHUB_OUTPUT
+
       - name: Create GitHub Release
-        # Ensure this runs only if the tag was successfully pushed.
-        if: github.event_name != 'pull_request' # Same condition as the push
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.gitversion.outputs.semVer }}
-          name: Release v${{ steps.gitversion.outputs.semVer }}
+          tag_name: ${{ steps.read_tag.outputs.tag_name }}
+          name: Release ${{ steps.read_tag.outputs.tag_name }}
           body: |
-            Auto-generated release from GitVersion
+            Auto-generated release from GitVersion or fallback tag
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-          
