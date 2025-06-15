@@ -1,11 +1,12 @@
-# Base image
-FROM python:3.12-slim
+# Base image with Conda
+FROM continuumio/miniconda3
 
-# Environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    CONDA_ENV=snpioenv
 
-# Install system dependencies
+# Install system-level dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gcc \
@@ -24,37 +25,45 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
+# Create a new Conda environment and install dependencies
+RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
+    python=3.12 \
+    numpy=2.2.6 \
+    pandas=2.2.3 \
+    pip && \
+    conda clean -afy && \
+    conda init bash && \
+    echo "conda activate $CONDA_ENV" > ~/.bashrc
 
-# Upgrade pip and install build tools
-RUN pip install --upgrade pip setuptools wheel build
+RUN pip install --no-cache-dir \
+    snpio \
+    pytest \
+    jupyterlab && \
+    conda clean -afy
 
-# Create working directory
+# Create a non-root user and set home directory
+RUN useradd -ms /bin/bash snpiouser && \
+    mkdir -p /home/snpiouser/.config/matplotlib /app/results /app/docs /app/example_data && \
+    chown -R snpiouser:snpiouser /app /home/snpiouser
+
+ENV MPLCONFIGDIR=/home/snpiouser/.config/matplotlib
+
+# Set working directory
 WORKDIR /app
 
-# Create logical user directories
-RUN mkdir -p \
-    /app/results \
-    /app/docs \
-    /app/example_data
+# Copy application files with correct permissions
+COPY --chown=snpiouser:snpiouser tests/ tests/
+COPY --chown=snpiouser:snpiouser scripts_and_notebooks/ scripts_and_notebooks/
+COPY --chown=snpiouser:snpiouser snpio/example_data/ example_data/
+COPY --chown=snpiouser:snpiouser UserManual.pdf docs/UserManual.pdf
+COPY --chown=snpiouser:snpiouser README.md docs/README.md
+COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpiouser/.bashrc
 
-# Copy only necessary files early for Docker caching
-COPY tests/ tests/
-COPY scripts_and_notebooks/ scripts_and_notebooks/
-COPY snpio/example_data/ example_data/
-COPY UserManual.pdf docs/UserManual.pdf
-COPY README.md docs/README.md
+# Switch to non-root user
+USER snpiouser
 
-# Copy custom bashrc
-COPY scripts_and_notebooks/.bashrc_snpio /root/.bashrc
-
-RUN pip install --upgrade pip
-RUN pip install jupyterlab
-
-# Install SNPio package and its dependencies
-RUN pip install snpio
-
-# Optional: validate installation
+# Run tests (non-blocking; allows image to build even if tests fail)
 RUN pytest tests/ || echo "Tests failed during build; continuing..."
 
-# Default entrypoint
+# Default container command
 CMD ["bash"]
