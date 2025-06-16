@@ -46,7 +46,9 @@ RUN useradd -ms /bin/bash snpiouser && \
     mkdir -p /home/snpiouser/.config/matplotlib /app/results /app/docs /app/example_data && \
     chown -R snpiouser:snpiouser /app /home/snpiouser
 
-ENV MPLCONFIGDIR=/home/snpiouser/.config/matplotlib
+# Ensure HOME and MPLCONFIGDIR are set correctly
+ENV HOME=/home/snpiouser
+ENV MPLCONFIGDIR=$HOME/.config/matplotlib
 
 # Set working directory
 WORKDIR /app
