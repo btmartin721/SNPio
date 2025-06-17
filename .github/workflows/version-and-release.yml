@@ -32,6 +32,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Exit if workflow triggered by a version tag (prevent recursion)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "🛑 Detected tag push (${GITHUB_REF}). Skipping version bump to prevent recursion."
+          exit 0
+
       - name: Setup GitVersion
         uses: gittools/actions/gitversion/setup@v0.11.0
         with:
@@ -64,10 +70,13 @@ jobs:
           git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
 
           if ! git diff-index --quiet HEAD --; then
-            git push origin HEAD --tags
+            git push origin HEAD
+            git tag "v${{ steps.gitversion.outputs.semVer }}"
+            git push origin "v${{ steps.gitversion.outputs.semVer }}"
             echo "v${{ steps.gitversion.outputs.semVer }}" > .version_tag
           else
             echo "No changes to push."
+
             if git rev-parse "v${{ steps.gitversion.outputs.semVer }}" >/dev/null 2>&1; then
               echo "⚠️ Tag v${{ steps.gitversion.outputs.semVer }} already exists."
               OLD_VER="${{ steps.gitversion.outputs.semVer }}"
