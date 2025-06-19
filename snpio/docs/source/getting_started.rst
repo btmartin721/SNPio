@@ -395,7 +395,7 @@ Key Methods in VCFReader, PhylipReader, StructureReader, and GenePopReader
 || ``write_structure`` || Writes the filtered or modified genotype  |
 ||                     || data back to a STRUCTURE file.            |
 +----------------------+--------------------------------------------+
-|| ``GenePopReader``   || Reads genotype data from a GENEPOP file  |
+|| ``GenePopReader``   || Reads genotype data from a GENEPOP file   |
 ||                     || and applies a population map.             |
 +----------------------+--------------------------------------------+
 || ``write_genepop``   || Writes the filtered or modified genotype  |
