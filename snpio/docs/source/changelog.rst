@@ -4,6 +4,11 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.3.21 (2025-06-16)
+---------------------------
+
+Documentation and CI/CD build fixes and updates.
+
 Version 1.3.15 (2025-06-14)
 ---------------------------
 

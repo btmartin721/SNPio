@@ -18,9 +18,11 @@ The ``NRemover2`` class is used to filter genotype data based on various criteri
 
 The ``Plotting`` class provides methods to visualize genotype data, such as running principal component analysis (PCA) and generating missing data reports.
 
-The ``TreeParser`` class is used to load and parse phylogenetic trees in Newick and NEXUS formats. It can read and parse tree files, modify tree structures, draw trees, and save trees in different formats.
+The ``PopGenStatistics`` class is designed to perform a suite of population genetic analyses on SNP datasets. It supports calculations such as pairwise Weir and Cockerham's Fst, heterozygosity, nucleotide diversity. It also supports the following analyses, although they are at this time still experimental and will be more fully-featured and validated in a future release: D-statistics, Fst outliers, and Analysis of Molecular Variance (AMOVA). These analyses can facilitate understanding of the genetic structure, diversity, and differentiation within and between populations.
 
-The ``PopGenStatistics`` class is designed to perform a suite of population genetic analyses on SNP datasets. It supports calculations such as pairwise Weir and Cockerham's Fst, D-statistics, Fst outliers, heterozygosity, nucleotide diversity, and Analysis of Molecular Variance (AMOVA). These analyses are essential for understanding genetic structure, diversity, and differentiation within and between populations.
+The ``GenotypeEncoder`` class provides methods to encode genotype data into different formats, such as one-hot encoding, integer encoding, and 0-1-2 encoding. This is useful for preparing genotype data for machine learning and AI tasks.
+
+The *still-experimental* ``TreeParser`` class is used to load and parse phylogenetic trees in Newick and NEXUS formats. It can read and parse tree files, modify tree structures, draw trees, and save trees in different formats.
 
 Below is a step-by-step guide to using SNPio to read, filter, encode genotype data for analysis, and calculate population genetic statistics. The guide covers the basic steps to get started with SNPio and provides examples of how to use the main classes and methods in the library.
 
@@ -166,7 +168,7 @@ Important Notes:
 The Population Map File
 -----------------------
 
-To use ``VCFReader``, ``PhylipReader``, or ``StructureReader``, or ``GenePopReader``, you can optionally use a population map (popmap) file. This is a simple two-column, whitespace-delimited or comma-delimited file with SampleIDs in the first column and the corresponding PopulationIDs in the second column. It can optionally contain a header line, with the first column labeled "SampleID" and the second column labeled "PopulationID" (case-insensitive). The population IDs can be any string, such as "Population1", "Population2", etc, or an integer. SampleIDs must match the sample names in the alignment file.
+To use ``VCFReader``, ``PhylipReader``, or ``StructureReader``, or ``GenePopReader``, you can optionally use a population map (popmap) file. This is a simple two-column, whitespace-delimited or comma-delimited file with SampleIDs in the first column and the corresponding PopulationIDs in the second column. It can also optionally contain a header line, with the first column labeled "SampleID" and the second column labeled "PopulationID" (case-insensitive). The population IDs can be any string, such as "Population1", "Population2", etc, or an integer. SampleIDs must match the sample names in the alignment file.
 
 Below is an example of a popmap file without a header:
 
@@ -224,7 +226,7 @@ The population map file can be provided as an argument to the reader classes. Fo
 Reading Genotype Data
 ---------------------
 
-SNPio provides readers for different file formats. Here are examples of how to read genotype data from various file formats: VCF, PHYLIP, and STRUCTURE.
+SNPio provides readers for different file formats. Here are examples of how to read genotype data from various file formats: VCF, PHYLIP, STRUCTURE, and GENEPOP.
 
 VCFReader
 ^^^^^^^^^
@@ -236,7 +238,10 @@ VCFReader
   
   gd = VCFReader(
     filename=vcf, 
-    popmapfile=popmap, force_popmap=True, verbose=True, plot_format="png", 
+    popmapfile=popmap, 
+    force_popmap=True, 
+    verbose=True, 
+    plot_format="png", 
     plot_fontsize=20, 
     plot_dpi=300, 
     despine=True, prefix="snpio_example", 
@@ -244,7 +249,7 @@ VCFReader
     include_pops=["ON", "DS", "EA", "GU", "TT"],
   )
 
-This will read in the genotype data from a VCF file and apply the population map, if provided.
+This will read in the genotype data from a VCF file and apply the population map.
 
 PhylipReader
 ^^^^^^^^^^^^
@@ -270,7 +275,7 @@ If you would like to read a Phylip file, you can use the ``PhylipReader`` class:
     include_pops=["ON", "DS", "EA", "GU", "TT"],
   )
 
-This will read the genotype data from a PHYLIP file and apply the population map (if provided).
+This will read the genotype data from a PHYLIP file and apply the population map.
 
 StructureReader
 ^^^^^^^^^^^^^^^
@@ -296,7 +301,7 @@ If you would like to read in a Structure file, you can use the ``StructureReader
     include_pops=["ON", "DS", "EA", "GU", "TT"],
   )
 
-This will read the genotype data from a STRUCTURE file and apply the population map (if provided).
+This will read the genotype data from a STRUCTURE file and apply the population map.
 
 StructureReader options
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -321,7 +326,7 @@ StructureReader options
 
 .. note::
 
-  The ``StructureReader`` class will automatically detect whether the STRUCTURE file is in one-line or two-line format (see STRUCTURE documentation).
+  The ``StructureReader`` class will automatically detect whether the STRUCTURE file is in one-line or two-line format (see STRUCTURE documentation for descriptions of the one-line and two-line formats).
 
 GenePopReader
 ^^^^^^^^^^^^^
@@ -347,7 +352,7 @@ If you would like to read in a GENEPOP file, you can use the ``GenePopReader`` c
     include_pops=["ON", "DS", "EA", "GU", "TT"],
   )
 
-This will read the genotype data from a GENEPOP file and apply the population map (if provided).
+This will read the genotype data from a GENEPOP file and apply the population map.
 
 You can also specify additional parameters for the ``GenePopReader`` class:
 
@@ -369,53 +374,43 @@ You can also specify additional parameters for the ``GenePopReader`` class:
 Key Methods in VCFReader, PhylipReader, StructureReader, and GenePopReader
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-+------------------------------+--------------------------------------------+
-| **Function/Method**          | **Description**                            |
-+------------------------------+--------------------------------------------+
-|| ``VCFReader``               || Reads and writes genotype data from/ to a |
-||                             || VCF file and applies a population map (if |
-||                             || provided).                                |
-+------------------------------+--------------------------------------------+
-|| ``write_vcf``               || Writes the filtered or modified genotype  |
-||                             || data back to a VCF file                   |
-||                             || (for all three readers).                  |
-+------------------------------+--------------------------------------------+
-|| ``PhylipReader``            || Reads and writes genotype data from/ to a |
-||                             || PHYLIP file and applies a population map. |
-+------------------------------+--------------------------------------------+
-|| ``write_phylip``            || Writes the filtered or modified genotype  |
-||                             || data back to a PHYLIP file (for           |
-||                             || PhylipReader).                            |
-+------------------------------+--------------------------------------------+
-|| ``StructureReader``         || Reads and writes genotype data from/ to a |
-||                             || STRUCTURE file and applies a population   |
-||                             || map (if provided).                        |
-+------------------------------+--------------------------------------------+
-|| ``write_structure``         || Writes the filtered or modified genotype  |
-||                             || data back to a STRUCTURE file             |
-||                             || (for StructureReader).                    |
-+------------------------------+--------------------------------------------+
-|| ``GenePopReader``           || Reads and writes genotype data from/ to a |
-||                             || GENEPOP file and applies a population     |
-||                             || map (if provided).                        |
-+------------------------------+--------------------------------------------+
-|| ``write_genepop``           || Writes the filtered or modified genotype  |
-|| data back to a GENEPOP file || (for GenePopReader).                      |
-||                             ||                                           |
-+------------------------------+--------------------------------------------+
++----------------------+--------------------------------------------+
+| **Function/Method**  | **Description**                            |
++----------------------+--------------------------------------------+
+|| ``VCFReader``       || Reads genotype data from a VCF file and   |
+||                     || applies a population map.                 |
++----------------------+--------------------------------------------+
+|| ``write_vcf``       || Writes the filtered or modified genotype  |
+||                     || data back to a VCF file.                  |
++----------------------+--------------------------------------------+
+|| ``PhylipReader``    || Reads genotype data from a PHYLIP file    |
+||                     || and applies a population map.             |
++----------------------+--------------------------------------------+
+|| ``write_phylip``    || Writes the filtered or modified genotype  |
+||                     || data back to a PHYLIP file.               |
++----------------------+--------------------------------------------+
+|| ``StructureReader`` || Reads genotype data from a STRUCTURE      |
+||                     || file and applies a population map.        |
++----------------------+--------------------------------------------+
+|| ``write_structure`` || Writes the filtered or modified genotype  |
+||                     || data back to a STRUCTURE file.            |
++----------------------+--------------------------------------------+
+|| ``GenePopReader``   || Reads genotype data from a GENEPOP file  |
+||                     || and applies a population map.             |
++----------------------+--------------------------------------------+
+|| ``write_genepop``   || Writes the filtered or modified genotype  |
+||                     || data back to a GENEPOP file.              |
++----------------------+--------------------------------------------+
 
-The ``write_vcf``, ``write_phylip``, ``write_structure``, and ``write_genepop`` methods are used to write the filtered or modified genotype data back to a VCF, PHYLIP, STRUCTURE, or GENEPOP file, respectively.
+The ``write_vcf``, ``write_phylip``, ``write_structure``, and ``write_genepop`` methods are used to write the filtered or modified genotype data back to a VCF, PHYLIP, STRUCTURE, or GENEPOP file, respectively. They are interoperable, meaning you can read genotype data from one format and write it to another format. For example, you can read genotype data from a VCF file and write it to a PHYLIP file, or vice versa.
 
-.. note::
-
-  The ``write_vcf``, ``write_phylip``, ``write_structure``, and ``write_genepop`` methods can be used to write the filtered or modified genotype data back to a new file. The new file will contain the filtered or modified genotype data based on the filtering criteria applied.
 
 Other GenotypeData Methods
 --------------------------
 
 The ``GenotypeData`` along with the ``Plotting`` classes have several useful methods for working with genotype data:
 
-1. ``Plotting.run_pca()``: Runs principal component analysis (PCA) on the genotype data and plots the results. The PCA plot can help visualize the genetic structure of the populations in the dataset, with each point representing an individual. Individuals are colored by missing data proportion, and populations are represented by different shapes. A 2-dimensional PCA plot is generated by default, but you can specify three PCA axes as well. For example:
+1. ``Plotting.run_pca()``: Runs principal component analysis (PCA) on the genotype data and plots the results, with colors representing missing data proportion and shapes representing populations. The PCA plot can help visualize the genetic structure of the populations in the dataset, with each point representing an individual. Individuals are colored by missing data proportion, and populations are represented by different shapes. A 2-dimensional PCA plot is generated by default, but you can specify three PCA axes as well. For example:
 
 .. figure:: ../../../snpio/img/pca_missingness.png
   :alt: PCA Plot with samples colored by missing data proportion and populations represented by different shapes.
@@ -423,7 +418,7 @@ The ``GenotypeData`` along with the ``Plotting`` classes have several useful met
 
   Figure 1: PCA Plot with samples colored by missing data proportion and populations represented by different shapes. The plot shows the genetic structure of the populations in the dataset, with each point representing an individual. The individuals are colored by the proportion of missing data, and the populations are represented by different shapes.
 
-2. ``GenotypeData.missingness_reports()``: Generates missing data reports and plots for the dataset. The reports include the proportion of missing data per individual, per locus, and per population. These reports can help you identify samples, loci, or populations with high levels of missing data. For example:
+1. ``GenotypeData.missingness_reports()``: Generates missing data reports and plots for the dataset. The reports include the proportion of missing data per individual, per locus, and per population. These reports can help you identify samples, loci, or populations with high levels of missing data. For example:
 
 .. figure:: ../../../snpio/img/missingness_report.png
   :alt: Missing Data Report with Plots Depicting Missing Data Proportion per Sample, Locus, and Population.
@@ -458,7 +453,7 @@ The ``NRemover2`` class provides a variety of filtering methods to clean your ge
             .resolve()
 
   # Write the filtered VCF to a new file
-  gd_filt.write_vcf("filtered_output.vcf")
+  gd_filt.write_vcf("filtered_output.vcf.gz")
 
 Key Methods in NRemover2
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -466,36 +461,36 @@ Key Methods in NRemover2
 +--------------------------+--------------------------------------------------+
 | **Function/Method**      | **Description**                                  |
 +--------------------------+--------------------------------------------------+
-| ``filter_missing_sample``| Filters samples with missing data above the      |
+| ``filter_missing_sample``| Removes samples with missing data above the      |
 |                          | threshold.                                       |
 +--------------------------+--------------------------------------------------+
-| ``filter_missing``       | Filters loci with missing data above the         |
+| ``filter_missing``       | Removes loci with missing data above the         |
 |                          | threshold.                                       |
 +--------------------------+--------------------------------------------------+
-| ``filter_missing_pop``   | Filters loci where missing data for any          |
+| ``filter_missing_pop``   | Removes loci where missing data for any          |
 |                          | population is above the threshold.               |
 +--------------------------+--------------------------------------------------+
-| ``filter_mac``           | Filters loci with a minor allele count below     |
+| ``filter_mac``           | Removes loci with a minor allele count below     |
 |                          | the threshold.                                   |
 +--------------------------+--------------------------------------------------+
-| ``filter_maf``           | Filters loci with a minor allele frequency       |
+| ``filter_maf``           | Removes loci with a minor allele frequency       |
 |                          | below the threshold.                             |
 +--------------------------+--------------------------------------------------+
-| ``filter_monomorphic``   | Filters monomorphic loci (sites with only one    |
+| ``filter_monomorphic``   | Removes monomorphic loci (sites with only one    |
 |                          | allele).                                         |
 +--------------------------+--------------------------------------------------+
-| ``filter_singletons``    | Filters singletons (sites with only one          |
+| ``filter_singletons``    | Removes singletons (sites with only one          |
 |                          | occurrence of an allele).                        |
 +--------------------------+--------------------------------------------------+
-| ``filter_biallelic``     | Filters biallelic loci (sites with only two      |
+| ``filter_biallelic``     | Retains only biallelic loci (sites with only two |
 |                          | alleles).                                        |
 +--------------------------+--------------------------------------------------+
 | ``thin_loci``            | Thins loci by removing loci within ``size``      |
 |                          | bases of each other on the same locus or         |
 |                          | chromosome.                                      |
 +--------------------------+--------------------------------------------------+
-| ``filter_linked``        | Filters loci that are linked within a specified  |
-|                          | distance.                                        |
+| ``filter_linked``        | Removes loci that are linked within a specified  |
+|                          | distance on the chromosome.                      |
 +--------------------------+--------------------------------------------------+
 | ``random_subset_loci``   | Randomly selects ``size`` number of loci from    |
 |                          | the input dataset.                               |
@@ -724,7 +719,8 @@ The GenotypeEncoder class provides three encoding properties:
 
 ``genotypes_012``: Encodes genotype data into 0-1-2 encoding, where 0 represents the homozygous reference genotype, 1 represents the heterozygous genotype, and 2 represents the homozygous alternate genotype. Missing values are represented as -9.
 
-Example Usage:
+Example GenotypeEncoder Usage
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: python
 
@@ -795,21 +791,21 @@ The `PopGenStatistics` class provides several methods for calculating population
     * - Class Method
       - Description
       - Supported Algorithm(s)
-    * - ``calculate_d_statistics``
-      - Calculates D-statistics and saves them as CSV.
-      - Patterson's, partitioned, and D-foil D-statistics.
-    * - ``detect_fst_outliers``
-      - Identifies Fst outliers. Supports one-tailed & two-tailed P-values.
-      - DBSCAN clustering, Traditional bootstrapping.
     * - ``summary_statistics``
       - Calculates several population genetic summary statistics.
       - Observed heterozygosity (Ho), Expected heterozygosity (He), Nucleotide diversity (Pi), Weir and Cockerham's Fst.
-    * - ``amova``
-      - Conducts AMOVA with bootstrapping and parallel computation.
-      - Hierarchical AMOVA, variance components, Phi statistics.
     * - ``neis_genetic_distance``
       - Computes Nei's genetic distance between population pairs.
       - Nei's genetic distance.
+    * - ``amova`` (Experimental)
+      - Conducts AMOVA (Analysis of Molecular Variance) with bootstrapping and parallel computation.
+      - Hierarchical AMOVA, variance components, Phi statistics.
+    * - ``calculate_d_statistics`` (Experimental)
+      - Calculates D-statistics and saves them as CSV.
+      - Patterson's, partitioned, and D-foil D-statistics.
+    * - ``detect_fst_outliers`` (Experimental)
+      - Identifies Fst outliers. Supports one-tailed & two-tailed P-values.
+      - DBSCAN clustering, Traditional bootstrapping.
 
 Here is an example of how to use the `PopGenStatistics` class to perform population genetic analyses:
 
@@ -877,7 +873,7 @@ Here is an example of how to use the `PopGenStatistics` class to perform populat
       tail_direction="upper",
   )
 
-  # Still experimental.
+  # NOTE: Still experimental.
   df_fst_outliers_dbscan, df_fst_outlier_pvalues_dbscan = pgs.detect_fst_outliers(
       correction_method="fdr", use_bootstrap=False, n_jobs=1
   )
@@ -900,7 +896,7 @@ The summary statistics method generates a summary report with observed heterozyg
 
   Figure 11: Summary Statistics Report, with observed heterozygosity (Ho), expected heterozygosity (He), and nucleotide diversity (Pi) plotted per-locus (left panel) and with the overal means (right panel). The plot shows the genetic diversity and differentiation within and between populations, with the summary statistics values indicated by the line and bar plots.
 
-The ``calculate_d_statistics`` method calculates Patterson's D-statistics, partitioned D-statistics, and D-foil D-statistics for the specified population groups. The method returns a DataFrame with the D-statistics values and overall results for the analysis. Below are three example visualizations made by the `calculate_d_statistics` method:
+The *still-experimental* ``calculate_d_statistics`` method calculates Patterson's D-statistics, partitioned D-statistics, and D-foil D-statistics for the specified population groups. The method returns a DataFrame with the D-statistics values and overall results for the analysis. Below are three example visualizations made by the `calculate_d_statistics` method:
 
 .. figure:: ../../../snpio/img/d_statistics_distribution.png
   :alt: D-statistics Distribution Histogram Plot
@@ -914,7 +910,7 @@ The ``calculate_d_statistics`` method calculates Patterson's D-statistics, parti
 
   Figure 13: D-statistics Significance Counts Bar Plot, with the number of significant and non-significant D-statistics values indicated for each multiple comparison test correction method (None, Bonferroni, FDR).
 
-Below is an example of the plot made by the `detect_fst_outliers` method:
+Below is an example of the plot made by the *still-experimental* `detect_fst_outliers` method:
 
 .. figure:: ../../../snpio/img/outlier_snps_heatmap.png
   :alt: Fst Outlier SNPs Heatmap
@@ -1026,7 +1022,7 @@ The rate matrix and site rates objects can be accessed by their corresponding pr
 - ``tp.qmat``: Rate matrix Q.
 - ``tp.site_rates``: Site rates.
 
-The (still experimental) ``TreeParser`` class is designed to simplify the process of working with phylogenetic trees and extracting relevant information for downstream analysis. You can use the ``TreeParser`` class to load, parse, and manipulate phylogenetic trees in Newick and NEXUS formats, and extract tree statistics, distance matrices, and subtrees based on sample IDs. For more information on the ``TreeParser`` class and its methods, please refer to the API documentation.
+The *still-experimental* ``TreeParser`` class is designed to simplify the process of working with phylogenetic trees and extracting relevant information for downstream analysis. You can use the ``TreeParser`` class to load, parse, and manipulate phylogenetic trees in Newick and NEXUS formats, and extract tree statistics, distance matrices, and subtrees based on sample IDs. For more information on the ``TreeParser`` class and its methods, please refer to the API documentation.
 
 Conclusion
 -----------
