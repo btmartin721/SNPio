@@ -111,9 +111,9 @@ class NRemover2:
 
         prefix (str): The prefix for the output files.
 
-        popmap (Dict[str, str | int): A dictionary mapping sample IDs to population names.
+        popmap (Dict[str, str | int]): A dictionary mapping sample IDs to population names.
 
-        popmap_inverse (Dict[str | int], List[str]]): A dictionary mapping population names to lists of sample IDs.
+        popmap_inverse (Dict[str | int, List[str]]): A dictionary mapping population names to lists of sample IDs.
 
         sample_indices (np.ndarray): A boolean array indicating which samples to keep.
 

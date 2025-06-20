@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 from snpio import NRemover2, VCFReader
 
 
@@ -207,6 +208,12 @@ class TestNRemover2(unittest.TestCase):
         ]
         expected_indices = [0, 1, 3]  # Locus 2 monomorphic; locus 4 multiallelic
         self.assertEqual(retained_indices, expected_indices)
+
+    def test_filter_linked(self):
+        np.random.seed(0)
+        filtered_data = self.nrm.filter_linked().resolve()
+        self.assertEqual(filtered_data.num_snps, 2)
+        self.assertEqual(np.count_nonzero(filtered_data.loci_indices), 2)
 
     @classmethod
     def tearDownClass(cls):
