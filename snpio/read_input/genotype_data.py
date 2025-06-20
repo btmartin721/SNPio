@@ -1478,14 +1478,14 @@ class GenotypeData(BaseGenotypeData):
         if isinstance(value, list):
             value = np.array(value)
         if not value.dtype is np.dtype(bool):
-            msg = f"Attempt to set 'sample_indices' to an unexpected np.dtype. Expected 'bool', but got: {value.dtype}"
+            msg = f"Attempt to set 'loci_indices' to an unexpected np.dtype. Expected 'bool', but got: {value.dtype}"
             self.logger.error(msg)
             raise TypeError(msg)
         self._loci_indices = value
 
     @property
     def sample_indices(self) -> np.ndarray:
-        """Row indices for retained samples in alignemnt.
+        """Row indices for retained samples in alignment.
 
         Returns:
             np.ndarray: Boolean array of sample indices, with True for retained samples and False for excluded samples.

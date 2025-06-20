@@ -420,13 +420,16 @@ class FilteringMethods:
             )
             return self.nremover
 
-        if self.genotype_data.filetype != "vcf":
-            msg = f"Only 'vcf' file type is supported for filtering linked loci, but got {self.genotype_data.filetype}"
+        if self.nremover.genotype_data.filetype != "vcf":
+            msg = (
+                "Only 'vcf' file type is supported for filtering linked loci, "
+                f"but got {self.nremover.genotype_data.filetype}"
+            )
             self.logger.error(msg)
             raise AlignmentFormatError(msg)
 
         # Construct the path to the HDF5 file
-        hdf5_path = self.genotype_data.vcf_attributes_fn
+        hdf5_path = self.nremover.genotype_data.vcf_attributes_fn
 
         # Check if the HDF5 file exists
         if not Path(hdf5_path).is_file():
@@ -481,6 +484,8 @@ class FilteringMethods:
             return self.nremover
 
         # Update the loci indices with the mask
+        if not hasattr(self.nremover, "current_thresholds"):
+            self.nremover.current_thresholds = (None, None, None, None)
         self.nremover._update_loci_indices(mask, inspect.stack()[0][3])
 
         return self.nremover
