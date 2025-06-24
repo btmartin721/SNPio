@@ -1,15 +1,21 @@
-name: CI Testing
+# This GitHub Actions workflow runs tests on multiple Python versions
+# whenever code is pushed to the main or master branches or a pull request is opened.
+# It uses pytest to run the tests located in the 'tests/' directory.
+# The workflow sets up Python versions 3.11 and 3.12, installs the package with its development dependencies,
+# and runs the tests to ensure code quality and functionality.
+# If any test fails, the workflow will report the failure, helping maintain code integrity.
+name: CI Testing on Python Versions 3.11 and 3.12
 
 on:
   push:
     branches:
-      - main
       - master
+      - main
 
   pull_request:
     branches:
-      - main
       - master
+      - main
 
 jobs:
   test:
