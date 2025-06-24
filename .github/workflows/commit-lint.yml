@@ -1,10 +1,15 @@
+# This GitHub Actions workflow lints commit messages in pull requests
+# to ensure they follow the Conventional Commits specification.
+# It runs on pull requests targeting the main or master branches.
+# If any commit message does not conform to the expected format,
+# the workflow will fail and provide guidance on the expected format.
 name: 🧾 Commit Lint
 
 on:
   pull_request:
     branches:
-      - main
       - master
+      - main
 
 jobs:
   lint-commits:
