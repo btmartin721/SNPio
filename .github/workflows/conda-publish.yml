@@ -1,5 +1,6 @@
-# Workflow name
-name: Publish Conda Package
+# This workflow builds and publishes a Conda package to btmartin721/snpio on Anaconda.org
+# It is triggered by pushes to tags that match the pattern v*.*.*.
+name: Publish Conda Package to btmartin721/snpio
 
 # Trigger the workflow on pushes to tags matching the pattern v*.*.*
 on:
