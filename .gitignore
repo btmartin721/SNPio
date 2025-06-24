@@ -240,6 +240,7 @@ validation/
 #===============================================================================
 benchmark_results_4Jun25/
 benchmark_results_6Jun25/
+benchmark_results_6Jun25.tar.gz
 proc_*benchmark_*.py
 proc_*benchmark_*.zsh
 flow_diagram.py
