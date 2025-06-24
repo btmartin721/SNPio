@@ -1,11 +1,13 @@
+# This workflow automatically bumps the version of SNPio based on GitVersion,
+# commits changes to the version files, and creates a GitHub release with the new version tag.
 name: Auto Version and Tag SNPio Release
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - main
       - master
+      - main
     paths:
       - 'pyproject.toml'
       - 'recipe/meta.yaml'
@@ -13,8 +15,8 @@ on:
       - 'tests/**'
   pull_request:
     branches:
-      - main
       - master
+      - main
     paths:
       - 'pyproject.toml'
       - 'recipe/meta.yaml'
@@ -71,7 +73,7 @@ jobs:
       
           if git rev-parse "v${{ steps.gitversion.outputs.semVer }}" >/dev/null 2>&1; then
             echo "❌ Tag v${{ steps.gitversion.outputs.semVer }} already exists. Aborting to prevent recursive tagging."
-            exit 1
+            exit 0
           fi
       
           git push origin HEAD
@@ -91,6 +93,6 @@ jobs:
           tag_name: ${{ steps.read_tag.outputs.tag_name }}
           name: Release ${{ steps.read_tag.outputs.tag_name }}
           body: |
-            Auto-generated release from GitVersion or fallback tag
+            Auto-generated release from GitVersion
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
