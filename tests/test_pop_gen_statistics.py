@@ -131,7 +131,7 @@ def generate_population_map_file(populations: Dict[str, list] | None = None) -> 
     popmap_df = pd.DataFrame(rows, columns=["SampleID", "PopulationID"])
 
     temp_popmap_file = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
-    popmap_df.to_csv(temp_popmap_file.name, index=False)
+    popmap_df.to_csv(temp_popmap_file.name, index=True)
 
     return temp_popmap_file.name
 
