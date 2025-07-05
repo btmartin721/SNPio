@@ -4,6 +4,70 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.5.0 (2025-07-04)
+--------------------------
+
+This major release introduces an all-new, fully interactive **MultiQC report generator** that integrates results across all SNPio modules. It also includes robust enhancements to the `PopGenStatistics` class, expanded functionality for downstream analyses, and critical bug fixes.
+
+Features
+~~~~~~~~
+
+**MultiQC Report Integration**
+
+- Introduced the `SNPioMultiQCReport` class to generate dynamic HTML reports for all SNPio modules, including:
+    - `PopGenStatistics`, `VCFReader`, `PhylipReader`, `StructureReader`, `GenePopReader`, `NRemover2`, `SummaryStatistics`, `FstDistance`, `DStatistics`, `FstOutliers`, `Plotting`, and more.
+- The report aggregates visualizations and tables across modules, offering a centralized and interactive way to explore SNPio results.
+
+**Report Highlights**
+
+- Summary statistics: plots and tables across modules
+- Genetic distance visualizations:
+    - **Weir and Cockerham's Fst (1984)** heatmap
+    - **Nei's genetic distance** heatmap
+- D-statistics visualizations for:
+    - **Patterson's D**
+    - **Partitioned D**
+    - **D-FOIL D**
+- Fst outlier detection plots:
+    - **DBSCAN clustering method**
+    - **Bootstrapping/permutation method**
+
+**PopGenStatistics Enhancements**
+
+- **`calculate_d_statistics()`**
+    - Calculates Patterson's, Partitioned, and D-FOIL D-statistics
+    - Optimized with `numba.jit` for performance
+    - Returns a pandas DataFrame and CSV output
+    - Automatically adds interactive plots to the MultiQC report
+    - Supports per-population subsampling for targeted comparisons
+- **`detect_fst_outliers()`**
+    - Detects outlier loci using DBSCAN or permutation-based methods
+    - Returns a DataFrame, saves plots, and integrates results with MultiQC
+- **`summary_statistics()`**
+    - Computes summary stats across and within populations
+    - Now includes expected/observed heterozygosity, nucleotide diversity, and pairwise Fst
+    - Results are returned as dictionaries and visualized interactively
+- **`neis_genetic_distance()`**
+    - Computes Nei's genetic distances between populations
+    - Produces both distance matrices and heatmaps for the MultiQC report
+
+Enhancements
+~~~~~~~~~~~~
+
+- Performance upgrades to D-statistic calculations using `numba.jit`
+- More robust and flexible subsetting options for per-population analyses
+- Improved consistency and formatting of plots and CSV outputs
+- Extended support for custom pipelines via MultiQC-compatible outputs
+- Updated documentation to reflect new features and usage examples
+- Updated documentation for clarity and consistency, including detailed examples for the new MultiQC report generator and `PopGenStatistics` methods
+
+Bug Fixes
+~~~~~~~~~
+
+- **VCFReader**: Fixed a critical issue related to HDF5 typing errors during VCF read/write operations
+- **PopGenStatistics**: Corrected Fst P-value calculation logic when using the bootstrapping method; it now correctly applies permutation-based inference
+- **Docker**: Updated Docker container setup for better dependency handling and performance
+
 Version 1.3.21 (2025-06-16)
 ---------------------------
 
