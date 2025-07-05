@@ -145,7 +145,9 @@ class VCFReader(GenotypeData):
             - Setting `store_format_fields` to True slows down VCFReader. If you don't need the per-sample-per-locus metadata, leave this at False.
 
         """
-        outdir = Path(f"{prefix}_output") / "gtdata" / "alignments" / "vcf"
+        outdir = Path(f"{prefix}_output") / "alignments" / "vcf"
+        outdir.mkdir(exist_ok=True, parents=True)
+
         self._vcf_attributes_fn = outdir / "vcf_attributes.h5"
         self.store_format_fields = store_format_fields
         self.disable_progress_bar = disable_progress_bar
@@ -157,6 +159,8 @@ class VCFReader(GenotypeData):
         self.resource_data = {}
 
         self.iupac = IUPAC(logger=self.logger)
+
+        self.marker_names = []
 
         super().__init__(
             filename=filename,
@@ -266,6 +270,7 @@ class VCFReader(GenotypeData):
         self.logger.debug(f"snp_data shape: {self.snp_data.shape}")
 
         return self
+
     def get_vcf_attributes(
         self, vcf: pysam.VariantFile, chunk_size: int = 1000
     ) -> Tuple[Path, np.ndarray, np.ndarray]:
@@ -293,14 +298,14 @@ class VCFReader(GenotypeData):
 
         # buffers for chunked write; POS as integer
         chrom_buf = np.empty((chunk_size,), dtype=object)
-        pos_buf   = np.empty((chunk_size,), dtype=np.int64)
-        id_buf    = np.empty((chunk_size,), dtype=object)
-        qual_buf  = np.empty((chunk_size,), dtype=object)
-        ref_buf   = np.empty((chunk_size,), dtype=object)
-        alt_buf   = np.empty((chunk_size,), dtype=object)
-        filt_buf  = np.empty((chunk_size,), dtype=object)
-        fmt_buf   = np.empty((chunk_size,), dtype=object)
-        info_buf  = {k: np.empty((chunk_size,), dtype=object) for k in info_keys}
+        pos_buf = np.empty((chunk_size,), dtype=np.int64)
+        id_buf = np.empty((chunk_size,), dtype=object)
+        qual_buf = np.empty((chunk_size,), dtype=object)
+        ref_buf = np.empty((chunk_size,), dtype=object)
+        alt_buf = np.empty((chunk_size,), dtype=object)
+        filt_buf = np.empty((chunk_size,), dtype=object)
+        fmt_buf = np.empty((chunk_size,), dtype=object)
+        info_buf = {k: np.empty((chunk_size,), dtype=object) for k in info_keys}
         snp_matrix = np.empty((n_vars, n_samples), dtype="<U1")
 
         # Preallocated FORMAT buffers
@@ -344,7 +349,7 @@ class VCFReader(GenotypeData):
                     maxshape=(n_vars,),
                     chunks=(chunk_size,),
                     dtype=dtype,
-                    compression="lzf"
+                    compression="lzf",
                 )
 
             # INFO datasets
@@ -356,7 +361,7 @@ class VCFReader(GenotypeData):
                     maxshape=(n_vars,),
                     chunks=(chunk_size,),
                     dtype=h5py.string_dtype(encoding="utf-8"),
-                    compression="lzf"
+                    compression="lzf",
                 )
 
             # FORMAT datasets
@@ -369,7 +374,7 @@ class VCFReader(GenotypeData):
                         maxshape=(n_vars, n_samples),
                         chunks=(chunk_size, n_samples),
                         dtype=h5py.string_dtype(encoding="utf-8"),
-                        compression="lzf"
+                        compression="lzf",
                     )
 
             # Iterate and fill buffers
@@ -384,15 +389,20 @@ class VCFReader(GenotypeData):
             ):
                 row_in_chunk = idx % chunk_size
 
+                chrom = str(record.chrom)
+                pos = record.pos
+
+                self.marker_names.append(f"{chrom}:{str(pos)}")
+
                 # Core VCF fields (leave POS as an integer)
-                chrom_buf[row_in_chunk] = str(record.chrom)
-                pos_buf[row_in_chunk]   = record.pos
-                id_buf[row_in_chunk]    = str(record.id) or "."
-                ref_buf[row_in_chunk]   = str(record.ref)
-                alt_buf[row_in_chunk]   = ",".join(str(record.alts) or ["."])
-                qual_buf[row_in_chunk]  = str(record.qual) or "."
-                filt_buf[row_in_chunk]  = next(iter(record.filter.keys()), ".")
-                fmt_buf[row_in_chunk]   = ":".join(record.format.keys())
+                chrom_buf[row_in_chunk] = chrom
+                pos_buf[row_in_chunk] = pos
+                id_buf[row_in_chunk] = str(record.id) or "."
+                ref_buf[row_in_chunk] = str(record.ref)
+                alt_buf[row_in_chunk] = ",".join(str(record.alts) or ["."])
+                qual_buf[row_in_chunk] = str(record.qual) or "."
+                filt_buf[row_in_chunk] = next(iter(record.filter.keys()), ".")
+                fmt_buf[row_in_chunk] = ":".join(record.format.keys())
 
                 # INFO fields
                 for key in info_keys:
@@ -406,7 +416,9 @@ class VCFReader(GenotypeData):
 
                 # FORMAT fields
                 if self.store_format_fields:
-                    self._store_format_fields(fmt_data_buf, record, samples, row_in_chunk)
+                    self._store_format_fields(
+                        fmt_data_buf, record, samples, row_in_chunk
+                    )
 
                 # Convert genotypes to IUPAC codes
                 alleles_tuple = tuple(record.alleles)
@@ -427,13 +439,13 @@ class VCFReader(GenotypeData):
                     end = idx + 1
 
                     h5["chrom"][start:end] = chrom_buf
-                    h5["pos"][start:end]   = pos_buf
-                    h5["id"][start:end]    = id_buf
-                    h5["ref"][start:end]   = ref_buf
-                    h5["alt"][start:end]   = alt_buf
-                    h5["qual"][start:end]  = qual_buf
-                    h5["filt"][start:end]  = filt_buf
-                    h5["fmt"][start:end]   = fmt_buf
+                    h5["pos"][start:end] = pos_buf
+                    h5["id"][start:end] = id_buf
+                    h5["ref"][start:end] = ref_buf
+                    h5["alt"][start:end] = alt_buf
+                    h5["qual"][start:end] = qual_buf
+                    h5["filt"][start:end] = filt_buf
+                    h5["fmt"][start:end] = fmt_buf
 
                     for key in info_keys:
                         h5["info"][key][start:end] = info_buf[key]
@@ -445,13 +457,13 @@ class VCFReader(GenotypeData):
 
                     # reset buffers
                     chrom_buf = np.empty((chunk_size,), dtype=object)
-                    pos_buf   = np.empty((chunk_size,), dtype=np.int64)
-                    id_buf    = np.empty((chunk_size,), dtype=object)
-                    qual_buf  = np.empty((chunk_size,), dtype=object)
-                    ref_buf   = np.empty((chunk_size,), dtype=object)
-                    alt_buf   = np.empty((chunk_size,), dtype=object)
-                    filt_buf  = np.empty((chunk_size,), dtype=object)
-                    fmt_buf   = np.empty((chunk_size,), dtype=object)
+                    pos_buf = np.empty((chunk_size,), dtype=np.int64)
+                    id_buf = np.empty((chunk_size,), dtype=object)
+                    qual_buf = np.empty((chunk_size,), dtype=object)
+                    ref_buf = np.empty((chunk_size,), dtype=object)
+                    alt_buf = np.empty((chunk_size,), dtype=object)
+                    filt_buf = np.empty((chunk_size,), dtype=object)
+                    fmt_buf = np.empty((chunk_size,), dtype=object)
                     if self.store_format_fields:
                         fmt_data_buf = {
                             fmt_key: np.empty((chunk_size, n_samples), dtype=object)
@@ -465,13 +477,13 @@ class VCFReader(GenotypeData):
                 end = n_vars
 
                 h5["chrom"][start:end] = chrom_buf[:remainder]
-                h5["pos"][start:end]   = pos_buf[:remainder]
-                h5["id"][start:end]    = id_buf[:remainder]
-                h5["ref"][start:end]   = ref_buf[:remainder]
-                h5["alt"][start:end]   = alt_buf[:remainder]
-                h5["qual"][start:end]  = qual_buf[:remainder]
-                h5["filt"][start:end]  = filt_buf[:remainder]
-                h5["fmt"][start:end]   = fmt_buf[:remainder]
+                h5["pos"][start:end] = pos_buf[:remainder]
+                h5["id"][start:end] = id_buf[:remainder]
+                h5["ref"][start:end] = ref_buf[:remainder]
+                h5["alt"][start:end] = alt_buf[:remainder]
+                h5["qual"][start:end] = qual_buf[:remainder]
+                h5["filt"][start:end] = filt_buf[:remainder]
+                h5["fmt"][start:end] = fmt_buf[:remainder]
 
                 for key in info_keys:
                     h5["info"][key][start:end] = info_buf[key][:remainder]
@@ -660,13 +672,13 @@ class VCFReader(GenotypeData):
 
             datasets_to_process = [
                 ("chrom", h5py.string_dtype(encoding="utf-8")),
-                ("pos",   np.int64),                              
-                ("id",    h5py.string_dtype(encoding="utf-8")),
-                ("ref",   h5py.string_dtype(encoding="utf-8", length=1)),
-                ("alt",   h5py.string_dtype(encoding="utf-8", length=10)),
-                ("qual",  h5py.string_dtype(encoding="utf-8", length=10)),
-                ("filt",  h5py.string_dtype(encoding="utf-8", length=4)),
-                ("fmt",   h5py.string_dtype(encoding="utf-8")),
+                ("pos", np.int64),
+                ("id", h5py.string_dtype(encoding="utf-8")),
+                ("ref", h5py.string_dtype(encoding="utf-8", length=1)),
+                ("alt", h5py.string_dtype(encoding="utf-8", length=10)),
+                ("qual", h5py.string_dtype(encoding="utf-8", length=10)),
+                ("filt", h5py.string_dtype(encoding="utf-8", length=4)),
+                ("fmt", h5py.string_dtype(encoding="utf-8")),
             ]
 
             [
