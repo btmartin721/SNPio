@@ -1103,9 +1103,14 @@ class Plotting:
         # Save summary statistics per sample and per population in JSON format
         json_overall: dict = self._make_json_serializable(summary_statistics)
 
+        if not hasattr(self.genotype_data, "marker_names"):
+            marker_names = [f"locus_{i}" for i in range(self.genotype_data.num_snps)]
+        else:
+            marker_names = self.genotype_data.marker_names
+
         df_sumstats = build_dataframe(
             data=json_overall["overall"],
-            index_labels=self.genotype_data.marker_names,
+            index_labels=marker_names,
             index_name="Locus (CHROM:POS)",
             columns_name=" Summary Statistic",
             logger=self.logger,
