@@ -1,5 +1,5 @@
 #!/bin/bash
 set -e
-source /opt/anaconda3/etc/profile.d/conda.sh
-conda activate snpio-dev-2
+source /opt/miniconda3/etc/profile.d/conda.sh
+conda activate /Users/btm002/miniconda3/envs/snpio-dev-2
 pytest tests/
