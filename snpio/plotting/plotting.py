@@ -1,10 +1,12 @@
+import json
 import warnings
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple
 
 import holoviews as hv
 import matplotlib as mpl
+from pysam import index
 
 mpl.use("Agg")
 
@@ -15,7 +17,6 @@ import plotly.express as px
 import seaborn as sns
 from holoviews import opts
 from mpl_toolkits.mplot3d import Axes3D  # Don't remove this import.
-from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 hv.extension("bokeh")
 
@@ -26,11 +27,17 @@ from sklearn.preprocessing import StandardScaler
 from snpio.analysis.genotype_encoder import GenotypeEncoder
 from snpio.utils import misc
 from snpio.utils.logging import LoggerManager
-from snpio.utils.misc import IUPAC
+from snpio.utils.misc import IUPAC, build_dataframe
+from snpio.utils.multiqc_reporter import SNPioMultiQC
+
+if TYPE_CHECKING:
+    from snpio.utils.missing_stats import MissingStats
 
 
 class Plotting:
     """Class containing various methods for generating plots based on genotype data.
+
+    This class is initialized with a GenotypeData object containing necessary data. The class attributes are set based on the provided values, the GenotypeData object, or default values.
 
     Attributes:
         genotype_data (GenotypeData): Initialized GenotypeData object containing necessary data.
@@ -62,8 +69,6 @@ class Plotting:
         _get_attribute_value: Determine the value for an attribute based on the provided argument, genotype_data attribute, or default value. If a value is provided during initialization, it is used. Otherwise, the genotype_data attribute is used if available. If neither is available, the default value is used.
         _plot_summary_statistics_per_sample: Plot summary statistics per sample. If an axis is provided, the plot is drawn on that axis.
         _plot_summary_statistics_per_population: Plot summary statistics per population. If an axis is provided, the plot is drawn on that axis.
-        _plot_summary_statistics_per_population_grid: Plot summary statistics per population using a Seaborn PairGrid plot. Not yet implemented.
-        _plot_summary_statistics_per_sample_grid: Plot summary statistics per sample using a Seaborn PairGrid plot. Not yet implemented.
     """
 
     def __init__(
@@ -94,33 +99,39 @@ class Plotting:
             debug (bool | None): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
 
         Note:
-            The `genotype_data` attribute must be provided during initialization.
+            - The `genotype_data` attribute must be provided during initialization.
 
-            The `show`, `plot_format`, `dpi`, `plot_fontsize`, `plot_title_fontsize`, `despine`, `verbose`, and `debug` attributes are set based on the provided values, the `genotype_data` object, or default values.
+            - The `show`, `plot_format`, `dpi`, `plot_fontsize`, `plot_title_fontsize`, `despine`, `verbose`, and `debug` attributes are set based on the provided values, the `genotype_data` object, or default values.
 
-            The `output_dir` attribute is set to the `prefix_output/nremover/plots` directory.
+            - The `output_dir` attribute is set to the `prefix_output/nremover/plots` directory.
 
-            The `logger` attribute is set based on the `debug` attribute.
+            - The `logger` attribute is set based on the `debug` attribute.
 
-            The `boolean_filter_methods`, `missing_filter_methods`, and `maf_filter_methods` attributes are set to lists of filter methods.
+            - The `boolean_filter_methods`, `missing_filter_methods`, and `maf_filter_methods` attributes are set to lists of filter methods.
 
-            The `mpl_params` dictionary contains default Matplotlib parameters for the plots.
+            - The `mpl_params` dictionary contains default Matplotlib parameters for the plots.
 
-            The Matplotlib parameters are updated with the `mpl_params` dictionary.
+            - The Matplotlib parameters are updated with the `mpl_params` dictionary.
 
-            The `plotting` object is used to set the attributes based on the provided values, the `genotype_data` object, or default values.
+            - The `plotting` object is used to set the attributes based on the provided values, the `genotype_data` object, or default values.
         """
         self.genotype_data = genotype_data
         self.prefix: str = getattr(genotype_data, "prefix", "plot")
 
-        self.output_dir: Path = Path(f"{self.prefix}_output")
-        self.output_dir_gd: Path = self.output_dir / "gtdata" / "plots"
-        self.output_dir_analysis: Path = self.output_dir / "analysis" / "plots"
-        self.output_dir_nrm: Path = self.output_dir / "nremover" / "plots"
+        if self.genotype_data.was_filtered:
+            self.output_dir: Path = Path(f"{self.prefix}_output") / "nremover"
+        else:
+            self.output_dir: Path = Path(f"{self.prefix}_output")
+
+        self.output_dir_gd: Path = self.output_dir / "plots" / "gtdata"
+        self.output_dir_analysis: Path = self.output_dir / "plots" / "analysis"
+        self.report_dir_gd: Path = self.output_dir / "reports" / "gtdata"
+        self.report_dir_analysis: Path = self.output_dir / "reports" / "analysis"
 
         self.output_dir_gd.mkdir(parents=True, exist_ok=True)
         self.output_dir_analysis.mkdir(parents=True, exist_ok=True)
-        self.output_dir_nrm.mkdir(parents=True, exist_ok=True)
+        self.report_dir_gd.mkdir(parents=True, exist_ok=True)
+        self.report_dir_analysis.mkdir(parents=True, exist_ok=True)
 
         self.verbose: bool | None = verbose
         self.debug: bool | None = debug
@@ -219,9 +230,12 @@ class Plotting:
 
         mpl.rcParams.update(self.mpl_params)
 
+        self.snpio_mqc = SNPioMultiQC
+
     def _get_attribute_value(self, attr: str) -> Any:
-        """Determine the value for an attribute based on the provided argument,
-        genotype_data attribute, or default value.
+        """Determine the value for an attribute based on the provided argument.
+
+        This method checks if a value was provided during initialization, if the genotype_data object has the attribute, or if a default value is available. It returns the determined value for the attribute.
 
         Args:
             attr (str): The name of the attribute.
@@ -371,96 +385,25 @@ class Plotting:
         )
         ax.legend(title="Statistics", loc="best", bbox_to_anchor=(1.04, 1))
 
-    def _plot_summary_statistics_per_sample_grid(
-        self, summary_stats: pd.DataFrame
-    ) -> None:
-        """Plot summary statistics per locus using a Seaborn PairGrid plot.
-
-        This method plots the summary statistics per locus using a Seaborn PairGrid plot with scatter plots on the upper diagonal, kernel density plots on the lower diagonal, and kernel density plots on the diagonal.
-
-        Args:
-            summary_stats (pd.DataFrame): DataFrame containing summary statistics per locus.
-        """
-        g = sns.PairGrid(summary_stats)
-        g.map_upper(sns.scatterplot, color="steelblue")
-        g.map_lower(sns.kdeplot, cmap="Blues", fill=True, alpha=0.5)
-        g.map_diag(sns.kdeplot, lw=2, color="darkblue", fill=True)
-
-        g.figure.suptitle("Summary Statistics per Locus", y=1.02)
-        of: str = f"summary_statistics_per_locus.{self.plot_format}"
-        g.savefig(self.output_dir_analysis / of)
-
-        if self.show:
-            plt.show()
-
-        plt.close()
-
-    def _plot_summary_statistics_per_population_grid(
-        self, per_population_stats: dict, ax: plt.Axes | None = None
-    ) -> None:
-        """Plot summary statistics per population using violin plots.
-
-        This method plots the summary statistics per population using violin plots for each statistic (Ho, He, Pi).
-
-        Args:
-            per_population_stats (dict): Dictionary containing summary statistics per population.
-            ax (matplotlib.axes.Axes | None, optional): The matplotlib axis on which to plot the summary statistics.
-        """
-
-        if ax is None:
-            _, ax = plt.subplots()
-
-        # Combine population data into a single DataFrame
-        combined_df = pd.DataFrame()
-        for pop_id, stats_df in per_population_stats.items():
-            stats_df = stats_df.copy()
-            stats_df["Population"] = pop_id
-            combined_df: pd.DataFrame = pd.concat(
-                [combined_df, stats_df], ignore_index=True
-            )
-
-        # Melt DataFrame for easier plotting with seaborn
-        melted_df: pd.DataFrame = combined_df.melt(
-            id_vars="Population",
-            value_vars=["Ho", "He", "Pi"],
-            var_name="Statistic",
-            value_name="Value",
-        )
-
-        pal: str = "Paired" if len(per_population_stats) <= 12 else "tab20"
-
-        # Set up the figure
-        plt.figure(figsize=(16, 9))
-        sns.violinplot(
-            x="Statistic",
-            y="Value",
-            hue="Population",
-            data=melted_df,
-            split=True,
-            inner="quart",
-            palette=pal,
-        )
-
-        # Customize the plot for clarity
-        plt.title("Summary Statistics per Population")
-        plt.xlabel("Statistic")
-        plt.ylabel("Value")
-        plt.legend(title="Population", bbox_to_anchor=(1.05, 1), loc="upper left")
-        plt.tight_layout()
-
-        # Save the plot
-        of: str = f"summary_statistics_per_population.{self.plot_format}"
-        outpath: Path = self.output_dir_analysis / of
-        plt.savefig(outpath)
-
-        if self.show:
-            plt.show()
-
-        plt.close()
-
     def plot_permutation_dist(
-        self, obs_fst, dist, pop1_label, pop2_label, dist_type="fst"
+        self,
+        obs_fst: float,
+        dist: np.ndarray,
+        pop1_label: str,
+        pop2_label: str,
+        dist_type: str = "fst",
     ):
+        """Plot the permutation distribution of Fst values.
+
+        This method creates a histogram of the permutation distribution of Fst values, with a kernel density estimate (KDE) overlay. It also adds vertical lines for the observed Fst value and the mean of the permutation distribution.
+
+        Args:
+            obs_fst (float): The observed Fst value.
+            dist (np.ndarray): The permutation distribution of Fst values.
+            pop1_label (str): Label for the first population.
+            pop2_label (str): Label for the second population.
+            dist_type (str): Type of distance metric used (default: "fst"). Other option: "nei".
+        """
 
         sns.set_style("white")
         sns.despine()
@@ -510,6 +453,22 @@ class Plotting:
             plt.show()
         plt.close()
 
+        dist_data = {
+            "Permutation Fst": dist.tolist(),
+            "Observed Fst": obs_fst,
+            "Mean Permuted Fst": dist.mean(),
+            "Population 1": pop1_label,
+            "Population 2": pop2_label,
+            "Distance Type": dist_type,
+        }
+
+        with open(
+            self.report_dir_analysis
+            / f"{dist_type}_permutation_dist_{pop1_label}_{pop2_label}.json",
+            "w",
+        ) as f:
+            json.dump(dist_data, f, indent=4)
+
     def _plot_fst_heatmap(
         self,
         df_fst_mean: Dict[tuple, Any] | pd.DataFrame,
@@ -546,9 +505,27 @@ class Plotting:
         df_fst_mean = df_fst_mean.mask(mask)  # Mask upper triangle
         df_fst_mean = df_fst_mean.round(3)
 
+        mask_upper = np.triu(np.ones_like(df_fst_mean, dtype=bool), k=0)
+        mask_lower = np.tril(np.ones_like(df_fst_mean, dtype=bool), k=0)
+
         mode = "fst"
 
         if df_fst_lower is not None and df_fst_upper is not None:
+            df_fst_ci = pd.DataFrame(
+                np.full(df_fst_lower.shape, np.nan),
+                index=df_fst_lower.index,
+                columns=df_fst_lower.columns,
+            )
+
+            # Create a mask for the lower triangle
+            df_fst_ci.values[mask_lower] = (
+                df_fst_lower.values[mask_lower] if df_fst_lower is not None else None
+            )
+
+            df_fst_ci.values[mask_upper] = (
+                df_fst_upper.values[mask_upper] if df_fst_upper is not None else None
+            )
+
             # Set the diagonal to NaN to avoid displaying self-comparisons
             np.fill_diagonal(df_fst_lower.values, np.nan)
             np.fill_diagonal(df_fst_upper.values, np.nan)
@@ -620,167 +597,330 @@ class Plotting:
             plt.show()
         plt.close()
 
-    def plot_d_statistics(self, df: pd.DataFrame) -> None:
-        """Create plots for D-statistics with multiple test corrections.
+    def plot_d_statistics(
+        self, df: pd.DataFrame, method: Literal["patterson", "partitioned", "dfoil"]
+    ) -> None:
+        """Create plots for D-statistics with multiple‐test corrections."""
+        method = method.lower()
+        if method not in {"patterson", "partitioned", "dfoil"}:
+            raise ValueError(f"Unsupported method: {method}")
 
-        This method creates three plots:
-        1. Bar plot of significant D-statistic counts (raw, Bonferroni, FDR-BH).
-        2. Distribution plot of D-statistic values using raw p-values for comparison.
-        3. Box plot of D-statistics by population combination.
-
-        The method saves the plots to the output directory and displays them if ``show`` is True.
-
-        Args:
-            df (pd.DataFrame): DataFrame containing D-statistics and p-values.
-        """
-        df = df.copy()
+        # Ensure we have a “Sample Combo” column
+        combo_cols = [c for c in df.columns if c.startswith("P")]
+        df["Sample Combo"] = df[combo_cols].astype(str).agg("-".join, axis=1)
 
         sns.set_theme(style="white")
-
-        # NOTE: Not sure why I re-updated it here.
-        # TODO: Check if this is necessary.
-        # Update Matplotlib parameters
         mpl.rcParams.update(self.mpl_params)
 
-        # 1. Bar Plot of Significant D-Statistic Counts (Raw, Bonferroni,
-        # FDR-BH)
-        fig, ax = plt.subplots(1, 1, figsize=(14, 6))
-        significance_df: pd.DataFrame = pd.DataFrame(
-            {
-                "Correction": ["Raw", "Bonferroni", "FDR-BH"],
-                "Significant": [
-                    df["Significant (Raw)"].sum(),
-                    df["Significant (Bonferroni)"].sum(),
-                    df["Significant (FDR-BH)"].sum(),
-                ],
-                "Not Significant": [
-                    (~df["Significant (Raw)"]).sum(),
-                    (~df["Significant (Bonferroni)"]).sum(),
-                    (~df["Significant (FDR-BH)"]).sum(),
-                ],
-            }
-        ).melt(id_vars="Correction", var_name="Significance", value_name="Count")
+        # 1) Bar Plot of Significance Counts
+        fig, ax = plt.subplots(figsize=(14, 6))
+        if method != "dfoil":
+            # Single-vector: raw, bonf, fdr
+            sig = df["Significant (Raw)"].sum()
+            ns = (~df["Significant (Raw)"]).sum()
+            bsig = df["Significant (Bonferroni)"].sum()
+            bns = (~df["Significant (Bonferroni)"]).sum()
+            fsig = df["Significant (FDR-BH)"].sum()
+            fns = (~df["Significant (FDR-BH)"]).sum()
+            counts = pd.DataFrame(
+                {
+                    "Correction": [
+                        "Raw",
+                        "Raw",
+                        "Bonferri",
+                        "Bonferri",
+                        "FDR-BH",
+                        "FDR-BH",
+                    ],
+                    "Significance": ["Significant", "Not Significant"] * 3,
+                    "Count": [sig, ns, bsig, bns, fsig, fns],
+                }
+            )
+            sns.barplot(
+                data=counts, x="Correction", y="Count", hue="Significance", ax=ax
+            )
+            ax.set_title(f"{method.capitalize()} D-Statistics Significance Counts")
+        else:
+            # DFOIL: 4 stats × 3 corrections
+            dnames = ["DFO", "DFI", "DOL", "DIL"]
+            rows = []
+            for stat in dnames:
+                for corr, col in [
+                    ("Raw", f"P_{stat}"),
+                    ("Bonf", f"P_{stat}_bonf"),
+                    ("FDR", f"P_{stat}_fdr"),
+                ]:
+                    sig = (df[col] < 0.05).sum()
+                    ns = (df[col] >= 0.05).sum()
+                    rows.append(
+                        {
+                            "Stat": stat,
+                            "Correction": corr,
+                            "Significant": sig,
+                            "Not Significant": ns,
+                        }
+                    )
+            counts = pd.DataFrame(rows).melt(
+                id_vars=["Stat", "Correction"],
+                value_vars=["Significant", "Not Significant"],
+                var_name="Sig",
+                value_name="Count",
+            )
+            sns.catplot(
+                data=counts,
+                x="Stat",
+                y="Count",
+                hue="Sig",
+                col="Correction",
+                kind="bar",
+                height=6,
+                aspect=1,
+                sharey=False,
+            )
+            ax = plt.gca()
+            ax.set_title("D-FOIL Significance Counts")
+        ax.legend(loc="best", bbox_to_anchor=(1.05, 1))
+        out = f"{method}_significance_counts.{self.plot_format}"
+        plt.tight_layout()
+        plt.savefig(self.output_dir_analysis / out)
+        if self.show:
+            plt.show()
+        plt.close()
 
-        ax: plt.Axes = sns.barplot(
-            data=significance_df, x="Correction", y="Count", hue="Significance", ax=ax
-        )
-        ax.set_title(
-            "Significant D-Statistics (p < 0.05) per Multiple Test Correction Method"
-        )
-        ax.set_xlabel("Correction Method")
-        ax.set_ylabel("Count")
-        ax.legend(title="Significance", loc="best", bbox_to_anchor=(1.2, 1))
+        # 2) Distribution of Z-Scores
+        fig, ax = plt.subplots(figsize=(10, 6))
+        if method != "dfoil":
+            sns.histplot(df["Z-Score"], kde=True, ax=ax)
+            ax.axvline(df["Z-Score"].mean(), linestyle="--")
+            ax.set_title(f"{method.capitalize()} Z-Score Distribution")
+            ax.set_xlabel("Z-Score")
+        else:
+            # melt Z_DFO, Z_DFI, etc.
+            dnames = ["DFO", "DFI", "DOL", "DIL"]
+            melt = df[[f"Z_{s}" for s in dnames]].melt(
+                var_name="Statistic", value_name="Z-score"
+            )
+            sns.histplot(
+                data=melt,
+                x="Z-score",
+                hue="Statistic",
+                multiple="stack",
+                kde=True,
+                ax=ax,
+            )
+            ax.set_title("D-FOIL Z-Score Distribution")
+        out = f"{method}_z_distribution.{self.plot_format}"
+        plt.tight_layout()
+        fig.savefig(self.output_dir_analysis / out)
+        if self.show:
+            plt.show()
+        plt.close()
 
-        of: str = f"d_statistics_significance_counts.{self.plot_format}"
-        fn: Path = self.output_dir_analysis / of
-        fig.savefig(fn)
+        # 3) Barplot of Z-Score by Sample
+        # dynamic sizing
+        n = df["Sample Combo"].nunique()
+        fig_height = max(8, n * 0.4)
+        fig, ax = plt.subplots(figsize=(14, fig_height))
+        if method != "dfoil":
+            sns.barplot(
+                data=df,
+                x="Z-Score",
+                y="Sample Combo",
+                hue="Significant (FDR-BH)",
+                ax=ax,
+            )
+            ax.set_title(f"{method.capitalize()} Z-Score per Sample Combo")
+        else:
+            # for DFOIL we stack 4 bars per combo
+            dnames = ["DFO", "DFI", "DOL", "DIL"]
+            melt = df.melt(
+                id_vars=["Sample Combo"],
+                value_vars=[f"Z_{s}" for s in dnames],
+                var_name="Statistic",
+                value_name="Z-score",
+            )
+            sns.barplot(
+                data=melt,
+                x="Z-score",
+                y="Sample Combo",
+                hue="Statistic",
+                orient="h",
+                ax=ax,
+            )
+            ax.set_title("D-FOIL Z-Score per Sample Combo")
+        out = f"{method}_z_by_combo.{self.plot_format}"
+
+        fig.savefig(self.output_dir_analysis / out)
 
         if self.show:
             plt.show()
-
         plt.close()
 
-        # 2. Distribution Plot of D-Statistic Values (Using Raw p-values for
-        # comparison)
-        fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-        ax = sns.histplot(df["Z-Score"], kde=True, ax=ax)
-        ax.axvline(
-            df["Z-Score"].mean(),
-            color="orange",
-            linestyle="--",
-            linewidth=2,
-            label="Mean Z-Score",
+        if method != "dfoil":
+            # Patterson or Partitioned
+            # Format significance counts into a two‐column table
+            significance_df = pd.DataFrame(
+                {
+                    "Correction": ["Uncorrected", "Bonferroni", "FDR-BH"],
+                    "Significant": [
+                        df["Significant (Raw)"].sum(),
+                        df["Significant (Bonferroni)"].sum(),
+                        df["Significant (FDR-BH)"].sum(),
+                    ],
+                    "Not Significant": [
+                        (~df["Significant (Raw)"]).sum(),
+                        (~df["Significant (Bonferroni)"]).sum(),
+                        (~df["Significant (FDR-BH)"]).sum(),
+                    ],
+                }
+            ).melt(id_vars="Correction", var_name="Significance", value_name="Count")
+            significance_df = self._format_significance_labels(significance_df)
+
+            self.snpio_mqc.queue_table(
+                df=significance_df,
+                panel_id=f"{method}_d_statistics_significance_counts",
+                section="introgression",
+                title=f"SNPio: {method.capitalize()} D-Statistics Significance Counts",
+                index_label="Significance (Correction)",
+                description="Counts of significant and not significant D-statistics under each multiple‐test correction.",
+                pconfig={
+                    "id": f"{method}_d_statistics_significance_counts",
+                    "title": f"SNPio: {method.capitalize()} D-Statistics Significance Counts",
+                    "col1_header": "Significance (Correction)",
+                    "scale": "YlOrBr",
+                    "namespace": "introgression",
+                },
+                headers={
+                    "Significance (Correction)": {
+                        "title": "Significance Status (with Correction)",
+                        "description": "Whether the D-statistic passed P < 0.05 under each correction.",
+                    },
+                    "Count": {
+                        "title": "Number of D-statistics",
+                        "description": "How many sample‐combinations were significant or not.",
+                        "scale": "YlOrBr",
+                    },
+                },
+            )
+
+            self.snpio_mqc.queue_custom_lineplot(
+                df=df["Z-Score"],
+                panel_id=f"{method}_d_statistics_distribution",
+                section="introgression",
+                title=f"SNPio: {method.capitalize()} D-Statistics Z-Score Distribution",
+                description="Distribution of Z-scores across all sample combinations.",
+                index_label="Z-Score Bins",
+                pconfig={
+                    "id": f"{method}_d_statistics_distribution",
+                    "title": f"SNPio: {method.capitalize()} Z-Score Distribution",
+                    "xlab": "Z-Score",
+                    "ylab": "Estimated Density",
+                    "ymin": 0,
+                    "xmin": -4.5,
+                    "xmax": 4.5,
+                },
+            )
+
+        else:
+            # NOTE: DFOIL is different — build 4×3 table of significance counts
+            dnames = ["DFO", "DFI", "DOL", "DIL"]
+            rows = []
+            for stat in dnames:
+                for corr, col in [
+                    ("Uncorrected", f"P_{stat}"),
+                    ("Bonferroni", f"P_{stat}_bonf"),
+                    ("FDR-BH", f"P_{stat}_fdr"),
+                ]:
+                    sig = (df[col] < 0.05).sum()
+                    ns = (df[col] >= 0.05).sum()
+                    rows.append(
+                        {
+                            "Statistic": stat,
+                            "Correction": corr,
+                            "Significant": sig,
+                            "Not Significant": ns,
+                        }
+                    )
+            significance_df = pd.DataFrame(rows).melt(
+                id_vars=["Statistic", "Correction"],
+                value_vars=["Significant", "Not Significant"],
+                var_name="Significance",
+                value_name="Count",
+            )
+
+            self.snpio_mqc.queue_table(
+                df=significance_df,
+                panel_id=f"{method}_d_statistics_significance_counts",
+                section="introgression",
+                title="SNPio: D-FOIL D-Statistics Significance Counts",
+                index_label="Statistic / Correction",
+                description="Per‐statistic and per‐correction counts of significant vs non‐significant tests for D-FOIL.",
+                pconfig={
+                    "id": f"{method}_d_statistics_significance_counts",
+                    "title": "SNPio: D-FOIL Significance Counts",
+                    "col1_header": "Statistic, Correction",
+                    "scale": "YlOrBr",
+                    "namespace": "introgression",
+                },
+                headers={
+                    "Statistic": {
+                        "title": "DFOIL Statistic",
+                        "description": "Which sub‐statistic (DFO, DFI, DOL, DIL).",
+                    },
+                    "Correction": {
+                        "title": "P-Value Correction",
+                        "description": "Uncorrected, Bonferroni-adjusted, or FDR-BH-adjusted.",
+                    },
+                    "Count": {
+                        "title": "Number of Tests",
+                        "description": "Count of sample‐combinations in each category.",
+                        "scale": "YlOrBr",
+                    },
+                },
+            )
+
+            # For Z‐score distribution: queue one lineplot per sub‐statistic
+            for stat in dnames:
+                self.snpio_mqc.queue_custom_lineplot(
+                    df=df[f"Z_{stat}"],
+                    panel_id=f"{method}_{stat}_z_distribution",
+                    section="introgression",
+                    title=f"SNPio: D-FOIL {stat} Z-Score Distribution",
+                    description=f"Distribution of Z-scores for D-FOIL {stat}.",
+                    index_label="Z-Score Bins",
+                    pconfig={
+                        "id": f"{method}_{stat}_z_distribution",
+                        "title": f"D-FOIL {stat} Z-Score Distribution",
+                        "xlab": "Z-Score",
+                        "ylab": "Estimated Density",
+                        "ymin": 0,
+                        "xmin": -4.5,
+                        "xmax": 4.5,
+                    },
+                )
+
+    def _format_significance_labels(self, df: pd.DataFrame) -> pd.DataFrame:
+        df["Significance (Correction)"] = (
+            df["Significance"] + " (" + df["Correction"] + ")"
         )
-        ax.set_title("Distribution of Observed Z-Scores for D-Statistics")
-        ax.set_xlabel("Z-Score")
-        ax.set_ylabel("Frequency")
-        ax.legend()
 
-        of = f"d_statistics_distribution.{self.plot_format}"
-        fn = self.output_dir_analysis / of
-        fig.savefig(fn)
+        df = df.drop(columns=["Significance", "Correction"])
 
-        if self.show:
-            plt.show()
-
-        plt.close()
-
-        # Step 1: Generate "Sample Combo" column
-        combo_cols: List[str | int] = [
-            col for col in df.columns if col.startswith("Sample")
-        ]
-        df["Sample Combo"] = df[combo_cols].apply(
-            lambda x: "-".join(x.dropna()), axis=1
+        df["Significance (Correction)"] = df["Significance (Correction)"].str.replace(
+            "Significant (Raw)", "Significant (Uncorrected)"
         )
 
-        # Step 2: Subset the relevant data
-        df2: pd.DataFrame = df[
-            [
-                "Sample Combo",
-                "Z-Score",
-                "Significant (Raw)",
-                "Significant (Bonferroni)",
-                "Significant (FDR-BH)",
-            ]
-        ]
-
-        # Step 3: Determine dynamic figsize and fontsize based on number of unique combinations
-        num_combos = df2["Sample Combo"].nunique()
-
-        # Adjust figsize: base width is fixed, height scales with the number of combinations
-        fig_width = 14
-        fig_height = max(8, num_combos * 0.5)  # 0.5 height per combo, minimum height 8
-
-        # Adjust font size based on the number of combinations
-        base_fontsize = 12  # starting font size
-
-        # Adjust down slightly as combos increase
-        dynamic_fontsize = max(8, min(base_fontsize, 12 - 0.1 * num_combos))
-
-        # Step 4: Plot with dynamic parameters
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
-        sns.barplot(
-            data=df2,
-            x="Z-Score",
-            y="Sample Combo",
-            hue="Significant (FDR-BH)",
-            ax=ax,
-            palette={True: "#66c2a5", False: "#fc8d62"},
+        df["Significance (Correction)"] = df["Significance (Correction)"].str.replace(
+            "Not Significant (Raw)", "Not Significant (Uncorrected)"
         )
 
-        # Update plot labels with dynamic fontsize
-        ax.set_yticks(ax.get_yticks())
-        ax.set_yticklabels(ax.get_yticklabels(), fontsize=dynamic_fontsize + 15)
-        ax.set_title(
-            "Z-Score per Sample Combination (with FDR-BH Correction)",
-            fontsize=dynamic_fontsize + 30,
-        )
-        ax.set_xlabel("Z-Score", fontsize=dynamic_fontsize + 20)
-        ax.set_ylabel("Sample Combination", fontsize=dynamic_fontsize + 20)
-        ax.legend(
-            title="Significant (FDR-BH)",
-            fontsize=dynamic_fontsize + 20,
-            title_fontsize=dynamic_fontsize + 20,
-            loc="best",
-            bbox_to_anchor=(1.2, 1),
-        )
-
-        # Save the plot.
-        # Cannot use 'png' here, and must use a vector format (e.g., 'pdf')
-        # due to the frequently large number of combinations.
-        of: str = f"d_statistics_sample_combos_barplot.pdf"
-        outpath: Path = self.output_dir_analysis / of
-        fig.savefig(outpath)
-
-        # Show plot if specified
-        if self.show:
-            plt.show()
-
-        plt.close()
+        return df.set_index("Significance (Correction)")
 
     def plot_fst_outliers(
-        self, outlier_snps: pd.DataFrame, method: Literal["dbscan", "permutation"]
+        self,
+        outlier_snps: pd.DataFrame,
+        method: Literal["dbscan", "permutation"],
+        max_outliers_to_plot: int | None = None,
     ) -> None:
         """Create a heatmap of Fst values for outlier SNPs, highlighting contributing population pairs.
 
@@ -793,10 +933,7 @@ class Plotting:
         data = outlier_snps.copy()
         data = data.rename(columns={"Locus": "SNP"})
 
-        # Convert contributing pair lists (ensure it's a proper list not a string)
-        data["Contributing_Pairs"] = data["Contributing_Pairs"].apply(
-            lambda x: eval(x) if isinstance(x, str) else x
-        )
+        data["Contributing_Pairs"] = data["Population_Pair"]
 
         # Create a column for fast lookup
         data["Contributing_Pairs_Set"] = data["Contributing_Pairs"].apply(set)
@@ -831,6 +968,13 @@ class Plotting:
         sns.set_style("white")
 
         cmap = sns.diverging_palette(220, 20, as_cmap=True)
+
+        if max_outliers_to_plot is not None:
+            if len(fst_pivot) > max_outliers_to_plot:
+                self.logger.warning(
+                    f"More than {max_outliers_to_plot} outlier SNPs detected. Plotting only the first {max_outliers_to_plot} SNPs."
+                )
+                fst_pivot = fst_pivot.head(max_outliers_to_plot)
 
         sns.heatmap(
             fst_pivot,
@@ -874,6 +1018,57 @@ class Plotting:
             plt.show()
         plt.close()
 
+        if max_outliers_to_plot is None:
+            self.snpio_mqc.queue_heatmap(
+                df=fst_pivot,
+                panel_id=f"fst_outliers_{method}_method",
+                section="outliers",
+                title=f"SNPio: Fst Outliers ({method.capitalize()} Method)",
+                description=f"Fst outliers detected using the {method} method. The table contains the locus names for Fst outliers, adjusted P-values (q_value), contributing population pairs to each outlier, and the observed Weir and Cockerham (1984) Fst values. All outliers are shown. Q-values are adjusted P-values based on the specified multiple test correction method.",
+                index_label="Contributing Population Pair",
+                pconfig={
+                    "id": f"fst_outliers_{method}_method",
+                    "title": f"SNPio: Fst Outliers ({method.capitalize()} Method)",
+                    "xlab": "Population 1",
+                    "ylab": "Population 2",
+                    "zlab": "Q-value (Adjusted P-value)",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "display_values": False,
+                    "height": 1000,
+                },
+            )
+        elif (
+            max_outliers_to_plot is not None
+            and isinstance(max_outliers_to_plot, int)
+            and max_outliers_to_plot > 0
+        ):
+            self.snpio_mqc.queue_heatmap(
+                df=fst_pivot[["Locus", "q_value", "Population_Pair"]]
+                .set_index(["Locus", "Population_Pair"])
+                .head(max_outliers_to_plot),
+                panel_id=f"fst_outliers_{method}_method",
+                section="outliers",
+                title=f"SNPio: Fst Outliers ({method.capitalize()} Method)",
+                description=f"Fst outliers detected using the {method} method. The table contains the locus names for Fst outliers, adjusted P-values (q_value), contributing population pairs to each outlier, and the observed Weir and Cockerham (1984) Fst values. Due to space limitations, only the top {max_outliers_to_plot} outliers are shown. Q-values are adjusted P-values based on the specified multiple test correction method.",
+                index_label="Contributing Population Pair",
+                pconfig={
+                    "id": f"fst_outliers_{method}_method",
+                    "title": f"SNPio: Fst Outliers ({method.capitalize()} Method)",
+                    "xlab": "Population 1",
+                    "ylab": "Population 2",
+                    "zlab": "Q-value (Adjusted P-value)",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "display_values": False,
+                    "height": max(max_outliers_to_plot, 1000),
+                },
+            )
+        else:
+            msg = f"Invalid max_outliers_to_plot value: {max_outliers_to_plot}. Must be a positive integer or None."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
     def plot_summary_statistics(
         self, summary_statistics: dict, use_pvalues: bool = False
     ) -> None:
@@ -905,6 +1100,118 @@ class Plotting:
 
         plt.close()
 
+        # Save summary statistics per sample and per population in JSON format
+        json_overall: dict = self._make_json_serializable(summary_statistics)
+
+        df_sumstats = build_dataframe(
+            data=json_overall["overall"],
+            index_labels=self.genotype_data.marker_names,
+            index_name="Locus (CHROM:POS)",
+            columns_name=" Summary Statistic",
+            logger=self.logger,
+        )
+
+        df_sumstats = df_sumstats.rename(
+            columns={
+                "Ho": "Observed Heterozygosity (Ho)",
+                "He": "Expected Heterozygosity (He)",
+                "Pi": "Nucleotide Diversity (Pi)",
+            }
+        )
+
+        d = df_sumstats[
+            [
+                "Observed Heterozygosity (Ho)",
+                "Expected Heterozygosity (He)",
+                "Nucleotide Diversity (Pi)",
+            ]
+        ].to_dict(orient="list")
+
+        # 2) Pass them into pconfig when queueing the box plot
+        self.snpio_mqc.queue_custom_boxplot(
+            df=df_sumstats,
+            panel_id="summary_statistics_overall",
+            section="detailed_statistics",
+            title="SNPio: Summary Statistics",
+            index_label="Summary Statistic",
+            description=(
+                "Box plot of genetic differentiation summary statistics: "
+                "(Nucleotide Diversity (Pi), Expected Heterozygosity (He), "
+                "Observed Heterozygosity (Ho)). Each overlaid point corresponds to an outlier locus outside the Interquartile Range (IQR)."
+            ),
+            pconfig={
+                "id": "summary_statistics_overall",
+                "title": "SNPio: Summary Statistics",
+                "series_label": "summary statistics",
+            },
+        )
+
+        dflist = []
+        for pop_id, pop_data in summary_statistics["per_population"].items():
+            dftmp = pop_data.copy()
+            dftmp["Population ID"] = pop_id
+            dftmp = dftmp.rename_axis("Locus (CHROM:POS)")
+            dftmp.index = self.genotype_data.marker_names
+            dftmp = dftmp.set_index(["Population ID", dftmp.index])
+            dflist.append(dftmp)
+
+        df_per_pop = pd.concat(dflist)
+
+        df_per_pop = df_per_pop.reset_index().rename(
+            columns={"level_1": "Locus (CHROM:POS)"}
+        )
+
+        df_per_pop_pivot_ho = df_per_pop[
+            ["Locus (CHROM:POS)", "Population ID", "Ho"]
+        ].pivot(
+            index="Locus (CHROM:POS)",
+            columns="Population ID",
+            values="Ho",
+        )
+
+        df_per_pop_pivot_he = df_per_pop[
+            ["Locus (CHROM:POS)", "Population ID", "He"]
+        ].pivot(
+            index="Locus (CHROM:POS)",
+            columns="Population ID",
+            values="He",
+        )
+
+        df_per_pop_pivot_pi = df_per_pop[
+            ["Locus (CHROM:POS)", "Population ID", "Pi"]
+        ].pivot(
+            index="Locus (CHROM:POS)",
+            columns="Population ID",
+            values="Pi",
+        )
+
+        self.snpio_mqc.queue_custom_boxplot(
+            df=df_per_pop_pivot_pi,
+            panel_id="summary_statistics_per_population_pi",
+            section="detailed_statistics",
+            title="SNPio: Per-locus Nucleotide Diversity (Pi) for each Population",
+            index_label="Locus (CHROM:POS)",
+            description="Box plot of per-locus Nucleotide Diversity (Pi) for each population. Points represent outlier loci outside the box whiskers.",
+        )
+
+        self.snpio_mqc.queue_custom_boxplot(
+            df=df_per_pop_pivot_he,
+            panel_id="summary_statistics_per_population_he",
+            section="detailed_statistics",
+            title="SNPio: Per-locus Expected Heterozygosity (He) for each Population",
+            index_label="Locus (CHROM:POS)",
+            description="Box plot of per-locus Expected Heterozygosity (He) for each population. Points represent outlier loci outside the box whiskers.",
+        )
+
+        self.snpio_mqc.queue_custom_boxplot(
+            df=df_per_pop_pivot_ho,
+            panel_id="summary_statistics_per_population_ho",
+            section="detailed_statistics",
+            title="SNPio: Per-locus Observed Heterozygosity (Ho) for each Population",
+            index_label="Locus (CHROM:POS)",
+            description="Box plot of per-locus Observed Heterozygosity (Ho) for each population. Points represent outlier loci outside the box whiskers.",
+        )
+
         # Plot Fst heatmap
         self._plot_fst_heatmap(
             summary_statistics["Fst_between_populations_obs"],
@@ -914,148 +1221,114 @@ class Plotting:
             use_pvalues=use_pvalues,
         )
 
-    def plot_pca(
-        self, pca: PCA, alignment: np.ndarray, popmap: pd.DataFrame, dimensions: int = 2
-    ) -> None:
-        """Plot a PCA scatter plot.
+    def _flatten_fst_data(self, fst_dict, stat_name):
+        df = pd.DataFrame(fst_dict).T
+        df.index.name = "Population"
+        df.reset_index(inplace=True)
+        return {
+            "id": f"fst_{stat_name}",
+            "description": f"Pairwise Fst ({stat_name})",
+            "headers": df.columns.tolist(),
+            "data": df.to_dict(orient="records"),
+        }
 
-        This method plots a PCA scatter plot with 2 or 3 dimensions, colored by population, and labeled by population with symbols for each sample. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/pca_plot.{plot_format}``. The plot is saved in the format specified by the ``plot_format`` attribute.
+    def _flatten_overall(self, overall_dict):
+        df = pd.DataFrame(overall_dict)
+        df = df.reset_index()
+        df = df.rename(columns={"index": "Index"})
+        return {
+            "id": "overall_summary",
+            "description": "Overall diversity statistics",
+            "headers": df.columns.tolist(),
+            "data": df.to_dict(orient="records"),
+        }
 
-        Note:
-            - The PCA object must be fitted before calling this method.
-            - The PCA object must be fitted using the genotype data provided in the `alignment` argument.
-            - The `popmap` DataFrame must contain the population mapping information with columns "SampleID" and "PopulationID".
-            - The `dimensions` argument must be either 2 or 3.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/pca_plot.{plot_format}``.
-            - The plot is colored by population and labeled by population with symbols for each sample.
+    def _flatten_per_population(self, per_pop_dict: Dict[str, Any]) -> pd.DataFrame:
+        """Turn the nested 'per_population' block into a tidy DataFrame.
 
-        Args:
-            pca (sklearn.decomposition.PCA): The fitted PCA object.
-                The fitted PCA object used for dimensionality reduction and transformation.
-
-            alignment (numpy.ndarray): The genotype data used for PCA.
-                The genotype data in the form of a numpy array.
-
-            popmap (pd.DataFrame): The DataFrame containing the population mapping information, with columns "SampleID" and "PopulationID".
-
-            dimensions (int, optional): Number of dimensions to plot (2 or 3). Defaults to 2.
-
-        Raises:
-            ValueError: Raised if the `dimensions` argument is neither 2 nor 3.
+        The function is resilient to either dicts OR pandas objects at the
+        second level. It will convert DataFrames to dicts, Series to lists,
+        and handle other types accordingly.
 
         Returns:
-            None: The PCA scatter plot is saved to a file.
+            pd.DataFrame: A tidy DataFrame with the following columns:
+            - population: Population identifier
+            - locus: Locus index
+            - He: Expected heterozygosity
+            - Ho: Observed heterozygosity
         """
-        pca_transformed = pd.DataFrame(
-            pca.transform(alignment),
-            columns=[f"PC{i+1}" for i in range(pca.n_components_)],
-        )
+        rows: Dict[Dict[str, Any]] = {}
 
-        popmap = pd.DataFrame(
-            list(popmap.items()), columns=["SampleID", "PopulationID"]
-        )
+        for pop, stats in per_pop_dict.items():
 
-        popmap.columns = ["SampleID", "PopulationID"]
-        pca_transformed["PopulationID"] = popmap["PopulationID"]
+            # ✦ 1 — Normalise `stats` to a pure dict-of-lists ✦
+            if isinstance(stats, pd.DataFrame):
+                stats = stats.to_dict(orient="list")
+            elif isinstance(stats, pd.Series):
+                # series of lists → dict with a single key
+                stats = {stats.name: list(stats.values)}
+            elif not isinstance(stats, dict):
+                msg = f"Expected dict / DataFrame / Series for stats, got {type(stats)}"
+                self.logger.error(msg)
+                raise TypeError(msg)
 
-        if dimensions == 2:
-            sns.scatterplot(data=pca_transformed, x="PC1", y="PC2", hue="PopulationID")
-        elif dimensions == 3:
-            fig: plt.Figure = plt.figure()
-            ax: plt.Axes = fig.add_subplot(111, projection="3d")
-            sns.scatterplot(
-                data=pca_transformed,
-                x="PC1",
-                y="PC2",
-                z="PC3",
-                hue="PopulationID",
-                ax=ax,
-            )
-        else:
-            raise ValueError("dimensions must be 2 or 3")
+            if (
+                hasattr(self.genotype_data, "marker_names")
+                and self.genotype_data.marker_names is not None
+            ):
+                n_loci = len(self.genotype_data.marker_names)
+                # If marker names are available, use them as locus identifiers
+                for locus in range(n_loci):
+                    row = {
+                        "population": pop,
+                        "locus_index": locus,
+                    }
+                    for stat_name, values in stats.items():
+                        row[stat_name] = values[locus]
+                    rows[self.genotype_data.marker_names[locus]] = row
+            else:
+                # ✦ 2 — Use the first entry to determine locus count ✦
+                n_loci = len(next(iter(stats.values())))
 
-        of: str = f"pca_plot.{self.plot_format}"
-        outpath: Path = self.output_dir_analysis / of
-        plt.savefig(outpath)
+                # ✦ 3 — Build long-format rows ✦
+                for locus in range(n_loci):
+                    row = {"population": pop, "locus_index": locus}
+                    for stat_name, values in stats.items():
+                        row[stat_name] = values[locus]
+                    rows[f"locus_{locus}"] = row
+        return rows
 
-        if self.show:
-            plt.show()
+    def _make_json_serializable(self, obj: dict) -> dict:
+        """Convert an object to a JSON-serializable format.
 
-        plt.close()
-
-    def plot_dapc(
-        self,
-        dapc: LinearDiscriminantAnalysis,
-        alignment: np.ndarray,
-        popmap: pd.DataFrame,
-        dimensions: int = 2,
-    ):
-        """Plot a DAPC scatter plot.
-
-        This method plots a DAPC scatter plot with 2 or 3 dimensions, colored by population, and labeled by population with symbols for each sample. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/dapc_plot.{plot_format}``. The plot is saved in the format specified by the ``plot_format`` attribute.
+        This method converts an object to a JSON-serializable format by converting DataFrames to dictionaries, Series to lists, and handling other types accordingly.
 
         Args:
-            dapc (sklearn.discriminant_analysis.LinearDiscriminantAnalysis):  The fitted DAPC object used for dimensionality reduction and transformation.
-
-            alignment (numpy.ndarray): The genotype data in the form of a numpy array.
-
-            popmap (pd.DataFrame): The DataFrame containing the population mapping information, with columns "SampleID" and "PopulationID".
-
-            dimensions (int, optional): Number of dimensions to plot (2 or 3). Defaults to 2.
+            obj (dict): The object to convert.
 
         Returns:
-            None: The DAPC scatter plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the `dimensions` argument is neither 2 nor 3.
-
-        Note:
-            - The DAPC object must be fitted before calling this method.
-            - The DAPC object must be fitted using the genotype data provided in the `alignment` argument.
-            - The `popmap` DataFrame must contain the population mapping information with columns "SampleID" and "PopulationID".
-            - The `dimensions` argument must be either 2 or 3.
-            - The plot is saved to a file in the `output_dir` directory.
-            - The plot is displayed if the `show` attribute is True.
-            - The plot is saved in the format specified by the `plot_format` attribute.
-            - The plot is saved with the filename: ``<prefix>_output/gtdata/plots/dapc_plot.{plot_format}``.
-            - The plot is colored by population and labeled by population with symbols for each sample.
+            dict: The converted object in a JSON-serializable format.
         """
-        dapc_transformed = pd.DataFrame(
-            dapc.transform(alignment),
-            columns=[f"DA{i+1}" for i in range(dapc.n_components_)],
-        )
-        dapc_transformed["PopulationID"] = popmap["PopulationID"]
+        d = {}
+        for key, value in obj.items():
+            if isinstance(value, pd.DataFrame):
+                d[key] = value.to_dict(orient="list")
+            elif isinstance(value, dict):
+                d[key] = {
+                    k: (
+                        v.to_dict(orient="list")
+                        if isinstance(v, (pd.DataFrame, pd.Series))
+                        else v
+                    )
+                    for k, v in value.items()
+                }
+            else:
+                d[key] = value
 
-        if dimensions == 2:
-            sns.scatterplot(data=dapc_transformed, x="DA1", y="DA2", hue="PopulationID")
-        elif dimensions == 3:
-            fig: plt.Figure = plt.figure()
-            ax: plt.Axes = fig.add_subplot(111, projection="3d")
-            sns.scatterplot(
-                data=dapc_transformed,
-                x="DA1",
-                y="DA2",
-                z="DA3",
-                hue="PopulationID",
-                ax=ax,
-            )
-        else:
-            raise ValueError("dimensions must be 2 or 3")
+        return d
 
-        of: str = f"dapc_plot.{self.plot_format}"
-        outpath: Path = self.output_dir_analysis / of
-        plt.savefig(outpath)
-
-        if self.show:
-            plt.show()
-
-        plt.close()
-
-    def plot_sankey_filtering_report(
-        self, df: pd.DataFrame, search_mode: bool = False
+    def _plot_sankey_filtering_report(
+        self, df: pd.DataFrame, search_mode: bool = False, fn: str | None = None
     ) -> None:
         """Plot a Sankey diagram for the filtering report.
 
@@ -1064,6 +1337,7 @@ class Plotting:
         Args:
             df (pd.DataFrame): The input DataFrame containing the filtering report.
             search_mode (bool, optional): Whether the Sankey diagram is being plotted in search mode. Defaults to False.
+            fn (str | None, optional): The filename to save the plot. If None, the default filename is used. Defaults to None.
 
         Returns:
             None: A plot is saved to a file.
@@ -1071,45 +1345,6 @@ class Plotting:
         Raises:
             ValueError: Raised if the input DataFrame is empty.
             ValueError: Raised if multiple threshold combinations are detected when attempting to plot the Sankey diagram.
-
-        Note:
-            The Sankey diagram shows the flow of loci through the filtering steps.
-
-            The loci are filtered based on the missing data proportion, MAF, MAC, and other filtering thresholds.
-
-            The Sankey diagram shows the number of loci kept and removed at each step.
-
-            The Sankey diagram is saved to a file in the `output_dir` directory.
-
-            The Sankey diagram is displayed if the `show` attribute is True.
-
-            The Sankey diagram is saved in the format specified by the `plot_format` attribute.
-
-            The Sankey diagram is saved with the filename: ``<prefix>_output/nremover/plots/sankey_plot_{thresholds}.{plot_format}``.
-
-            The Sankey diagram is colored based on the kept and removed loci.
-
-            The kept loci are colored green, and the removed loci are colored red.
-
-            The Sankey diagram is plotted using the Bokeh plotting library.
-
-            The Sankey diagram is plotted using the Holoviews library.
-
-            The Sankey diagram is plotted using the Bokeh extension for Holoviews.
-
-            The Sankey diagram is plotted using the `hv.Sankey` method from Holoviews.
-
-            The Sankey diagram is plotted with edge labels showing the number of loci kept and removed at each step.
-
-            The Sankey diagram is plotted with a common "Removed" node for the removed loci at each step.
-
-            The Sankey diagram is plotted with a common "Kept" node for the kept loci moving to the next filter.
-
-            The Sankey diagram is plotted with a common "Unfiltered" node for the initial unfiltered loci.
-
-            The Sankey diagram is plotted with a common "Kept" node for the final kept loci.
-
-            The Sankey diagram is plotted with a common "Removed" node for the final removed loci.
 
         Example:
             >>> from snpio import VCFReader, NRemover
@@ -1122,7 +1357,7 @@ class Plotting:
             # Import Holoviews and Bokeh
             hv.extension("bokeh")
 
-        plot_dir: Path = self.output_dir_nrm / "sankey_plots"
+        plot_dir: Path = self.output_dir_gd / "sankey_plots"
         plot_dir.mkdir(exist_ok=True, parents=True)
 
         # Copy the DataFrame to avoid modifying the original
@@ -1285,18 +1520,57 @@ class Plotting:
                     )
                 )
 
-                if isinstance(thresholds, list):
-                    thresholds = "_".join([str(threshold) for threshold in thresholds])
+                if fn is not None and not isinstance(fn, str):
+                    msg = f"Filename must be a string, but got: {type(fn)}"
+                    self.logger.error(msg)
+                    raise TypeError(msg)
 
                 # Save the plot to an HTML file
-                of: str = f"filtering_results_sankey_thresholds{thresholds}.html"
+                of: str = "filtering_results_sankey_mqc.html" if fn is None else fn
                 fname: Path = plot_dir / of
+
+                if not fname.suffix == ".html":
+                    fname = fname.with_suffix(".html")
+
+                if not fname.stem.endswith("_mqc"):
+                    fname = fname.with_name(f"{fname.stem}_mqc{fname.suffix}")
+
                 hv.save(sankey_plot, fname, fmt="html")
 
         except Exception as e:
             self.logger.warning(
-                f"Failed to generate Sankey plot with thresholds: {thresholds}: error: {e}"
+                f"Failed to generate Sankey plot with thresholds: {','.join(thresholds)}: error: {e}"
             )
+
+            # Save the plot to an HTML file
+        of: str = "filtering_results_sankey_mqc.html" if fn is None else fn
+        fname: Path = plot_dir / of
+
+        if not fname.suffix == ".html":
+            fname = fname.with_suffix(".html")
+
+        if not fname.stem.endswith("_mqc"):
+            fname = fname.with_name(f"{fname.stem}_mqc{fname.suffix}")
+
+        fname.parent.mkdir(exist_ok=True, parents=True)
+
+        if not fname.exists() or not fname.is_file():
+            msg = f"Failed to save Sankey plot to {fname}. Please check the output directory."
+            self.logger.error(msg)
+            raise FileNotFoundError(msg)
+
+        self.snpio_mqc.queue_html(
+            html=fname,
+            panel_id="sankey_html",
+            section="filtering",
+            title="SNPio: Sankey Filtering Report",
+            index_label="Filter Method",
+            description=(
+                "Sankey filtering report showing the flow of loci through the filtering steps. Retained loci are shown in green, while removed loci are shown in red. The Sankey diagram shows the number of loci kept and removed at each step."
+            ),
+        )
+
+        self.logger.info(f"Sankey filtering report diagram saved to: {fname}")
 
     def plot_gt_distribution(self, df: pd.DataFrame, annotation_size: int = 15) -> None:
         """Plot the distribution of genotype counts.
@@ -1315,13 +1589,7 @@ class Plotting:
             ValueError: Raised if the input dataframe is empty.
 
         Note:
-            - The input dataframe must contain the genotype counts.
-            - The input dataframe must have the genotype counts as columns.
-            - The input dataframe must have the genotype counts as rows.
-            - The input dataframe must have the genotype counts as values.
-            - The input dataframe must have the genotype counts as integers.
-            - The input dataframe must have the genotype counts as strings.
-            - The input dataframe must have the genotype counts as IUPAC codes.
+            The input dataframe must contain the genotype counts.
         """
         # Validate the input dataframe
         df = misc.validate_input_type(df, return_type="df")
@@ -1363,6 +1631,19 @@ class Plotting:
         if self.show:
             plt.show()
         plt.close()
+
+        self.snpio_mqc.queue_barplot(
+            df=cnts,
+            panel_id="genotype_distribution",
+            section="genotype_distribution",
+            title="SNPio: Genotype Distribution",
+            description=(
+                "Bar plot showing the distribution of genotype counts across all samples."
+            ),
+            index_label="Genotype Int",
+        )
+
+        self.logger.info(f"Genotype distribution plot saved to: {outpath}")
 
     def plot_search_results(self, df_combined: pd.DataFrame) -> None:
         """Plot and save the filtering results based on the available data.
@@ -1407,8 +1688,25 @@ class Plotting:
         self._plot_maf(df_combined)
         self._plot_boolean(df_combined)
 
-        msg: str = f"Plotting complete. Plots saved to directory {self.output_dir_nrm}."
+        msg: str = f"Plotting complete. Plots saved to directory {self.output_dir_gd}."
         self.logger.info(msg)
+
+        self.snpio_mqc.queue_table(
+            df=df_combined.reset_index(drop=True),
+            panel_id="filtering_results_combined",
+            section="filtering",
+            title="SNPio: Combined NRemover2 Filtering Results",
+            index_label="Filter Method",
+            description=(
+                "Combined filtering results showing the proportion of loci removed and kept for each filtering method."
+            ),
+            pconfig={
+                "id": "filtering_results_combined",
+                "title": "SNPio: Combined NRemover2 Filtering Results",
+                "series_label": "Filter Method",
+                "scale": "YlOrBr",
+            },
+        )
 
     def _plot_combined(self, df: pd.DataFrame) -> None:
         """Plot missing data proportions for Sample and Global data.
@@ -1474,8 +1772,7 @@ class Plotting:
                 )
 
             of: str = f"filtering_results_missing_loci_samples.{self.plot_format}"
-            outpath: Path = self.output_dir_nrm / of
-            fig.savefig(outpath)
+            fig.savefig(self.output_dir_gd / of)
 
             if self.show:
                 plt.show()
@@ -1543,7 +1840,7 @@ class Plotting:
                 )
 
             of: str = f"filtering_results_missing_population.{self.plot_format}"
-            outpath: Path = self.output_dir_nrm / of
+            outpath: Path = self.output_dir_gd / of
             fig.savefig(outpath)
 
             if self.show:
@@ -1608,7 +1905,7 @@ class Plotting:
                 ax.set_xticks(df["MAF_Threshold"].astype(float).unique(), minor=False)
 
             of: str = f"filtering_results_maf.{self.plot_format}"
-            outpath: Path = self.output_dir_nrm / of
+            outpath: Path = self.output_dir_gd / of
             fig.savefig(outpath)
 
             if self.show:
@@ -1646,7 +1943,7 @@ class Plotting:
                 ax.set_xticks(df_mac["MAC_Threshold"].astype(int).unique(), minor=False)
 
             of: str = f"filtering_results_mac.{self.plot_format}"
-            outpath: Path = self.output_dir_nrm / of
+            outpath: Path = self.output_dir_gd / of
             fig.savefig(outpath)
 
             if self.show:
@@ -1717,7 +2014,7 @@ class Plotting:
                 )
 
             of: str = f"filtering_results_bool.{self.plot_format}"
-            outpath: Path = self.output_dir_nrm / of
+            outpath: Path = self.output_dir_gd / of
             fig.savefig(outpath)
 
             if self.show:
@@ -1727,104 +2024,6 @@ class Plotting:
 
         else:
             self.logger.info("Boolean data is empty.")
-
-    def plot_filter_report(self, df: pd.DataFrame) -> None:
-        """Plot the filter report.
-
-        This method plots the filter report data. The filter report data contains the proportion of loci removed and kept for each filtering threshold. The plot is saved to a file.
-
-        Args:
-            df (pd.DataFrame): The dataframe containing the filter report data.
-
-        Returns:
-            None: A plot is saved to a file.
-
-        Raises:
-            ValueError: Raised if the input dataframe is empty.
-
-        Note:
-            - The input dataframe must contain the filter report data.
-            - The input dataframe must contain the filter report data for the removed and kept loci.
-            - The input dataframe must contain the filter report data for the filtering threshold.
-            - The input dataframe must contain the filter report data for the filtering method.
-            - The input dataframe must contain the filter report data for the filtering step.
-            - The input dataframe must contain the filter report data for the removed and kept loci counts.
-            - The input dataframe must contain the filter report data for the removed and kept loci proportions.
-            - The input dataframe must contain the filter report data for the filtering thresholds.
-            - The input dataframe must contain the filter report data for the missing data threshold.
-            - The input dataframe must contain the filter report data for the MAF threshold.
-            - The input dataframe must contain the filter report data for the MAC threshold.
-            - The input dataframe must contain the filter report data for the boolean threshold.
-        """
-        self.logger.info("Generating filter report plots...")
-        self.logger.debug(f"Filter report data: {df}")
-
-        df["Missing_Threshold"] = df["Missing_Threshold"].astype(float)
-        df["MAF_Threshold"] = df["MAF_Threshold"].astype(float)
-        df["MAC_Threshold"] = df["MAC_Threshold"].astype(int)
-        df["Bool_Threshold"] = df["Bool_Threshold"].astype(float)
-        df = df.sort_values(
-            by=["Missing_Threshold", "MAF_Threshold", "Bool_Threshold", "MAC_Threshold"]
-        )
-        df["Removed_Prop"] = df["Removed_Prop"].astype(float)
-        df["Kept_Prop"] = df["Kept_Prop"].astype(float)
-        df["Filter_Method"] = df["Filter_Method"].str.replace("_", " ").str.title()
-        df["Removed_Prop"] = df["Removed_Prop"].round(2)
-        df["Kept_Prop"] = df["Kept_Prop"].round(2)
-
-        # plot the boxplots
-        fig, axs = plt.subplots(5, 2, figsize=(24, 12))
-
-        kwargs = {"y": "Removed_Prop", "hue": "Filter_Method", "data": df}
-
-        for i, (ax, sns_method, xval) in enumerate(
-            zip(
-                axs.flatten(),
-                [
-                    sns.boxplot,
-                    sns.histplot,
-                    sns.lineplot,
-                    sns.lineplot,
-                    sns.violinplot,
-                    sns.violinplot,
-                    sns.histplot,
-                    sns.ecdfplot,
-                    sns.histplot,
-                    sns.ecdfplot,
-                ],
-                [
-                    "Missing_Threshold",
-                    "Missing_Threshold",
-                    "MAF_Threshold",
-                    "MAC_Threshold",
-                    "Bool_Threshold",
-                    "Bool_Threshold",
-                    "MAF_Threshold",
-                    "MAF_Threshold",
-                    "MAC_Threshold",
-                    "MAC_Threshold",
-                ],
-            )
-        ):
-            if sns_method == sns.violinplot and i == 2:
-                kwargs["inner"] = "box"
-
-            elif sns_method == sns.violinplot and i == 3:
-                kwargs["inner"] = "quartile"
-
-            kwargs["x"] = xval
-
-            ax: plt.Axes = sns_method(**kwargs, ax=ax)
-
-        plot_format = plot_format.lower()
-        of: Path = self.output_dir_nrm / f"filter_report.{self.plot_format}"
-        of.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(of)
-
-        if self.show:
-            plt.show()
-
-        plt.close()
 
     def plot_pop_counts(self, populations: pd.Series) -> None:
         """Plot the population counts.
@@ -1864,6 +2063,50 @@ class Plotting:
 
         colors = sns.color_palette("colorblind")
 
+        df = pd.DataFrame({"Population ID": counts.index, "Count": counts})
+        df_perc = pd.DataFrame(
+            {"Population ID": proportions.index, "Proportion": proportions}
+        )
+
+        # Convert to percentage
+        df_perc = df_perc.set_index("Population ID").mul(100).reset_index()
+        df_perc.columns = ["Population ID", "Percentage"]
+
+        color = "#8551A8"
+        unique_y = df["Population ID"].unique().tolist()
+        cats = {
+            "Count": {"name": "Count", "color": color},
+            "Proportion": {"name": "Proportion", "color": color},
+        }
+
+        self.snpio_mqc.queue_barplot(
+            df=[df, df_perc],
+            panel_id="population_counts",
+            section="overview",
+            title="SNPio: Population Counts",
+            description="Counts samples belonging to each population.",
+            index_label="Population ID",
+            pconfig={
+                "id": "population_counts",
+                "title": "SNPio: Population Counts",
+                "cpswitch": False,
+                "cpswitch_c_active": False,
+                "data_labels": [
+                    {
+                        "name": "Count",
+                        "ylab": "Count",
+                        "title": "Counts of Samples in each Population",
+                    },
+                    {
+                        "name": "Percentage",
+                        "ylab": "Percentage",
+                        "ymax": 100,
+                        "title": "Percent of Samples in each Population",
+                    },
+                ],
+            },
+        )
+
         for ax, data, ylabel, median, color, median_color in zip(
             axs,
             [counts, proportions],
@@ -1892,411 +2135,78 @@ class Plotting:
 
         plt.close()
 
-    def plot_performance(
-        self,
-        resource_data: Dict[str, List[float | int]],
-        color: str = "#8C56E3",
-        figsize: Tuple[int, int] = (18, 10),
-    ) -> None:
-        """Plots the performance metrics: CPU Load, Memory Footprint, and Execution Time using boxplots.
-
-        This function takes a dictionary of performance data and plots the metrics for each method using boxplots to show variability. The resulting plots are saved in a file of the specified format. The plot shows the CPU Load, Memory Footprint, and Execution Time for each method. The plot is colored based on the specified color.
-
-        Args:
-            resource_data (Dict[str, List[int | float]]): Dictionary with performance data. Keys are method names, and values are lists of performance metrics.
-            color (str, optional): Color to be used in the plot. Should be a valid color string. Defaults to "#8C56E3".
-            figsize (Tuple[int, int], optional): Size of the figure. Should be a tuple of 2 integers. Defaults to (18, 10).
-
-        Returns:
-            None. The function saves the plot to a file.
-
-        Raises:
-            ValueError: Raised if the input data is not a dictionary.
-
-        Note:
-            - The performance data should be in the format of a dictionary with method names as keys and lists of dictionaries as values. Each dictionary should have keys 'cpu_load', 'memory_footprint', and 'execution_time'.
-
-            - The plot will be saved in the '<prefix>_output/gtdata/plots/performance' directory.
-
-            - Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
-        """
-        plot_dir = Path(f"{self.prefix}_output", "gtdata", "plots", "performance")
-        plot_dir.mkdir(exist_ok=True, parents=True)
-
-        methods = list(resource_data.keys())
-
-        # Prepare data for boxplots
-        cpu_loads = {
-            method: [data["cpu_load"] for data in resource_data[method]]
-            for method in methods
-        }
-        memory_footprints = {
-            method: [data["memory_footprint"] for data in resource_data[method]]
-            for method in methods
-        }
-        execution_times = {
-            method: [data["execution_time"] for data in resource_data[method]]
-            for method in methods
-        }
-
-        # Convert to a format suitable for seaborn boxplots
-        cpu_data = [(method, val) for method, vals in cpu_loads.items() for val in vals]
-        memory_data = [
-            (method, val) for method, vals in memory_footprints.items() for val in vals
-        ]
-        execution_data = [
-            (method, val) for method, vals in execution_times.items() for val in vals
-        ]
-
-        # Separate the data for plotting
-        cpu_methods, cpu_values = zip(*cpu_data)
-        memory_methods, memory_values = zip(*memory_data)
-        exec_methods, exec_values = zip(*execution_data)
-
-        # Set up the figure and axes
-        fig, axs = plt.subplots(1, 3, figsize=figsize)
-
-        # Data for plotting
-        plot_data = [
-            (cpu_methods, cpu_values, "CPU Load (%)", "CPU Load Performance"),
-            (
-                memory_methods,
-                memory_values,
-                "Memory Footprint (MB)",
-                "Memory Footprint Performance",
-            ),
-            (
-                exec_methods,
-                exec_values,
-                "Execution Time (seconds)",
-                "Execution Time Performance",
-            ),
-        ]
-
-        # Plot each metric
-        for ax, (methods, values, ylabel, title) in zip(axs, plot_data):
-            sns.barplot(x=methods, y=values, color=color, ax=ax)
-            ax.set_xlabel("Methods")
-            ax.set_ylabel(ylabel)
-            ax.set_title(title)
-            ax.set_xticks(ax.get_xticks(), minor=False)
-
-            ticklabs = [
-                x.get_text().replace("_", " ").title() for x in ax.get_xticklabels()
-            ]
-            ticklabs = [x.replace("Filter Maf", "Filter MAF") for x in ticklabs]
-            ticklabs = [x.replace("Filter Mac", "Filter MAC") for x in ticklabs]
-            ax.set_xticklabels(ticklabs, rotation=90)
-            ax.set_ylim(bottom=-0.05)
-
-        # Save the plot to a file
-        of = plot_dir / f"benchmarking_barplot.{self.plot_format}"
-        fig.savefig(of)
-
-        if self.show:
-            plt.show()
-        plt.close()
-
-    def run_pca(
-        self,
-        n_components: int | None = None,
-        center: bool = True,
-        scale: bool = False,
-        n_axes: int = 2,
-        point_size: int = 15,
-        bottom_margin: float = 0,
-        top_margin: float = 0,
-        left_margin: float = 0,
-        right_margin: float = 0,
-        width: int = 1088,
-        height: int = 700,
-    ) -> Tuple[np.ndarray, PCA]:
-        """Runs PCA and makes scatterplot with colors showing missingness.
-
-        Genotypes are plotted as separate shapes per population and colored according to missingness per individual.
-
-        This function is run at the end of each imputation method, but can be run independently to change plot and PCA parameters such as ``n_axes=3`` or ``scale=True`` for full customization. Setting ``n_axes=3`` will make a 3D PCA plot.
-
-        PCA (principal component analysis) scatterplot can have either two or three axes, set with the n_axes parameter.
-
-        The plot is saved as both an interactive HTML file and as a static image. Each population is represented by point shapes. The interactive plot has associated metadata when hovering over the points.
-
-        Files are saved to a reports directory as <prefix>_output/imputed_pca.<plot_format|html>. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
-
-        Args:
-            n_components (int, optional): Number of principal components to include in the PCA. Defaults to None (all components).
-
-            center (bool, optional): If True, centers the genotypes to the mean before doing the PCA. If False, no centering is done. Defaults to True.
-
-            scale (bool, optional): If True, scales the genotypes to unit variance before doing the PCA. If False, no scaling is done. Defaults to False.
-
-            n_axes (int, optional): Number of principal component axes to plot. Must be set to either 2 or 3. If set to 3, a 3-dimensional plot will be made. Defaults to 2.
-
-            point_size (int, optional): Point size for scatterplot points. Defaults to 15.
-
-            bottom_margin (int, optional): Adjust bottom margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
-
-            top_margin (int, optional): Adjust top margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
-
-            left_margin (int, optional): Adjust left margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
-
-            right_margin (int, optional): Adjust right margin. If whitespace cuts off some of your plot, lower the corresponding margins. The default corresponds to that of plotly update_layout(). Defaults to 0.
-
-            width (int, optional): Width of plot space. If your plot is cut off at the edges, even after adjusting the margins, increase the width and height. Try to keep the aspect ratio similar. Defaults to 1088.
-
-            height (int, optional): Height of plot space. If your plot is cut off at the edges, even after adjusting the margins, increase the width and height. Try to keep the aspect ratio similar. Defaults to 700.
-
-        Note:
-            The PCA is run on the genotype data. Missing data is imputed using K-nearest-neighbors (per-sample) before running the PCA. The PCA is run using the sklearn.decomposition.PCA class.
-
-            The PCA data is saved as a numpy array with shape (n_samples, n_components).
-
-            The PCA object is saved as a sklearn.decomposition.PCA object. Any of the sklearn.decomposition.PCA attributes can be accessed from this object. See the sklearn documentation.
-
-            The explained variance ratio can be calculated from the PCA object.
-
-            The plot is saved as both an interactive HTML file and as a static image. Each population is represented by point shapes. The interactive plot has associated metadata when hovering over the points.
-
-            Files are saved to a reports directory as <prefix>_output/imputed_pca.<plot_format|html>. Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg).
-
-        Returns:
-            numpy.ndarray: PCA data as a numpy array with shape (n_samples, n_components).
-
-            sklearn.decomposision.PCA: Scikit-learn PCA object from sklearn.decomposision.PCA. Any of the sklearn.decomposition.PCA attributes can be accessed from this object. See sklearn documentation.
-
-        Raises:
-            ValueError: If n_axes is not set to 2 or 3.
-
-        Example:
-            >>> from snpio import Plotting, VCFReader
-            >>>
-            >>> gd = VCFReader("snpio/example_data/vcf_files/phylogen_subset14K_sorted.vcf.gz", popmap="snpio/example_data/popmaps/phylogen_nomx.popmap", force_popmap=True, verbose=True)
-            >>>
-            >>> # Define the plotting object
-            >>> plotting = Plotting(gd)
-            >>>
-            >>> # Run the PCA and get the components and PCA object
-            >>> components, pca = plotting.run_pca()
-            >>>
-            >>> # Calculate and print explained variance ratio
-            >>> explvar = pca.explained_variance_ratio_
-            >>> print(explvar)
-            >>> # Output: [0.123, 0.098, 0.087, ...]
-        """
-        plot_dir = Path(f"{self.prefix}_output", "gtdata", "plots")
-        plot_dir.mkdir(parents=True, exist_ok=True)
-
-        if n_axes not in {2, 3}:
-            msg = f"{n_axes} axes are not supported; n_axes must be either 2 or 3."
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        # Encode the genotype data.
-        ge = GenotypeEncoder(self.genotype_data)
-        df = misc.validate_input_type(ge.genotypes_012, return_type="df")
-        df = df.astype(int).replace([-9], np.nan)
-
-        pca_df = df.copy()
-        if center or scale:
-            # Center data to mean. Scaling to unit variance is off.
-            ss = StandardScaler(with_mean=center, with_std=scale)
-            pca_df = ss.fit_transform(pca_df)
-
-        # Run PCA.
-        model = PCA(n_components=n_components)
-
-        # PCA can't handle missing data. So impute it here using the
-        # K-nearest-neighbors (per-sample).
-        imputer = KNNImputer(weights="distance")
-        pca_df = imputer.fit_transform(pca_df)
-        components = model.fit_transform(pca_df)
-
-        cols, idx = ["Axis1", "Axis2", "Axis3"], list(range(3))
-        df_pca = pd.DataFrame(components[:, idx], columns=cols)
-        df_pca["SampleID"] = self.genotype_data.samples
-        df_pca["Population"] = self.genotype_data.populations
-        df_pca["Size"] = point_size
-
-        _, ind, __, ___, ____ = self.genotype_data.calc_missing(df, use_pops=False)
-
-        df_pca["missPerc"] = ind
-
-        # ggplot default
-        my_scale = [("rgb(19, 43, 67)"), ("rgb(86,177,247)")]
-
-        z = "Axis3" if n_axes == 3 else None
-        pc1 = model.explained_variance_ratio_[0] * 100
-        pc2 = model.explained_variance_ratio_[1] * 100
-        labs = {
-            "Axis1": f"PC1 ({pc1:.2f}% Explained Variance)",
-            "Axis2": f"PC2 ({pc2:.2f}% Explained Variance)",
-            "missPerc": "Missing Prop.",
-            "Population": "Population",
-        }
-
-        if z is not None:
-            pc3 = model.explained_variance_ratio_[2] * 100
-            labs["Axis3"] = f"PC3 ({pc3:.2f%}% Explained Variance)"
-            kwargs = dict(zip(["x", "y", "z"], cols))
-            func = px.scatter_3d
-        else:
-            kwargs = dict(zip(["x", "y"], cols[0:2]))
-            func = px.scatter
-
-        fig = func(
-            df_pca,
-            **kwargs,
-            color="missPerc",
-            symbol="Population",
-            color_continuous_scale=my_scale,
-            custom_data=["Axis3", "SampleID", "Population", "missPerc"],
-            size="Size",
-            size_max=point_size,
-            labels=labs,
-            range_color=[0.0, 1.0],
-            title="PCA Per-Population Missingness Scatterplot",
-        )
-
-        with warnings.catch_warnings(action="ignore"):
-            fig.update_traces(
-                hovertemplate="<br>".join(
-                    [
-                        "Axis 1: %{x}",
-                        "Axis 2: %{y}",
-                        "Axis 3: %{customdata[0]}",
-                        "Sample ID: %{customdata[1]}",
-                        "Population: %{customdata[2]}",
-                        "Missing Prop.: %{customdata[3]}",
-                    ]
-                ),
-            )
-            fig.update_layout(
-                showlegend=True,
-                margin=dict(
-                    b=bottom_margin,
-                    t=top_margin + 100,
-                    l=left_margin,
-                    r=right_margin,
-                ),
-                width=width,
-                height=height,
-                legend_orientation="h",
-                legend_title="Population",
-                legend_title_side="top",
-                font=dict(size=24),
-            )
-
-            of = plot_dir / f"pca_missingness.{self.plot_format}"
-
-            fig.write_html(of.with_suffix(".html"))
-            fig.write_image(of, format=self.plot_format)
-
-        return components, model
-
     def visualize_missingness(
         self,
         df: pd.DataFrame,
         prefix: str | None = None,
         zoom: bool = False,
-        horizontal_space: float = 0.6,
-        vertical_space: float = 0.6,
         bar_color: str = "gray",
         heatmap_palette: str = "magma",
-    ) -> Tuple[pd.Series, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame]:
-        """Make multiple plots to visualize missing data.
+    ) -> "MissingStats":
+        """Visualize missing data across loci, individuals, and populations.
 
-        This method makes multiple plots to visualize missing data. The plots include per-individual and per-locus missing data proportions, per-population + per-locus missing data proportions, per-population missing data proportions, and per-individual and per-population missing data proportions.
-
-        Note:
-            - The plots are saved in the '<prefix>_output/gtdata/plots' directory.
-
-            - Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
-
-            - The heatmap plot uses the seaborn library. The heatmap palette can be set using the heatmap_palette parameter. The default palette is 'magma'.
-
-            - The barplots use the matplotlib library. The color of the bars can be set using the bar_color parameter. The default color is 'gray'.
-
-        Args:
-            df (pandas.DataFrame): DataFrame with snps to visualize.
-
-            prefix (str, optional): Prefix to use for the output files. If None, the prefix is set to the input filename. Defaults to None.
-
-            zoom (bool, optional): If True, zooms in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to False.
-
-
-            horizontal_space (float, optional): Set width spacing between subplots. If your plot are overlapping horizontally, increase horizontal_space. If your plots are too far apart, decrease it. Defaults to 0.6.
-
-            vertical_space (float, optioanl): Set height spacing between subplots. If your plots are overlapping vertically, increase vertical_space. If your plots are too far apart, decrease it. Defaults to 0.6.
-
-            bar_color (str, optional): Color of the bars on the non-stacked barplots. Can be any color supported by matplotlib. See matplotlib.pyplot.colors documentation. Defaults to 'gray'.
-
-            heatmap_palette (str, optional): Palette to use for heatmap plot. Can be any palette supported by seaborn. See seaborn documentation. Defaults to 'magma'.
+        This method generates a series of bar plots and heatmaps to visualize the missing data statistics across individuals, loci, and populations. It calculates the missing proportions and creates visualizations to help identify patterns of missingness in the genotype data.
 
         Returns:
-            Tuple: Returns the missing data proportions for per-individual, per-locus, per-population + per-locus, per-population, and per-individual + per-population.
-
-        Raises:
-            ValueError: If the input data is not a pandas DataFrame.
+            MissingStats: The dataclass bundle containing all missing value statistics. It contains the following attributes:
+            - per_individual: Series with missing proportions per individual.
+            - per_locus: Series with missing proportions per locus.
+            - per_population: Series with missing proportions per population.
+            - per_individual_population: DataFrame with missing proportions per individual and population.
+            - per_population_locus: DataFrame with missing proportions per population and locus.
         """
-        # For missingness report filename.
-        prefix = self.prefix if prefix is None else prefix
+        self.logger.info("Generating missingness report...")
 
-        plot_dir = Path(f"{self.prefix}_output", "gtdata", "plots")
-        plot_dir.mkdir(parents=True, exist_ok=True)
+        prefix = self.prefix if prefix is None else prefix
 
         if not isinstance(df, pd.DataFrame):
             df = misc.validate_input_type(df, return_type="df")
 
-        loc, ind, poploc, poptotal, indpop = self.genotype_data.calc_missing(df)
+        use_pops = False if self.genotype_data.popmapfile is None else True
+        stats = self.genotype_data.calc_missing(df, use_pops=use_pops)
 
         ncol = 3
-        nrow = 1 if self.genotype_data.populations is None else 2
+        nrow = 1 if stats.per_population is None else 2
 
-        fig, axes = plt.subplots(nrow, ncol, figsize=(8, 11))
-        plt.subplots_adjust(wspace=horizontal_space, hspace=vertical_space)
+        mpl.rcParams.update({"savefig.bbox": "standard"})
+
+        fig, axes = plt.subplots(
+            nrow,
+            ncol,
+            figsize=(12, 10 if nrow == 1 else 14),
+            constrained_layout=True,
+        )
         fig.suptitle("Missingness Report")
 
+        # Plot 1: Per-Individual barplot
         ax = axes[0, 0]
-
-        ax.set_title("Per-Individual")
-        ax.barh(self.genotype_data.samples, ind, color=bar_color, height=1.0)
-
-        if not zoom:
-            ax.set_xlim([0, 1])
-
+        ax.barh(stats.per_individual.index, stats.per_individual, color=bar_color)
+        ax.set_xlim([0, 1] if not zoom else None)
+        ax.set_xlabel("Missing Prop.")
         ax.set_ylabel("Sample")
-        ax.set_xlabel("Missing Prop.")
-        ax.tick_params(axis="y", which="both", left=False, right=False, labelleft=False)
+        ax.tick_params(axis="y", labelleft=False)
 
+        # Plot 2: Per-Locus barplot
         ax = axes[0, 1]
-
-        ax.set_title("Per-Locus")
-        ax.barh(range(self.genotype_data.num_snps), loc, color=bar_color, height=1.0)
-        if not zoom:
-            ax.set_xlim([0, 1])
-        ax.set_ylabel("Locus")
+        ax.barh(stats.per_locus.index, stats.per_locus, color=bar_color)
+        ax.set_xlim([0, 1] if not zoom else None)
         ax.set_xlabel("Missing Prop.")
-        ax.tick_params(axis="y", which="both", left=False, right=False, labelleft=False)
+        ax.set_ylabel("Locus")
+        ax.tick_params(axis="y", labelleft=False)
 
-        id_vars = ["SampleID"]
-        if poptotal is not None:
+        # Plot 3: Per-Population totals (if available)
+        if stats.per_population is not None:
             ax = axes[0, 2]
-
-            ax.set_title("Per-Population Total")
-            ax.barh(poptotal.index, poptotal, color=bar_color, height=1.0)
-            if not zoom:
-                ax.set_xlim([0, 1])
+            ax.barh(stats.per_population.index, stats.per_population, color=bar_color)
+            ax.set_xlim([0, 1] if not zoom else None)
             ax.set_xlabel("Missing Prop.")
             ax.set_ylabel("Population")
 
+            # Plot 4: Heatmap of Pop x Locus missingness
             ax = axes[1, 0]
-
-            ax.set_title("Per-Population +\nPer-Locus", loc="center")
-
             vmax = None if zoom else 1.0
-
             sns.heatmap(
-                poploc,
+                stats.per_population_locus,
                 vmin=0.0,
                 vmax=vmax,
                 cmap=sns.color_palette(heatmap_palette, as_cmap=True),
@@ -2307,51 +2217,59 @@ class Plotting:
             ax.set_xlabel("Population")
             ax.set_ylabel("Locus")
 
-            id_vars.append("Population")
+            cbar = ax.collections[0].colorbar
+            cbar.ax.yaxis.label.set_va("bottom")  # Align properly
 
-        melt_df = indpop.isna()
-        melt_df["SampleID"] = self.genotype_data.samples
-        indpop["SampleID"] = self.genotype_data.samples
+        # Plot 5: Per-Individual heatmap (reshaped)
+        ax = axes[0, 2] if stats.per_population is None else axes[1, 1]
 
-        if poptotal is not None:
-            melt_df["Population"] = self.genotype_data.populations
-            indpop["Population"] = self.genotype_data.populations
-
-        melt_df = melt_df.melt(value_name="Missing", id_vars=id_vars)
-        melt_df = melt_df.sort_values(by=id_vars[::-1])
+        melt_df = stats.per_individual_population.reset_index()
+        melt_df = melt_df.melt(
+            id_vars=melt_df.columns[:2], var_name="Locus", value_name="Missing"
+        )
         melt_df["Missing"] = melt_df["Missing"].replace(
-            [False, True], ["Present", "Missing"]
+            {False: "Present", True: "Missing"}
         )
 
-        ax = axes[0, 2] if poptotal is None else axes[1, 1]
-
-        ax.set_title("Per-Individual")
-
-        ax = sns.histplot(
-            data=melt_df, y="variable", hue="Missing", multiple="fill", ax=ax
+        sns.histplot(
+            data=melt_df,
+            y="Locus",
+            hue="Missing",
+            hue_order=["Present", "Missing"],
+            multiple="fill",
+            ax=ax,
         )
-
-        ax.tick_params(axis="y", which="both", left=False, right=False, labelleft=False)
-
+        ax.tick_params(axis="y", labelleft=False)
+        ax.set_xlabel("Proportion")
+        ax.set_ylabel("Locus")
         ax.get_legend().set_title(None)
 
-        if poptotal is not None:
+        # Plot 6: Per-Population heatmap (stacked)
+        if stats.per_population is not None:
             ax = axes[1, 2]
-
-            ax.set_title("Per-Population")
-            ax = sns.histplot(
-                data=melt_df, y="Population", hue="Missing", multiple="fill", ax=ax
+            sns.histplot(
+                data=melt_df,
+                y="population",
+                hue="Missing",
+                hue_order=["Present", "Missing"],
+                multiple="fill",
+                ax=ax,
             )
+
+            ax.set_xlabel("Proportion")
             ax.get_legend().set_title(None)
 
-        of = plot_dir / f"{prefix}_missingness_report.{self.plot_format}"
-        fig.savefig(of)
+        # Save figure
+        out_path = self.output_dir_gd / f"missingness_report.{self.plot_format}"
+        fig.savefig(out_path)
 
         if self.show:
             plt.show()
         plt.close()
 
-        return loc, ind, poploc, poptotal, indpop
+        mpl.rcParams.update({"savefig.bbox": "tight"})
+
+        return stats
 
     def plot_dist_matrix(
         self,
