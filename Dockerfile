@@ -57,7 +57,6 @@ WORKDIR /app
 COPY --chown=snpiouser:snpiouser tests/ tests/
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/ scripts_and_notebooks/
 COPY --chown=snpiouser:snpiouser snpio/example_data/ example_data/
-COPY --chown=snpiouser:snpiouser UserManual.pdf docs/UserManual.pdf
 COPY --chown=snpiouser:snpiouser README.md docs/README.md
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpiouser/.bashrc
 
