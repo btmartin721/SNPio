@@ -57,13 +57,14 @@ class GenotypeEncoder:
             The GenotypeData object must be initialized before creating an instance of this class.
         """
 
+        self.genotype_data = genotype_data
         self.plot_format = genotype_data.plot_format
         self.prefix = genotype_data.prefix
         self.verbose = genotype_data.verbose
         self.snp_data = genotype_data.snp_data
         self.samples = genotype_data.samples
-        debug = genotype_data.debug
         self.filetype = "encoded"
+        debug = genotype_data.debug
 
         self.missing_vals: List[str] = ["N", "-", ".", "?"]
         self.replace_vals: List[str] = ["-9"] * len(self.missing_vals)
@@ -236,22 +237,26 @@ class GenotypeEncoder:
                     else:
                         new_snps[i].append(1)
 
-        outdir = Path(f"{self.prefix}_output", "gtdata", "logs")
+        if self.genotype_data.was_filtered:
+            outdir = Path(f"{self.prefix}_output", "nremover", "logs")
+        else:
+            outdir = Path(f"{self.prefix}_output", "logs")
         outdir.mkdir(exist_ok=True, parents=True)
+
         if monomorphic_sites:
             # TODO: Check here if column is all missing.
             # TODO: What to do in this case? Error out?
-            outfile = outdir / "monomorphic_sites.txt"
+            outfile = outdir / "monomorphic_sites_mqc.txt"
             with open(outfile, "w") as fout:
                 mono_sites = [str(x) for x in monomorphic_sites]
                 fout.write(",".join(mono_sites))
 
             self.logger.warning(
-                f"Monomorphic sites detected. You can check the locus indices in the following log file: {outfile}"
+                f"Monomorphic sites detected. You can check the monomorphic locus indices in the following log file: {outfile}"
             )
 
         if non_biallelic_sites:
-            outfile = outdir / "non_biallelic_sites.txt"
+            outfile = outdir / "non_biallelic_sites_mqc.txt"
             with open(outfile, "w") as fout:
                 nba = [str(x) for x in non_biallelic_sites]
                 fout.write(",".join(nba))
@@ -261,9 +266,10 @@ class GenotypeEncoder:
             )
 
         if all_missing:
-            outfile = outdir / "all_missing_sites.txt"
+            self.genotype_data.all_missing_idx = all_missing
+            outfile = outdir / "all_missing_sites_mqc.txt"
             with open(outfile, "w") as fout:
-                ",".join([str(x) for x in all_missing])
+                fout.write(",".join([str(x) for x in all_missing]))
 
             self.logger.warning(
                 f"SNP column indices found in the log file {outfile} had all missing data and were excluded from the alignment."
@@ -565,7 +571,11 @@ class GenotypeEncoder:
         df_decoded = df_decoded.replace(dreplace)
 
         if write_output:
-            outfile = Path(f"{self.prefix}_output", "gtdata", "alignments", "012")
+            if self.genotype_data.was_filtered:
+                outdir = Path(f"{self.prefix}_output", "nremover", "alignments")
+            else:
+                outdir = Path(f"{self.prefix}_output", "alignments")
+            outdir.mkdir(exist_ok=True, parents=True)
 
         if ft.startswith("structure"):
             if ft.startswith("structure2row"):
@@ -617,7 +627,7 @@ class GenotypeEncoder:
                 )
 
             if write_output:
-                of = outfile.with_suffix(".str")
+                of = outdir / "012.str"
                 df_decoded.insert(0, "sampleID", self._samples)
                 df_decoded.insert(1, "popID", self._populations)
 
@@ -625,7 +635,7 @@ class GenotypeEncoder:
 
         elif ft.startswith("phylip"):
             if write_output:
-                of = outfile.with_suffix(".phy")
+                of = outdir / "012.phy"
                 header = f"{self.num_inds} {self.num_snps}\n"
                 with open(of, "w") as fout:
                     fout.write(header)
