@@ -144,6 +144,13 @@ class TreeParser(GenotypeData):
             self.logger.error(msg)
             raise TypeError(msg)
 
+        if save_path is not None:
+            save_path = Path(save_path)
+            if not save_path.stem.endswith("_mqc"):
+                save_path = save_path.with_name(
+                    f"{save_path.stem}_mqc{save_path.suffix}"
+                )
+
         tree_str = tree.write(path=save_path)
 
         if tree_str is not None:

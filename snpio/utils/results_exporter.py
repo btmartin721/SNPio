@@ -22,9 +22,9 @@ class ResultsExporter:
             output_dir (str | Path): Directory where results will be saved.
         """
         self._output_dir = (
-            Path(output_dir, "analysis")
+            Path(output_dir, "reports", "analysis")
             if not isinstance(output_dir, Path)
-            else output_dir / "analysis"
+            else output_dir / "reports" / "analysis"
         )
 
     def _flatten_and_save(self, data: Dict, filename_prefix: str) -> dict:
@@ -50,12 +50,12 @@ class ResultsExporter:
 
             if isinstance(value, (pd.DataFrame, pd.Series)):
                 # Save DataFrame or Series as CSV
-                value.to_csv(self.output_dir / f"{full_key}.csv", index=False)
+                value.to_json(self.output_dir / f"{full_key}_mqc.json", index=True)
 
             elif isinstance(value, np.ndarray):
                 # Save numpy array as CSV
                 pd.DataFrame(value).to_csv(
-                    self.output_dir / f"{full_key}.csv", index=False
+                    self.output_dir / f"{full_key}.csv", index=True
                 )
 
             elif isinstance(value, dict):
@@ -64,8 +64,8 @@ class ResultsExporter:
 
                 if isinstance(nested_json_data, np.ndarray):
                     # Save numpy array as CSV
-                    pd.DataFrame(nested_json_data).to_csv(
-                        self.output_dir / f"{full_key}.csv", index=False
+                    pd.DataFrame(nested_json_data).to_json(
+                        self.output_dir / f"{full_key}_mqc.json", index=True
                     )
 
                 if nested_json_data:  # Avoid empty dicts in JSON
@@ -84,12 +84,11 @@ class ResultsExporter:
             data (Any): Data to be saved (DataFrame, dictionary, list of tuples, etc.).
             filename (str): Base filename without extension.
         """
-        file_path_json = self.output_dir / f"{filename}.json"
-        file_path_csv = self.output_dir / f"{filename}.csv"
+        file_path_json = self.output_dir / f"{filename}_mqc.json"
 
         if isinstance(data, (pd.DataFrame, pd.Series)):
-            # Save DataFrame or Series as CSV
-            data.to_csv(file_path_csv, index=False)
+            # Save DataFrame or Series as JSON
+            data.to_json(file_path_json, index=True)
 
         elif isinstance(data, dict):
             # Recursively process nested dictionaries, separating DataFrames
@@ -104,7 +103,7 @@ class ResultsExporter:
         ):
             # Convert list of tuples/lists to DataFrame
             df = pd.DataFrame(data)
-            df.to_csv(file_path_csv, index=False)
+            df.to_json(file_path_json, index=True)
 
         else:
             # Generic JSON export for any other data types

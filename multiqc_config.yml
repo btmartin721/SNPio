@@ -1,0 +1,180 @@
+# =============================================================================
+#  MultiQC configuration for SNPio reports
+# =============================================================================
+
+title: "SNPio MultiQC Report"
+subtitle: "Report containing results from an analysis using the SNPio Python API"
+custom_logo: "snpio/img/snpio_logo.png"
+custom_logo_url: https://github.com/btmartin721/SNPio/blob/master/snpio/img/snpio_logo.png
+custom_logo_title: "SNPio: A Python API to perform population genomics analyses"
+max_table_rows: 2000
+
+# -----------------------------------------------------------------------------#
+# 1.  Section hierarchy and ordering
+# -----------------------------------------------------------------------------#
+
+report_section_order:
+  overview:
+    order: 1
+  filtering:
+    order: 2
+  missing_data:
+    order: 3
+  population_structure:
+    order: 4
+  genetic_differentiation:
+    order: 5
+  introgression:
+    order: 6
+  detailed_statistics:
+    order: 7
+  outliers:
+    order: 8
+  benchmarking:
+    order: 9
+  logs:
+    order: 10
+
+# -----------------------------------------------------------------------------#
+# 2.  Assign panels to sections
+# -----------------------------------------------------------------------------#
+
+parent_ids:
+  # ── Overview ────────────────────────────────────────────────────────────────
+  # General population-level summaries and stats
+  population_counts: overview
+  genotype_distribution: overview
+  summary_statistics: overview
+
+  # ── Missing Data ────────────────────────────────────────────────────────────
+  # Missing data visualizations and tables
+  missing_summary: missing_data
+  missingness_report: missing_data
+  individual_missingness: missing_data
+  locus_missingness: missing_data
+  population_missingness: missing_data
+  population_locus_missingness: missing_data
+
+  # ── Filtering ──────────────────────────────────────────────────────────────
+  # Filtering statistics and Sankey diagrams
+  sankey_html: filtering
+  filtering_results_combined: filtering
+
+  # ── Population Structure ───────────────────────────────────────────────────
+  # PCA analyses for structure and missingness patterns
+  pca_missingness: population_structure
+  pca_missingness_scatter: population_structure
+
+  # ── Genetic Differentiation ────────────────────────────────────────────────
+  # Fst and Nei’s distances, heatmaps, CI, and p-values
+  pairwise_WC_fst: genetic_differentiation
+  pairwise_WC_fst_ci95: genetic_differentiation
+  pairwise_WC_fst_pvalues: genetic_differentiation
+  pairwise_nei_distances: genetic_differentiation
+  pairwise_nei_distance_pvalues: genetic_differentiation
+
+  # ── Introgression / D-stats ────────────────────────────────────────────────
+  # D-statistics based ABBA-BABA analysis
+  d_statistics_significance_counts: introgression
+  d_statistics_distribution: introgression
+
+  # ── Detailed Stats ─────────────────────────────────────────────────────────
+  # Diversity and heterozygosity summaries
+  summary_statistics_overall: detailed_statistics
+  summary_statistics_per_population_pi: detailed_statistics
+  summary_statistics_per_population_ho: detailed_statistics
+  summary_statistics_per_population_he: detailed_statistics
+
+  # ── Outliers ──────────────────────────────────────────────────────────────
+  # Fst-based outlier detection using different methods
+  fst_outliers_dbscan_method: outliers
+  fst_outliers_permutation_method: outliers
+
+  # ── Logs ───────────────────────────────────────────────────---------------
+  verbose: logs
+  debug: logs
+
+# -----------------------------------------------------------------------------#
+# 3.  Friendly section and panel names
+# -----------------------------------------------------------------------------#
+
+section_names:
+  # Parent sections
+  overview: "Overview"
+  missing_data: "Missing Data"
+  filtering: "Filtering"
+  population_structure: "Population Structure"
+  genetic_differentiation: "Genetic Differentiation"
+  introgression: "Introgression Statistics"
+  detailed_statistics: "Detailed Summary Statistics"
+  outliers: "Outlier Detection"
+  logs: "Logs & Diagnostics"
+
+  # Overview
+  population_counts: "Population Counts Table"
+  genotype_distribution: "Genotype Distribution Table"
+  summary_statistics: "Summary Statistics Table"
+
+  # Missing Data
+  missing_summary: "Missing Data Summary"
+  missingness_report: "Missingness Report"
+  individual_missingness: "Missing Data: Individuals"
+  locus_missingness: "Missing Data: Loci"
+  population_missingness: "Missing Data: Populations"
+  population_locus_missingness: "Missing Data: Pop × Locus"
+
+  # Filtering
+  sankey_html: "Sankey Filtering Report"
+  filtering_results_combined: "Combined Filtering Results Table from Threshold Search"
+
+  # Population Structure
+  pca_missingness: "PCA Results"
+  pca_missingness_scatter: "PCA Scatter Plot (Colored by Missingness)"
+
+  # Genetic Differentiation
+  pairwise_WC_fst: "Pairwise Fst among Populations (Weir & Cockerham, 1984)"
+  pairwise_WC_fst_ci95: "Pairwise Fst 95% CI"
+  pairwise_WC_fst_pvalues: "Pairwise Fst p-values"
+  pairwise_nei_distances: "Pairwise Nei (1972) Distances"
+  pairwise_nei_distance_pvalues: "Nei Distance p-values"
+
+  # Introgression
+  d_statistics_significance_counts: "D-stats: Significance Counts"
+  d_statistics_distribution: "D-stats: Distribution"
+
+  # Detailed Summary Stats
+  summary_statistics_overall: "Overall Summary Statistics"
+  summary_statistics_per_population_pi: "Nucleotide Diversity (Pi) per Population for each Locus"
+  summary_statistics_per_population_ho: "Observed Heterozygosity (Ho) per Population for each Locus"
+  summary_statistics_per_population_he: "Expected Heterozygosity (He) per Population for each Locus"
+
+  # Outliers
+  fst_outliers_dbscan_method: "Fst Outlier Heatmap (DBSCAN Method)"
+  fst_outliers_permutation_method: "Fst Outlier Heatmap (Permutation Method)"
+
+  # Logs
+  verbose: "Verbose Logs"
+  debug: "Debug Logs"
+
+# -----------------------------------------------------------------------------#
+# 4.  Optional section descriptions (if supported by your MultiQC version)
+# -----------------------------------------------------------------------------#
+
+section_descriptions:
+  overview: "High-level summary tables of sample and genotype distribution."
+  missing_data: "Visualizations of missing genotype data across loci, individuals, and populations."
+  filtering: "Results of SNP/sample filtering, including MAF, missingness, and Sankey plots."
+  population_structure: "PCA-based visualization of population clusters and missingness biases."
+  genetic_differentiation: "Measures of population divergence based on Fst and Nei’s distance."
+  introgression: "D-statistics and ABBA-BABA-based inference of gene flow between populations."
+  detailed_statistics: "Summary statistics for genetic diversity and heterozygosity."
+  outliers: "Detection of SNPs with extreme population differentiation via Fst-based methods."
+  logs: "Internal logging information for debugging and reproducibility."
+
+# -----------------------------------------------------------------------------#
+# 5.  Hide sections completely (rarely used logs, etc.)
+# -----------------------------------------------------------------------------#
+
+remove_sections:
+  - verbose
+  - debug

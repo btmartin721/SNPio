@@ -138,7 +138,9 @@ class FilteringHelper:
             - This method can take a long time to run, depending on the number of combinations of thresholds.
 
         """
-        self.logger.info("Searching and plotting filtering thresholds.")
+        self.logger.info(
+            "Searching and plotting filtering thresholds. This can take a few while if using many thresholds..."
+        )
 
         self.nremover.search_mode = True
 
@@ -188,9 +190,6 @@ class FilteringHelper:
         self.nremover.search_mode = False
         self.nremover._reset_filtering_state()
         self.nremover._reset_filtering_results()
-        self.nremover.genotype_data.resource_data.update(
-            self.nremover.filtering_methods.resource_data
-        )
 
     def _prepare_dataframes(self) -> pd.DataFrame:
         """Prepare DataFrames for plotting.

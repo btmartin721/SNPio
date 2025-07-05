@@ -3,6 +3,7 @@ channels:
   - conda-forge
   - bioconda
   - defaults
+
 channel_priority: flexible
 
 dependencies:
@@ -14,7 +15,9 @@ dependencies:
   - python-kaleido
   - kneed
   - matplotlib
+  - multiqc >=1.29
   - numpy
+  - numba
   - pandas
   - panel
   - plotly

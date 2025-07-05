@@ -213,9 +213,9 @@ class ReadPopmap:
         try:
             df["samples"] = df["samples"].astype(str)
             df["populations"] = df["populations"].astype(str)
-            self._popdict = dict(zip(df["samples"], df["populations"]))
+            self._popdict = dict(zip(df["samples"].astype(str), df["populations"]))
         except KeyError as e:
-            self._popdict = dict(zip(df.iloc[:, 0], df.iloc[:, 1]))
+            self._popdict = dict(zip(df.iloc[:, 0].astype(str), df.iloc[:, 1]))
 
         self.logger.debug(f"popdict: {self._popdict}")
 
@@ -320,6 +320,8 @@ class ReadPopmap:
         Args:
             output_file (str): The filename of the output file to write the population map.
         """
+        output_file = Path(output_file)
+
         with open(output_file, "w") as f:
             sorted_dict = dict(sorted(self._popdict.items(), key=lambda item: item[1]))
 

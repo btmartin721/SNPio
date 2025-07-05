@@ -7,14 +7,13 @@ Subpackages
 .. toctree::
    :maxdepth: 2
 
-
-   snpio.filtering
-   snpio.plotting
    snpio.io
-   snpio.analysis
    snpio.read_input
-   snpio.utils
+   snpio.filtering
+   snpio.analysis
    snpio.popgenstats
+   snpio.plotting
+   snpio.utils
 
 Module contents
 ---------------

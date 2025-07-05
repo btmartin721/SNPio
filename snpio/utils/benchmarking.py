@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, List, Tuple
 
 import pandas as pd
 
+from snpio.utils.multiqc_reporter import SNPioMultiQC
+
 
 @dataclass
 class ResourceMetrics:
@@ -45,6 +47,10 @@ def _subprocess_benchmark(conn, func, args, kwargs):
 
 class Benchmark:
     """Benchmark class for measuring performance of functions and code blocks."""
+
+    def __init__(self):
+        """Initialize the Benchmark class."""
+        self.snpio_mqc = SNPioMultiQC
 
     global_resource_data: Dict[str, List[ResourceMetrics]] = {}
 
@@ -176,7 +182,5 @@ class Benchmark:
 
         df = pd.DataFrame(records)
 
-        outdir = save_dir or Path("./performance_plots")
+        outdir = save_dir or Path("./profile")
         outdir.mkdir(exist_ok=True, parents=True)
-        df.to_csv(outdir / f"{outfile_prefix}_metrics.csv", index=False)
-        df.to_json(outdir / f"{outfile_prefix}_metrics.json", orient="records")

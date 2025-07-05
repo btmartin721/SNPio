@@ -324,7 +324,7 @@ class BaseGenotypeData:
         while name_parts and name_parts[-1] in {"vcf", "gz", "nremover"}:
             name_parts.pop()
         base = ".".join(name_parts)
-        bgzipped_path = f"{base}.nremover.vcf.gz"
+        bgzipped_path = f"{base}.vcf.gz"
         bgzipped_path = Path(bgzipped_path)
 
         # Safety check: don't overwrite input file

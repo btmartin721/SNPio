@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 
 from snpio.utils.logging import LoggerManager
+from snpio.utils.multiqc_reporter import SNPioMultiQC
 
 
 class GeneticDistance:
@@ -15,12 +16,24 @@ class GeneticDistance:
     def __init__(self, genotype_data, plotter, verbose=False, debug=False):
         self.genotype_data = genotype_data
         self.plotter = plotter
-        self.outdir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+
+        if self.genotype_data.was_filtered:
+            self.outdir = Path(
+                f"{self.genotype_data.prefix}_output", "nremover", "analysis"
+            )
+        else:
+            # Default output directory for analysis results
+            # If filtering was not done, use the standard output directory
+            # for analysis results.
+            self.outdir = Path(f"{self.genotype_data.prefix}_output", "analysis")
         self.outdir.mkdir(parents=True, exist_ok=True)
+
         logman = LoggerManager(
             __name__, self.genotype_data.prefix, debug=debug, verbose=verbose
         )
         self.logger = logman.get_logger()
+
+        self.snpio_mqc = SNPioMultiQC
 
     @staticmethod
     def _clean_inds(inds):
@@ -172,9 +185,16 @@ class GeneticDistance:
                 nei_mat[ia, ib] = nei_mat[ib, ia] = dist
             np.fill_diagonal(nei_mat, 0.0)
             df = pd.DataFrame(nei_mat, index=pop_keys, columns=pop_keys)
-            outpath = self.outdir / "pairwise_nei_distances.csv"
-            df.to_csv(outpath, index=True, float_format="%.8f")
-            self.logger.info(f"Nei distance caluclation complete!")
+
+            self.snpio_mqc.queue_heatmap(
+                df=df,
+                panel_id="pairwise_nei_distances",
+                section="genetic_differentiation",
+                title="SNPio: Pairwise Nei's Genetic Distances",
+                description="Pairwise Nei's (1972) genetic distances computed for all population pairs.",
+            )
+
+            self.logger.info(f"Nei distance calculation complete!")
             return df
 
         elif return_pvalues and n_permutations > 0:
@@ -328,14 +348,6 @@ class GeneticDistance:
 
             # NOTE: For clarity, df_mean is the actual observed Nei matrix.
 
-            # Write df_lower and df_upper to CSV
-            self._combine_upper_lower_ci(df_upper, df_lower, diagonal="zero").to_csv(
-                self.outdir / "pairwise_nei_distance_ci95.csv",
-                index=True,
-                header=True,
-                float_format="%.8f",
-            )
-
             return df_mean, df_lower, df_upper, df_pval
 
         # ------------------------------------------
@@ -400,21 +412,6 @@ class GeneticDistance:
             np.fill_diagonal(df_mean.values, 0.0)
             np.fill_diagonal(df_lower.values, 0.0)
             np.fill_diagonal(df_upper.values, 0.0)
-
-            # Write P-values to CSV
-            df_pval.to_csv(
-                self.outdir / "pairwise_nei_distance_pvalues.csv",
-                index=True,
-                header=True,
-                float_format="%.8f",
-            )
-
-            df_obs.to_csv(
-                self.outdir / "pairwise_nei_distance.csv",
-                index=True,
-                header=True,
-                float_format="%.8f",
-            )
 
             self.logger.info(f"Nei distance files saved to {self.outdir}")
 

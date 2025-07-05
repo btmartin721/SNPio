@@ -451,10 +451,13 @@ class NRemover2:
         # Call the plot_search_results method from the Plotting class
         plotting.plot_search_results(df_combined=df_combined)
 
-    def plot_sankey_filtering_report(self) -> None:
+    def plot_sankey_filtering_report(self, filename: str | None = None) -> None:
         """Plots a Sankey diagram showing the number of loci removed at each filtering step.
 
         This method generates a Sankey diagram showing the number of loci removed at each filtering step. The diagram is saved as a PNG file in the output directory. The Sankey diagram provides a visual representation of the filtering process, showing the number of loci removed at each step and the proportion of loci removed relative to the total number of loci in the alignment. It also shows the number of loci that were retained at each step.
+
+        Args:
+            filename (str | None): The name of the output file to save the Sankey diagram. If None, the diagram will be saved with a default name. Defaults to None.
 
         Raises:
             RuntimeError: If the filtering chain has not been resolved.
@@ -468,13 +471,15 @@ class NRemover2:
             >>> nrm.plot_sankey_filtering_report()
             >>> # The Sankey diagram will be saved as a PNG file in the output directory.
         """
-        self.logger.info("Plotting Sankey filtering report...")
+        self.logger.info("Plotting Sankey filtering report diagram...")
 
         kwargs = self.genotype_data.plot_kwargs
         plotting = Plotting(self.genotype_data, **kwargs)
 
         df = pd.concat(self.df_global_list)
-        plotting.plot_sankey_filtering_report(df, search_mode=self.search_mode)
+        plotting._plot_sankey_filtering_report(
+            df, search_mode=self.search_mode, fn=filename
+        )
 
     def propagate_chain(self) -> None:
         """Propagates the filtering chain to the next step, marking the chain as active.
@@ -658,8 +663,13 @@ class NRemover2:
             - It updates the alignment, sample indices, and loci indices based on the filtering results.
             - It also resets the chain active flag and returns the updated GenotypeData instance after filtering has been applied.
         """
+        self.logger.info("Resolving the filtering methods...")
+
         gd = self._finalize_chain(benchmark_mode=benchmark_mode)
         self._chain_resolved = True  # Mark the chain as resolved
+
+        self.logger.info("Filtering chain resolved successfully.")
+
         return gd
 
     def _finalize_chain(self, benchmark_mode: bool = False) -> "GenotypeData":

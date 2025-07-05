@@ -15,6 +15,8 @@ from snpio.read_input.genotype_data_base import BaseGenotypeData
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
+from snpio.utils.missing_stats import MissingStats
+from snpio.utils.multiqc_reporter import SNPioMultiQC
 
 
 class GenotypeData(BaseGenotypeData):
@@ -75,7 +77,6 @@ class GenotypeData(BaseGenotypeData):
         copy: Create a deep copy of the GenotypeData object.
         read_popmap: Read in a popmap file.
         missingness_reports: Create missingness reports from GenotypeData object.
-        _report2file: Write a DataFrame to a CSV file.
         _genotype_to_iupac: Convert a genotype string to its corresponding IUPAC code.
         _iupac_to_genotype: Convert an IUPAC code to its corresponding genotype string.
         get_reverse_iupac_mapping: Create a reverse mapping from IUPAC codes to allele tuples.
@@ -152,6 +153,7 @@ class GenotypeData(BaseGenotypeData):
             filetype = filetype.lower()
 
         self.prefix = prefix
+        self.was_filtered = False
         self.verbose = verbose
         self.debug = debug
 
@@ -217,6 +219,7 @@ class GenotypeData(BaseGenotypeData):
 
         self.missing_vals = ["N", "-", ".", "?"]
         self.replace_vals = [pd.NA] * len(self.missing_vals)
+        self.all_missing_idx = []
 
         self._samples: List[str] = []
         self._populations: List[str | int] = []
@@ -250,6 +253,8 @@ class GenotypeData(BaseGenotypeData):
 
         # Ensure the load_aln method is called.
         _ = self.snp_data
+
+        self.snpio_mqc = SNPioMultiQC
 
     def _iupac_from_gt_tuples(self) -> Dict[Tuple[str, str], str]:
         """Returns the IUPAC code mapping.
@@ -372,8 +377,10 @@ class GenotypeData(BaseGenotypeData):
         # Subset the popmap based on inclusion/exclusion criteria
         my_popmap.subset_popmap(samples, include_pops, exclude_pops)
 
+        popmap = my_popmap.popmap
+
         # Update the sample list and the populations
-        new_samples = [s for s in samples if s in my_popmap.popmap]
+        new_samples = [str(s) for s in samples if s in popmap]
         if len(new_samples) != len(samples):
             self.logger.warning(
                 "Some samples in the alignment are not found in the population map."
@@ -419,8 +426,15 @@ class GenotypeData(BaseGenotypeData):
             AttributeError: If the samples attribute is not defined.
             AttributeError: If the popmap attribute is not defined.
         """
+        if not isinstance(filename, (str, Path)):
+            msg = f"Invalid filename type provided. Expected str or pathlib.Path, but got: {type(filename)}"
+            self.logger.error(msg)
+            raise exceptions.InvalidFilenameError(msg)
+
+        filename = Path(filename)
+
         if not self.samples or self.samples is None:
-            msg = "'samples attribute is undefined."
+            msg = "'samples' attribute is undefined."
             self.logger.error(msg)
             raise exceptions.EmptyIterableError(msg)
 
@@ -752,23 +766,10 @@ class GenotypeData(BaseGenotypeData):
 
         self.logger.info(f"Writing STRUCTURE file to: {output_file}")
 
-        # --- Determine marker names ---
-        marker_names_list = []
+        # --- Get marker names ---
         if marker_names:
-            if (
-                self.from_vcf
-                and getattr(self, "vcf_attributes_fn", None)
-                and Path(self.vcf_attributes_fn).is_file()
-            ):
-                try:
-                    with h5py.File(self.vcf_attributes_fn, "r") as h5:
-                        chrom = h5["chrom"][:].astype(str)
-                        pos = h5["pos"][:].astype(str)
-                        marker_names_list = [
-                            f"{str(c)}_{str(p)}" for c, p in zip(chrom, pos)
-                        ]
-                except Exception as e:
-                    self.logger.warning(f"Failed to read VCF attributes: {e}")
+            if self.from_vcf:
+                marker_names_list = self.marker_names
             elif hasattr(self, "marker_names") and self.marker_names:
                 marker_names_list = list(self.marker_names)
             else:
@@ -910,22 +911,21 @@ class GenotypeData(BaseGenotypeData):
     def missingness_reports(
         self,
         prefix: str | None = None,
-        zoom: bool = True,
+        zoom: bool = False,
         bar_color: str = "gray",
         heatmap_palette: str = "magma",
     ) -> None:
-        """
-        Generate missingness reports and plots.
+        """Generate missingness reports and plots.
 
         The function will write several comma-delimited report files:
 
-            1. individual_missingness.csv: Missing proportions per individual.
+            1. individual_missingness_mqc.json: Missing proportions per individual.
 
-            2. locus_missingness.csv: Missing proportions per locus.
+            2. locus_missingness_mqc.json: Missing proportions per locus.
 
-            3. population_missingness.csv: Missing proportions per population (only generated if popmapfile was passed to GenotypeData).
+            3. population_missingness_mqc.json: Missing proportions per population (only generated if popmapfile was passed to GenotypeData).
 
-            4. population_locus_missingness.csv: Table of per-population and per-locus missing data proportions.
+            4. population_locus_missingness_mqc.json: Table of per-population and per-locus missing data proportions.
 
         A file missingness.<plot_format> will also be saved. It contains the following subplots:
 
@@ -946,20 +946,21 @@ class GenotypeData(BaseGenotypeData):
         Args:
             prefix (str, optional): Output file prefix for the missingness report. Defaults to None.
 
-            zoom (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to True.
+            zoom (bool, optional): If True, zoom in to the missing proportion range on some of the plots. If False, the plot range is fixed at [0, 1]. Defaults to False.
 
             bar_color (str, optional): Color of the bars on the non-stacked bar plots. Can be any color supported by matplotlib. See the matplotlib.pyplot.colors documentation. Defaults to 'gray'.
 
-            heatmap_palette (str, otpional): Color palette for the heatmap plot. Defaults to 'magma'.
+            heatmap_palette (str, optional): Color palette for the heatmap plot. Defaults to 'magma'.
         """
+        self.logger.info("Generating missingness reports and plots...")
+
         # Set the prefix for the missingness report files,
         # If not provided.
         prefix = self.prefix if prefix is None else prefix
 
         # Set the parameters for the missingness report plots.
-        keys = ["prefix", "zoom", "horizontal_space", "vertical_space"]
-        keys.extend(["bar_color", "heatmap_palette"])
-        values = [prefix, zoom, 0.8, 0.6, bar_color, heatmap_palette]
+        keys = ["prefix", "zoom", "bar_color", "heatmap_palette"]
+        values = [prefix, zoom, bar_color, heatmap_palette]
 
         # Create a dictionary of the parameters.
         params = dict(zip(keys, values))
@@ -976,44 +977,154 @@ class GenotypeData(BaseGenotypeData):
 
         # Plot the missingness reports.
         plotting = Plotting(self, **kwargs)
-        dfs = plotting.visualize_missingness(df, **params)
-        loc, ind, poploc, poptotal, indpop = dfs
 
-        # Write the missingness reports to file.
-        report_path = Path(f"{self.prefix}_output", "gtdata", "reports")
-        report_path.mkdir(exist_ok=True, parents=True)
-        report_path = report_path / "individual_missingness.csv"
+        stats = plotting.visualize_missingness(df, **params)
 
-        # Write the individual missingness report to file.
-        self._report2file(ind, report_path)
+        # Location for all reports
 
-        # Write the locus missingness report to file.
-        outfn = report_path.with_name("locus_missingness.csv")
-        self._report2file(loc, outfn)
+        if self.was_filtered:
+            report_root = Path(f"{prefix}_output", "nremover", "gtdata", "reports")
+            description_prefix = "Missingness Report (Post-NRemover2 Filtering): "
+        else:
+            report_root = Path(f"{prefix}_output", "gtdata", "reports")
+            description_prefix = "Missingness Report (Pre-filtering): "
+        report_root.mkdir(exist_ok=True, parents=True)
 
-        if self.populations is not None:
-            outfn = report_path.with_name("population_locus_missingness.csv")
-            self._report2file(poploc, outfn)
+        df_summary = stats.summary()
 
-            outfn = report_path.with_name("population_missingness.csv")
-            self._report2file(poptotal, outfn)
+        def _format_for_multiqc(obj: pd.Series | pd.DataFrame) -> pd.DataFrame:
+            """Convert Series/ DataFrame to a MultiQC-compatible format."""
+            if isinstance(obj, pd.Series):
+                df = obj.to_frame("missing_prop")
+                return df
+            elif isinstance(obj, pd.DataFrame):
+                return obj
+            else:
+                try:
+                    return pd.DataFrame(obj)
+                except Exception as e:
+                    msg = f"Error formatting for MultiQC: {e}"
+                    self.logger.error(msg)
+                    raise TypeError(msg)
 
-            outfn = report_path.with_name("pop_individ_locus_missingness.csv")
-            self._report2file(indpop, outfn, header=True)
+        df_miss_summary = _format_for_multiqc(df_summary)
 
-    def _report2file(
-        self, df: pd.DataFrame, report_path: str, header: bool = False
-    ) -> None:
-        """Write a DataFrame to a CSV file.
+        self.snpio_mqc.queue_barplot(
+            df=[df_miss_summary, df_miss_summary.mul(100)],
+            panel_id="missing_summary",
+            section="missing_data",
+            title=f"SNPio: {description_prefix}Missing Data Summary Statistics",
+            description=f"{description_prefix.capitalize()}Missing data proportions and percentages summarized across samples (individuals), loci, and populations.",
+            index_label="Category (Summary Statistic)",
+            pconfig={
+                "data_labels": [
+                    {
+                        "name": "Proportion",
+                        "ylab": "Missing Data Summary Statistics (Proportion)",
+                        "ymax": 1.0,
+                    },
+                    {
+                        "name": "Percent",
+                        "ylab": "Missing Data Summary Statistics (%)",
+                        "ymax": 100,
+                    },
+                ],
+                "id": "missing_summary",
+                "title": "SNPio: Missing Data Summary Statistics",
+                "cpswitch": False,
+                "cpswitch_c_active": False,
+                "tt_decimals": 0,
+                "stacking": "group",
+            },
+        )
 
-        Args:
-            df (pandas.DataFrame): DataFrame to be written to the file.
+        df_perind = _format_for_multiqc(stats.per_individual) * 100
+        df_perind = df_perind.rename(columns={"missing_prop": "Percent Missingness"})
 
-            report_path (str): Path to the report directory.
+        self.snpio_mqc.queue_table(
+            df=df_perind,
+            panel_id="individual_missingness",
+            section="missing_data",
+            title=f"SNPio: {description_prefix}Percent Missingness per Sample",
+            description=f"{description_prefix.capitalize()}Missing data percentages per sample.",
+            index_label="Sample Name",
+            pconfig={
+                "id": "individual_missingness",
+                "title": f"SNPio: {description_prefix.capitalize()}Percent Missingness per Sample",
+                "save_file": True,
+                "col1_header": "Sample Name",
+                "min": 0,
+                "scale": "YlOrBr",
+                "xlab": "Percent",
+                "ylab": "Missingness",
+            },
+        )
 
-            header (bool, optional): Whether to include the header row in the file. Defaults to False.
-        """
-        df.to_csv(report_path, header=header, index=False)
+        df_perloc = _format_for_multiqc(stats.per_locus) * 100
+        df_perloc = df_perloc.rename(columns={"missing_prop": "Percent Missing"})
+
+        self.snpio_mqc.queue_violin(
+            df=df_perloc,  # Convert to percentage
+            panel_id="locus_missingness",
+            section="missing_data",
+            title=f"SNPio: {description_prefix}Percent Per-locus Missingness",
+            description=f"{description_prefix.capitalize()}Violin plot depicting missing data percentages per locus. Thicker violin sections indicate that more individuals have missing data for that locus.",
+            index_label="Locus ID",
+            pconfig={
+                "id": "locus_missingness",
+                "title": f"SNPio: {description_prefix}Percent Per-locus Missingness",
+                "save_file": True,
+                "min": 0,
+                "xmax": 100,
+                "scale": "YlOrBr",
+                "xlab": "Percent Missing",
+                "ylab": "Per-locus Missingness",
+                "subtitle": f"{len(df_perloc)} loci",
+                "save_file": True,
+            },
+        )
+
+        df_perpop = _format_for_multiqc(stats.per_population) * 100
+        df_perpop = df_perpop.rename(columns={"missing_prop": "Percent Missingness"})
+
+        if stats.per_population is not None:
+            self.snpio_mqc.queue_table(
+                df=df_perpop,
+                panel_id="population_missingness",
+                section="missing_data",
+                title=f"SNPio: {description_prefix}Percent Per-population Missingness (Mean)",
+                description=f"{description_prefix.capitalize()}Missing data percentages per population, averaged across all loci.",
+                index_label="Population ID",
+                pconfig={
+                    "title": f"SNPio: {description_prefix}Percent Per-population Missingness (Mean)",
+                    "id": "population_missingness",
+                    "save_file": True,
+                    "col1_header": "Population ID",
+                    "scale": "YlOrBr",
+                },
+            )
+
+            df_poploc = _format_for_multiqc(stats.per_population_locus) * 100
+            df_poploc = df_poploc.rename(
+                columns={"missing_prop": "Percent Missingness"}
+            )
+
+            self.snpio_mqc.queue_violin(
+                df=df_poploc,
+                panel_id="population_locus_missingness",
+                section="missing_data",
+                title=f"SNPio: {description_prefix}Percent Missingness for each Population",
+                description=f"{description_prefix.capitalize()}Violin plot depicting missing data percentages per-population and per-locus. Thicker violin sections indicate that more individuals have missing data for that locus in the given population.",
+                index_label="Population",
+                pconfig={
+                    "title": f"SNPio: {description_prefix}Percent Missingness for each Population",
+                    "id": "population_locus_missingness",
+                    "save_file": True,
+                    "col1_header": "Population ID",
+                },
+            )
+
+        self.logger.info("Missingness reports and plots generated successfully.")
 
     def _genotype_to_iupac(self, genotype: str) -> str:
         """Convert a genotype string to its corresponding IUPAC code.
@@ -1120,51 +1231,99 @@ class GenotypeData(BaseGenotypeData):
             raise exceptions.InvalidGenotypeError(msg)
         return gt
 
-    def calc_missing(self, df: pd.DataFrame, use_pops: bool = True) -> Tuple[
-        pd.Series,
-        pd.Series,
-        pd.DataFrame | None,
-        pd.Series | None,
-        pd.DataFrame | None,
-    ]:
-        """Calculate missing value statistics based on a DataFrame.
+    def calc_missing(self, df: pd.DataFrame, *, use_pops: bool = True) -> MissingStats:
+        """Compute missing-value statistics with proper locus + sample names.
 
         Args:
-            df (pd.DataFrame): Input DataFrame containing genotype data.
-
-            use_pops (bool, optional): If True, calculate statistics per population. Defaults to True.
+            df (pd.DataFrame): DataFrame with genotype data, where columns are loci and rows are individuals.
+            use_pops (bool, optional): If True, compute population-level missingness stats. Defaults to True.
 
         Returns:
-            Tuple[pd.Series, pd.Series, pd.DataFrame | None, pd.Series | None, pd.DataFrame | None]: A tuple of missing value statistics:
-
-            - loc (pd.Series): Missing value proportions per locus.
-            - ind (pd.Series): Missing value proportions per individual.
-            - poploc (pd.DataFrame | None): Missing value proportions per population and locus. Only returned if use_pops=True.
-            - poptot (pd.Series | None): Missing value proportions per population. Only returned if use_pops=True.
-            - indpop (pd.DataFrame | None): Missing value proportions per individual and population. Only returned if use_pops=True.
+            MissingStats: A dataclass containing missingness statistics:
+                - per_locus: Proportion of missing data per locus.
+                - per_individual: Proportion of missing data per individual.
+                - per_population_locus: Proportion of missing data per population and locus (if populations are defined).
+                - per_population: Proportion of missing data per population (if populations are defined).
+                - per_individual_population: Boolean mask for missing values by individual and population (if populations are defined).
         """
-        # Get missing value counts per-locus.
-        loc = df.isna().sum(axis=0) / self.num_inds
-        loc = loc.round(2)
+        # 1. Resolve locus names
+        if getattr(self, "marker_names", None) is not None:
+            locus_names = self.marker_names
+        elif getattr(self, "from_vcf", False) and getattr(
+            self, "vcf_attributes_fn", None
+        ):
+            hdf = Path(self.vcf_attributes_fn)
+            if hdf.is_file():
+                locus_names = []
+                # Read HDF5 attributes to get locus names
+                with h5py.File(hdf, "r") as h5:
+                    for x, y in zip(h5["chrom"][:], h5["pos"][:]):
+                        if isinstance(x, (str, bytes)):
+                            x = x.decode()
+                        if isinstance(y, (str, bytes)):
+                            y = y.decode()
 
-        # Get missing value counts per-individual.
-        ind = df.isna().sum(axis=1) / self.num_snps
-        ind = ind.round(2)
+                        # Ensure x and y are strings
+                        locus_names.append(f"{x}:{y}")
+            else:
+                raise FileNotFoundError(f"HDF5 attribute file not found: {hdf}")
+        else:
+            locus_names = df.columns.tolist()
 
-        poploc = None
-        poptot = None
-        indpop = None
+        # 2. Attach names and compute core proportions
+        if len(df.columns) != len(locus_names):
+            if self.all_missing_idx:
+                locus_names = [
+                    x
+                    for i, x in enumerate(locus_names)
+                    if i not in self.all_missing_idx
+                ]
+            else:
+                msg = (
+                    "Mismatch between DataFrame columns and locus names. "
+                    "Check the input data or the locus names."
+                )
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+        df.columns = locus_names  # ensure DataFrame columns are named
+        df.index = self.samples  # row labels = sample names
+
+        loc_prop = (df.isna().sum(axis=0) / self.num_inds).round(4)  # per-locus
+        ind_prop = (df.isna().sum(axis=1) / self.num_snps).round(4)  # per-indiv
+
+        poploc = poptot = indpop = None
+
         if use_pops:
-            popdf = df.copy()
-            popdf.index = self._populations
-            misscnt = popdf.isna().groupby(level=0).sum()
-            n = popdf.groupby(level=0).size()
-            poploc = misscnt.div(n, axis=0).round(2).T
-            poptot = misscnt.sum(axis=1) / self.num_snps
-            poptot = poptot.div(n, axis=0).round(2)
-            indpop = df.copy()
+            # Boolean mask for missing values
+            indpop = df.isna()
 
-        return loc, ind, poploc, poptot, indpop
+            # Re-index to MultiIndex (population, individual)
+            indpop.index = pd.MultiIndex.from_arrays(
+                [self._populations, df.index], names=["population", "individual"]
+            )
+
+            # Format DataFrame for per-individual population missingness
+            df.index = pd.MultiIndex.from_arrays(
+                [self._populations, df.index], names=["population", "individual"]
+            )
+
+            # Missing prop per population × locus
+            miss_cnt = indpop.groupby(level="population").sum()
+            n_per_pop = indpop.groupby(level="population").size()
+            poploc = (miss_cnt.div(n_per_pop, axis=0)).T.round(4)
+
+            # Population totals
+            poptot = (miss_cnt.sum(axis=1) / (n_per_pop * self.num_snps)).round(4)
+
+        # 3. Bundle everything in the dataclass
+        return MissingStats(
+            per_locus=loc_prop,
+            per_individual=ind_prop,
+            per_population_locus=poploc,
+            per_population=poptot,
+            per_individual_population=indpop,
+        )
 
     def copy(self) -> Any:
         """Create a deep copy of the GenotypeData or subclass object.
@@ -1660,12 +1819,22 @@ class GenotypeData(BaseGenotypeData):
         self.samples = samples
         self.sample_indices = sample_indices
         self.loci_indices = loci_indices
+
+        if hasattr(self, "marker_names"):
+            self.marker_names = (
+                np.array(self.marker_names)[self.loci_indices].tolist()
+                if self.marker_names is not None
+                else None
+            )
+        else:
+            self.marker_names = None
+
         self.num_inds = np.count_nonzero(self.sample_indices)
         self.num_snps = np.count_nonzero(self.loci_indices)
-        self.prefix = f"{self.prefix}_filtered"
+        self.was_filtered = True
 
         if self.popmap is not None:
-            self.popmap = {s: self.popmap[s] for s in samples}
+            self.popmap = {str(s): self.popmap[str(s)] for s in samples}
             self.populations = [self.popmap[s] for s in samples]
             self.popmap_inverse = {}
             for s, p in self.popmap.items():

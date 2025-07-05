@@ -17,3 +17,4 @@ from snpio.io.structure_reader import StructureReader
 from snpio.io.vcf_reader import VCFReader
 from snpio.plotting.plotting import Plotting
 from snpio.popgenstats.pop_gen_statistics import PopGenStatistics
+from snpio.utils.multiqc_reporter import SNPioMultiQC
