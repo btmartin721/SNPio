@@ -241,6 +241,7 @@ validation/
 benchmark_results_4Jun25/
 benchmark_results_6Jun25/
 benchmark_results_6Jun25.tar.gz
+missing_report_test*_output/
 proc_*benchmark_*.py
 proc_*benchmark_*.zsh
 flow_diagram.py
@@ -268,3 +269,9 @@ keybindings.json
 tasks.json
 python
 python3
+fstoutlier_data/
+fstoutlier_test_output/
+results/missing_report_test_output/
+test.json
+test.vcf.gz
+test.vcf.gz.tbi
