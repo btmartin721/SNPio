@@ -1820,11 +1820,14 @@ class GenotypeData(BaseGenotypeData):
         self.sample_indices = sample_indices
         self.loci_indices = loci_indices
 
-        self.marker_names = (
-            np.array(self.marker_names)[self.loci_indices].tolist()
-            if self.marker_names is not None
-            else None
-        )
+        if hasattr(self, "marker_names"):
+            self.marker_names = (
+                np.array(self.marker_names)[self.loci_indices].tolist()
+                if self.marker_names is not None
+                else None
+            )
+        else:
+            self.marker_names = None
 
         self.num_inds = np.count_nonzero(self.sample_indices)
         self.num_snps = np.count_nonzero(self.loci_indices)
