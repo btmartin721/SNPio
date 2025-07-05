@@ -4,6 +4,11 @@ name: Auto Version and Tag SNPio Release
 
 on:
   workflow_dispatch:
+    inputs:
+      manual_tag:
+        description: 'Manually specify a version tag (e.g., 1.5.3). Leave blank to auto-generate.'
+        required: false
+        default: ''
   push:
     branches:
       - master
@@ -49,18 +54,30 @@ jobs:
         id: gitversion
         uses: gittools/actions/gitversion/execute@v0.11.0
 
+      - name: Determine version to use
+        id: set_version
+        run: |
+          if [ -z "${{ github.event.inputs.manual_tag }}" ]; then
+            VERSION="${{ steps.gitversion.outputs.semVer }}"
+          else
+            VERSION="${{ github.event.inputs.manual_tag }}"
+          fi
+          echo "Using version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+
       - name: Print version
         run: |
           echo "FullSemVer: ${{ steps.gitversion.outputs.fullSemVer }}"
-          echo "SemVer:     ${{ steps.gitversion.outputs.semVer }}"
-          echo "Tag:        v${{ steps.gitversion.outputs.semVer }}"
+          echo "SemVer:     ${{ steps.set_version.outputs.version }}"
+          echo "Tag:        v${{ steps.set_version.outputs.version }}"
 
       - name: Install version update dependencies
         run: pip install tomli-w pyyaml
 
       - name: Update version in pyproject.toml, meta.yaml, conf.py
-        run: python scripts/update_versions.py ${{ steps.gitversion.outputs.semVer }}
-      
+        run: python scripts/update_versions.py ${{ steps.set_version.outputs.version }}
+
       - name: Push commit and tag using PAT
         if: github.event_name != 'pull_request'
         run: |
@@ -69,18 +86,17 @@ jobs:
           git remote set-url origin https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}
       
           git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
-          git commit -m "chore: bump version to ${{ steps.gitversion.outputs.semVer }}" || echo "No changes to commit"
-      
-          if git rev-parse "v${{ steps.gitversion.outputs.semVer }}" >/dev/null 2>&1; then
-            echo "❌ Tag v${{ steps.gitversion.outputs.semVer }} already exists. Aborting to prevent recursive tagging."
+          git commit -m "chore: bump version to ${{ steps.set_version.outputs.version }}" || echo "No changes to commit"
+
+          if git rev-parse "v${{ steps.set_version.outputs.version }}" >/dev/null 2>&1; then
+            echo "❌ Tag v${{ steps.set_version.outputs.version }} already exists. Aborting to prevent recursive tagging."
             exit 0
           fi
       
           git push origin HEAD
-          git tag "v${{ steps.gitversion.outputs.semVer }}"
-          git push origin "v${{ steps.gitversion.outputs.semVer }}"
-          echo "v${{ steps.gitversion.outputs.semVer }}" > .version_tag
-      
+          git tag "v${{ steps.set_version.outputs.version }}"
+          git push origin "v${{ steps.set_version.outputs.version }}"
+          echo "v${{ steps.set_version.outputs.version }}" > .version_tag
 
       - name: Set tag name output
         id: read_tag
