@@ -114,12 +114,10 @@ class SummaryStatistics:
         n_jobs=1,
         save_plots: bool = True,
         use_pvalues: bool = False,
-    ):
+    ) -> dict:
         """Calculate a suite of summary statistics for SNP data.
 
-        Computes overall and per-population observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi),
-        and pairwise Fst between populations. When bootstrapping is used for Fst, the bootstrap replicates (and optionally p-values)
-        are included in the summary.
+        Computes overall and per-population observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and pairwise Fst between populations. When bootstrapping is used for Fst, the bootstrap replicates (and optionally p-values) are included in the summary.
 
         Args:
             n_permutations (int): Number of permutation replicates for estimating variance of Fst per SNP. Defaults to 0.
@@ -161,7 +159,7 @@ class SummaryStatistics:
             )
 
         self.logger.info("Calculating pairwise Weir & Cockerham Fst...")
-        self.logger.info(f"Number of bootstraps: {n_permutations}")
+        self.logger.info(f"Number of permutations: {n_permutations}")
         self.logger.info(f"Number of CPU threads: {n_jobs}")
         self.logger.info(f"Use p-values: {use_pvalues}")
         self.logger.info(f"Save plots: {save_plots}")
@@ -172,7 +170,7 @@ class SummaryStatistics:
         )
 
         fst_pw = fst.weir_cockerham_fst(
-            n_bootstraps=n_permutations, n_jobs=n_jobs, return_pvalues=use_pvalues
+            n_permutations=n_permutations, n_jobs=n_jobs, return_pvalues=use_pvalues
         )
 
         df_observed, df_lower, df_upper, df_pvals = fst._parse_wc_fst(
