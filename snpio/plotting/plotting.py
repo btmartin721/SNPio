@@ -1151,12 +1151,17 @@ class Plotting:
             },
         )
 
+        if hasattr(self.genotype_data, "marker_names"):
+            marker_names = self.genotype_data.marker_names
+        else:
+            marker_names = [f"locus_{i}" for i in range(self.genotype_data.num_snps)]
+
         dflist = []
         for pop_id, pop_data in summary_statistics["per_population"].items():
             dftmp = pop_data.copy()
             dftmp["Population ID"] = pop_id
             dftmp = dftmp.rename_axis("Locus (CHROM:POS)")
-            dftmp.index = self.genotype_data.marker_names
+            dftmp.index = marker_names
             dftmp = dftmp.set_index(["Population ID", dftmp.index])
             dflist.append(dftmp)
 
