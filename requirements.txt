@@ -4,6 +4,8 @@ holoviews
 kaleido
 kneed
 matplotlib
+multiqc>=1.29
+numba
 numpy
 pandas
 panel
