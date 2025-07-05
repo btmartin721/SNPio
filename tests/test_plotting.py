@@ -1,3 +1,4 @@
+from math import exp
 import tempfile
 import textwrap
 import shutil
@@ -47,7 +48,7 @@ class TestPlotting(unittest.TestCase):
         self.genotype_data = PhylipReader(
             filename=self.phylip_data.name,
             popmapfile=self.popmap.name,
-            prefix="test_read_phylip2",
+            prefix="test_read_phylip",
             verbose=False,
             plot_format="png",
         )
@@ -55,13 +56,11 @@ class TestPlotting(unittest.TestCase):
         self.plotting = Plotting(self.genotype_data)
 
     def test_visualize_missingness(self):
-        self.plotting.visualize_missingness(
-            pd.DataFrame(self.genotype_data.snp_data),
-            prefix=self.genotype_data.prefix,
-        )
+
+        self.genotype_data.missingness_reports()
 
         expected_file = Path(
-            f"{self.genotype_data.prefix}_output/gtdata/plots/{self.genotype_data.prefix}_missingness_report.png"
+            f"{self.genotype_data.prefix}_output/plots/gtdata/missingness_report.png"
         )
 
         self.assertTrue(expected_file.exists())
@@ -75,13 +74,13 @@ class TestPlotting(unittest.TestCase):
 
         nrm.plot_sankey_filtering_report()
 
-        expected_dir = Path(
-            f"{self.genotype_data.prefix}_output/nremover/plots/sankey_plots"
+        expected_file = Path(
+            Path(f"{self.genotype_data.prefix}_output")
+            / "plots"
+            / "gtdata"
+            / "sankey_plots"
+            / "filtering_results_sankey_mqc.html"
         )
-
-        expected_files = expected_dir.glob("filtering_results_sankey_thresholds*.html")
-
-        expected_file = list(expected_files)[0]
 
         self.assertTrue(expected_file.exists())
         self.assertTrue(expected_file.is_file())
@@ -97,7 +96,7 @@ class TestPlotting(unittest.TestCase):
             if f.is_file():
                 f.unlink(missing_ok=True)
 
-        dir = Path("test_read_vcf_output")
+        dir = Path(f"{self.genotype_data.prefix}_output")
         if dir.is_dir():
             shutil.rmtree(dir)
 
