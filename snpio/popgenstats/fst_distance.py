@@ -2,14 +2,17 @@ import itertools
 import multiprocessing as mp
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from tqdm import tqdm
 from typing import Literal, Tuple
 
 import numpy as np
 import pandas as pd
+from pysam import index
 
 import snpio.utils.custom_exceptions as exceptions
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
+from snpio.utils.multiqc_reporter import SNPioMultiQC
 
 
 class FstDistance:
@@ -31,7 +34,14 @@ class FstDistance:
         """
         self.genotype_data = genotype_data
         self.plotter = plotter
-        self.outdir = Path(f"{genotype_data.prefix}_output", "analysis", "fst")
+        self.verbose = verbose
+
+        if self.genotype_data.was_filtered:
+            self.outdir = Path(
+                f"{genotype_data.prefix}_output", "nremover", "analysis", "fst"
+            )
+        else:
+            self.outdir = Path(f"{genotype_data.prefix}_output", "analysis", "fst")
         self.outdir.mkdir(parents=True, exist_ok=True)
         logman = LoggerManager(
             __name__, self.genotype_data.prefix, debug=debug, verbose=verbose
@@ -39,6 +49,8 @@ class FstDistance:
         self.logger = logman.get_logger()
 
         self.iupac = IUPAC(logger=self.logger)
+
+        self.snpio_mqc = SNPioMultiQC
 
     @staticmethod
     def _uniq_alleles(str_list):
@@ -295,68 +307,6 @@ class FstDistance:
                 ret.append(ind)
         return ret
 
-    def _compute_multilocus_fst_direct(self, p1_inds, p2_inds, matrix, columns=None):
-        """Compute Fst for a pair of populations using the full matrix.
-
-        This method computes the Fst value for a pair of populations using Weir and Cockerham's method.
-
-        Args:
-            p1_inds (list): Indices of individuals in population 1.
-            p2_inds (list): Indices of individuals in population 2.
-            matrix (np.ndarray): The genotype matrix (individuals x loci).
-            columns (list, optional): A list of loci column indices. If None, all columns are used.
-
-        Returns:
-            float: The multilocus Fst estimate for the given populations.
-        """
-        if columns is None:
-            columns = range(matrix.shape[1])
-
-        a_vals = []
-        d_vals = []
-        phased_encoding = self.iupac.get_phased_encoding()
-        encode = np.vectorize(lambda x: phased_encoding.get(x, x))
-
-        pop1_matrix = matrix[p1_inds, :]
-        pop2_matrix = matrix[p2_inds, :]
-
-        for c in columns:
-            seqs1 = pop1_matrix[:, c]
-            seqs2 = pop2_matrix[:, c]
-
-            # Vectorized filtering for clean individuals
-            clean_mask1 = ~np.char.find(seqs1.astype("U"), "-") != -1
-            clean_mask1 &= ~np.char.find(seqs1.astype("U"), "?") != -1
-            clean_mask1 &= ~np.char.find(seqs1.astype("U"), "n") != -1
-            clean_mask1 &= ~np.char.find(seqs1.astype("U"), "N") != -1
-
-            clean_mask2 = ~np.char.find(seqs2.astype("U"), "-") != -1
-            clean_mask2 &= ~np.char.find(seqs2.astype("U"), "?") != -1
-            clean_mask2 &= ~np.char.find(seqs2.astype("U"), "n") != -1
-            clean_mask2 &= ~np.char.find(seqs2.astype("U"), "N") != -1
-
-            filtered1 = seqs1[clean_mask1]
-            filtered2 = seqs2[clean_mask2]
-
-            if filtered1.size == 0 or filtered2.size == 0:
-                continue  # Skip if no valid genotypes
-
-            filtered1 = encode(filtered1)
-            filtered2 = encode(filtered2)
-
-            try:
-                a_loc, d_loc = self._two_pop_weir_cockerham_fst(
-                    filtered1.tolist(), filtered2.tolist()
-                )
-                a_vals.append(a_loc)
-                d_vals.append(d_loc)
-            except ValueError:
-                continue  # Skip if Fst calculation fails
-
-        num = np.sum(a_vals)
-        den = np.sum(d_vals)
-        return np.nan if den == 0 else num / den
-
     def _compute_multilocus_fst(
         self, full_matrix, pop_indices, n_loci, pop1_name, pop2_name, locus_subset=None
     ):
@@ -413,11 +363,11 @@ class FstDistance:
 
     def _pairwise_permutation_test(
         self,
-        pop1_inds,
-        pop2_inds,
-        full_matrix,
-        n_bootstraps=1000,
-        seed=42,
+        pop1_inds: np.ndarray,
+        pop2_inds: np.ndarray,
+        full_matrix: np.ndarray,
+        n_permutations: int = 1000,
+        seed: int | None = None,
     ):
         """Permutation test for multilocus Fst using locus resampling (hierfstat-style).
 
@@ -427,18 +377,18 @@ class FstDistance:
             pop1_inds (np.ndarray): Indices of individuals in population 1.
             pop2_inds (np.ndarray): Indices of individuals in population 2.
             full_matrix (np.ndarray): Genotype matrix (individuals x loci).
-            n_bootstraps (int): Number of locus resampling replicates.
-            seed (int): Random number generator seed.
+            n_permutations (int): Number of locus permutation resampling replicates.
+            seed (int | None): Random number generator seed.
 
         Returns:
             tuple: (observed Fst, empirical P-value, bootstrap Fst distribution)
         """
         return self.fst_permutation_pval_locus_resampling(
-            pop1_inds, pop2_inds, full_matrix, n_bootstraps=n_bootstraps, seed=seed
+            pop1_inds, pop2_inds, full_matrix, n_permutations=n_permutations, seed=seed
         )
 
     def weir_cockerham_fst(
-        self, n_bootstraps: int = 0, n_jobs: int = 1, return_pvalues: bool = False
+        self, n_permutations: int = 0, n_jobs: int = 1, return_pvalues: bool = False
     ):
         """Calculate Weir and Cockerham's multi-locus Fst between populations.
 
@@ -457,17 +407,17 @@ class FstDistance:
             - Case 3: Dictionary with bootstrap replicate Fst values.
             The method also handles parallel processing for speedup.
             The method saves the results to a CSV file in the specified output directory.
-            The output file is named "{prefix}_output/analysis/pairwise_WC_fst.csv".
+            The output file is named "{prefix}_output/analysis/pairwise_WC_fst.json" or, if filtering was done, then "{prefix}_output/nremover/analysis/pairwise_WC_fst.json".
 
         Args:
-            n_bootstraps (int): Number of bootstrap or permutation replicates. Defaults to 0.
+            n_permutations (int): Number of permutation replicates. Defaults to 0 (no bootstraps, no p-values).
             n_jobs (int): Number of parallel jobs. If -1, all available cores are used. Defaults to 1.
-            return_pvalues (bool): If True, compute a permutation-based p-value (Case 2). Otherwise, if n_bootstraps>0, do locus-resampling bootstrap (Case 3).
+            return_pvalues (bool): If True, compute a permutation-based p-value (Case 2). Otherwise, if n_permutations>0, do locus-resampling bootstrap (Case 3).
 
         Returns:
             Depending on the case:
-            - Case 1 (n_bootstraps=0, return_pvalues=False): pd.DataFrame of pairwise Fst.
-            - Case 2 (n_bootstraps>0, return_pvalues=True): Dict of form
+            - Case 1 (n_permutations=0, return_pvalues=False): pd.DataFrame of pairwise Fst.
+            - Case 2 (n_permutations>0, return_pvalues=True): Dict of form
                 {
                     (pop1, pop2): {
                         "fst": observedValue,
@@ -480,20 +430,13 @@ class FstDistance:
                 }
 
         Raises:
-            ValueError: If n_bootstraps < 0 or n_jobs < -1.
-            ValueError: If return_pvalues is True and n_bootstraps <= 0.
+            ValueError: If n_permutations < 0 or n_jobs < -1.
+            ValueError: If return_pvalues is True and n_permutations <= 0.
             ValueError: If n_jobs is not an integer or is less than -1.
-
-        Notes:
-            - The method uses the Weir and Cockerham (1984) method for Fst calculation.
-            - The method handles phased genotypes and applies the necessary encoding for different alleles.
-            - The method assumes that the input matrix is a 2D numpy array with individuals as rows and loci as columns.
-            - The method is designed to be used as part of a larger analysis of genetic diversity and population structure.
-            - The method is not intended for use with unphased genotypes or non-genetic data.
 
         Examples:
             >>> fst_distance = FstDistance(genotype_data, verbose=True, debug=False)
-            >>> result = fst_distance.weir_cockerham_fst(n_bootstraps=100, n_jobs=4, return_pvalues=True)
+            >>> result = fst_distance.weir_cockerham_fst(n_permutations=100, n_jobs=4, return_pvalues=True)
             >>> print(result)
             {
                 ('pop1', 'pop2'): {
@@ -506,6 +449,38 @@ class FstDistance:
             >>> print(result)
             >>> # pd.DataFrame of pairwise Fst values
         """
+        self.logger.info(
+            "Calculating pairwise Weir and Cockerham's Fst between populations."
+        )
+        # Validate inputs
+        if n_permutations < 0:
+            msg = "n_permutations must be >= 0."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if n_jobs < -1:
+            msg = "n_jobs must be an integer >= -1."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if return_pvalues and n_permutations <= 0:
+            msg = "If return_pvalues is True, n_permutations must be > 0."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if not isinstance(n_jobs, int):
+            msg = "n_jobs must be an integer."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        # If n_jobs is -1, use all available cores
+        if n_jobs == -1:
+            n_jobs = mp.cpu_count()
+        elif n_jobs == 0 or n_jobs < -1:
+            msg = "n_jobs must be a positive integer or -1 for all cores."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
         # A) Build sample -> index map
         # e.g. {'EA': [...], 'GU': [...], ...}
         popmap = self.genotype_data.popmap_inverse
@@ -534,7 +509,7 @@ class FstDistance:
         # ----------------------------------------------------
         # CASE 1: No bootstraps, no p-values
         # ----------------------------------------------------
-        if n_bootstraps == 0 and not return_pvalues:
+        if n_permutations == 0 and not return_pvalues:
             return self._compute_pw_fst_no_bootstrap(
                 full_matrix.copy(), num_populations, pop_keys, pop_indices, n_loci
             )
@@ -543,7 +518,7 @@ class FstDistance:
         # CASE 2: Permutation test for p-values
         # (return_pvalues=True)
         # --------------------------------------------------
-        elif return_pvalues and n_bootstraps > 0:
+        elif return_pvalues and n_permutations > 0:
             result_dict = {}
             for ia, ib in itertools.combinations(range(num_populations), 2):
                 pop1_name = pop_keys[ia]
@@ -552,17 +527,20 @@ class FstDistance:
                 pop2_inds = pop_indices[pop2_name]
 
                 # Check and log Fst stability of the denominator
-                df_fst_stability = self.check_fst_denominator_stability(
+                df_fst_stability = self._check_fst_denominator_stability(
                     pop1_inds, pop2_inds, full_matrix.copy()
                 )
 
                 df_fst_stability.to_csv(
                     self.outdir / f"{pop1_name}_{pop2_name}_fst_variance_stability.csv",
-                    index=False,
+                    index=True,
                 )
 
                 obs_fst, p_val, perm_dist = self._pairwise_permutation_test(
-                    pop1_inds, pop2_inds, full_matrix.copy(), n_bootstraps=n_bootstraps
+                    pop1_inds,
+                    pop2_inds,
+                    full_matrix.copy(),
+                    n_permutations=n_permutations,
                 )
 
                 result_dict[(pop1_name, pop2_name)] = {
@@ -588,7 +566,7 @@ class FstDistance:
                 n_loci,
                 num_populations,
                 pop_keys,
-                n_bootstraps,
+                n_permutations,
                 n_jobs,
             )
 
@@ -703,13 +681,9 @@ class FstDistance:
 
         df_fst = pd.DataFrame(genmat, index=pop_keys, columns=pop_keys, dtype=float)
 
-        fst_obs_outpth = self.outdir / "pairwise_WC_fst.csv"
-        df_fst.to_csv(fst_obs_outpth, index=True, header=True, float_format="%.8f")
-
         self.logger.info(
-            "Weir & Cockerham (1984) Fst values computed for all pairs (no bootstrap, no pvalues)."
+            f"Pairwise Fsts saved to {str(self.outdir / 'pairwise_WC_fst_mqc.json')}"
         )
-        self.logger.info(f"Pairwise Fsts saved to {str(fst_obs_outpth)}")
 
         return df_fst
 
@@ -742,9 +716,30 @@ class FstDistance:
             - For permutation results, the method looks for "perm_dist" to compute a distribution-based mean and CIs. If "perm_dist" is missing, df_lower and df_upper will remain NaN.
             - If result_dict is just a DataFrame, it returns that as df_mean  and None for the others, since no replicates/p-values exist.
         """
-        # 1) If the result is already a DataFrame => case 1
+        # ------------------------------------------------------------
+        # CASE 1: No permutations, no p-values
+        # Expected data structure (DataFrame): pairwise Fst matrix
+        # ------------------------------------------------------------
         if isinstance(result_dict, pd.DataFrame):
-            # No distribution or p-values to parse, just return the matrix
+            # No distribution or p-values to parse, just plot and return matrix
+            self.snpio_mqc.queue_heatmap(
+                df=result_dict,
+                panel_id="pairwise_WC_fst",
+                section="genetic_differentiation",
+                title="SNPio: Pairwise Weir & Cockerham (1984) Fst",
+                description="Pairwise Weir & Cockerham (1984) Fst values computed for all population pairs. No permutation replicates were performed.",
+                index_label="Population",
+                pconfig={
+                    "title": "SNPio: Pairwise Weir & Cockerham Fst",
+                    "id": "pairwise_WC_fst",
+                    "xlab": "Population ID",
+                    "ylab": "Population ID",
+                    "zlab": "Observed Fst",
+                    "tt_decimals": 3,
+                    "min": 0.0,
+                    "max": 1.0,
+                },
+            )
             return result_dict, None, None, None
 
         # 2) Otherwise, we have a dictionary of some sort.
@@ -763,10 +758,13 @@ class FstDistance:
         # Fill them if the dictionary structure allows it.
         df_mean, df_lower, df_upper, df_pval = None, None, None, None
 
-        # CASE 3 (Bootstrap): (pop1, pop2) -> np.array([...])
+        # ---------------------------------------------------------------------
+        # CASE 2: With permutation replicates, but no P-value estimation
+        # Expected data structure (Dictionary): (pop1, pop2) -> np.array([...])
+        # ---------------------------------------------------------------------
         if isinstance(first_val, np.ndarray):
             # This indicates we likely have arrays of replicate
-            # Fst values => bootstrap
+            # Fst values => permutation replicates.
             pop_pairs = list(result_dict.keys())
             pops = all_populations_from_keys(pop_pairs)
 
@@ -803,22 +801,57 @@ class FstDistance:
             # P-values don't exist for a standard bootstrap approach
             df_pval = None
 
-            # NOTE: For clarity, df_mean is the actual observed Fst matrix.
-
             # Write df_lower and df_upper to CSV
-            self._combine_upper_lower_ci(df_upper, df_lower, diagonal="zero").to_csv(
-                self.outdir / "pairwise_WC_fst_ci95.csv",
-                index=True,
-                header=True,
-                float_format="%.8f",
+            df_ul_combined = self._combine_upper_lower_ci(
+                df_upper, df_lower, diagonal="zero"
+            )
+
+            self.snpio_mqc.queue_heatmap(
+                df=df_mean,
+                panel_id="pairwise_WC_fst",
+                section="genetic_differentiation",
+                title="SNPio: Pairwise Weir & Cockerham Fst (Permutation Mean)",
+                description="Mean Pairwise Weir & Cockerham (1984) Fst estimates computed for all population pairs. Mean values are based on permutation replicates.",
+                index_label="Population",
+                pconfig={
+                    "title": "SNPio: Mean Pairwise Weir & Cockerham Fst",
+                    "id": "pairwise_WC_fst",
+                    "xlab": "Population ID",
+                    "ylab": "Population ID",
+                    "zlab": "Mean Observed Fst",
+                    "tt_decimals": 3,
+                    "min": 0.0,
+                    "max": 1.0,
+                },
+            )
+
+            self.snpio_mqc.queue_heatmap(
+                df=df_ul_combined,
+                panel_id="pairwise_WC_fst_ci95",
+                section="genetic_differentiation",
+                title="SNPio: Pairwise 95 Percent CIs (upper and lower) for Weir & Cockerham Fst Estimates",
+                description="Upper and lower 95 percent confidence intervals for Pairwise Weir & Cockerham (1984) Fst values computed for all population pairs. The upper and lower confidence intervals are computed from the permutation replicates and are represented in the upper and lower triangles of the heatmap, respectively.",
+                index_label="Population",
+                pconfig={
+                    "title": "SNPio: Pairwise Weir & Cockerham Fst with 95 Percent CIs",
+                    "id": "pairwise_WC_fst_ci95",
+                    "xlab": "Population ID",
+                    "ylab": "Population ID",
+                    "zlab": "Fst with 95% CIs",
+                    "tt_decimals": 3,
+                    "min": 0.0,
+                    "max": 1.0,
+                },
             )
 
             return df_mean, df_lower, df_upper, df_pval
 
-        # ------------------------------------------
-        # CASE 2 (Permutation): (pop1, pop2) ->
+        # -----------------------------------------------------------------
+        # CASE 3: Fst estimation with permutations and P-values
+        # Expected data structure:
+        # (Permutation): (pop1, pop2) ->
         # {"fst": float, "pvalue": pd.Series, "perm_dist": optional ...}
-        # ------------------------------------------
+        # -----------------------------------------------------------------
         if isinstance(first_val, dict) and "fst" in first_val and "pvalue" in first_val:
             pop_pairs = list(result_dict.keys())
             pops = all_populations_from_keys(pop_pairs)
@@ -878,20 +911,52 @@ class FstDistance:
             np.fill_diagonal(df_lower.values, 0.0)
             np.fill_diagonal(df_upper.values, 0.0)
 
-            # Write P-values to CSV
-            df_pval.to_csv(
-                self.outdir / "pairwise_WC_fst_pvalues.csv",
-                index=True,
-                header=True,
-                float_format="%.8f",
+            self.snpio_mqc.queue_heatmap(
+                df=df_obs,
+                panel_id="pairwise_WC_fst",
+                section="genetic_differentiation",
+                title="SNPio: Mean Pairwise Weir & Cockerham Fst",
+                description="Mean Pairwise Weir & Cockerham (1984) Fst estimates computed for all population pairs, calculated from permutation replicates.",
+                index_label="Population",
+                pconfig={
+                    "title": "SNPio: Mean Pairwise Weir & Cockerham Fst",
+                    "id": "pairwise_WC_fst",
+                    "xlab": "Population ID 1",
+                    "ylab": "Population ID 2",
+                    "zlab": "Mean Observed Fst",
+                    "reverse_colors": True,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "tt_decimals": 3,
+                },
+            )
+
+            self.snpio_mqc.queue_heatmap(
+                df=df_pval,
+                panel_id="pairwise_WC_fst_pvalues",
+                section="genetic_differentiation",
+                title="SNPio: P-values from Pairwise Weir & Cockerham Fst Estimates",
+                description="Pairwise Weir & Cockerham (1984) Fst P-values computed for all population pairs. The p-values are based on the distribution estimated from permutation replicates and represent the statistical significance of the observed Fst values.",
+                index_label="Population",
+                pconfig={
+                    "title": "SNPio: P-values from Pairwise Weir & Cockerham Fst Estimates",
+                    "id": "pairwise_WC_fst_pvalues",
+                    "xlab": "Population ID 1",
+                    "ylab": "Population ID 2",
+                    "zlab": "P-value",
+                    "reverse_colors": False,
+                    "min": 0.0,
+                    "max": 1.0,
+                    "tt_decimals": 3,
+                },
             )
 
             return df_obs, df_lower, df_upper, df_pval
 
-        # ------------------------------------------
-        # If none of the above matched, raise error
-        # ------------------------------------------
-        msg = "Unrecognized structure in result_dict. Expected either a DataFrame or a dictionary with specific keys and structures."
+        # --------------------------------------------------------
+        # Else: If none of the above conditions match, raise error
+        # --------------------------------------------------------
+        msg = "Unrecognized structure in result_dict when estimating Fst. Expected either a DataFrame or a dictionary with specific keys and structures."
         self.logger.error(msg)
         raise ValueError(msg)
 
@@ -963,6 +1028,7 @@ class FstDistance:
             - a_vals is the numerator (variance among populations),
             - d_vals is the denominator (total variance).
             - This method assumes that the input matrix is a 2D numpy array with individuals as rows and loci as columns.
+            - a_vals and d_vals should be of shape (n_loci,).
 
         Returns:
             Tuple: (a_vals, d_vals) where:
@@ -1000,190 +1066,78 @@ class FstDistance:
         return a_vals, d_vals
 
     def fst_permutation_pval_locus_resampling(
-        self, pop1_inds, pop2_inds, full_matrix, n_bootstraps=1000, seed=42
+        self,
+        pop1_inds: np.ndarray,
+        pop2_inds: np.ndarray,
+        full_matrix: np.ndarray,
+        n_permutations: int = 1000,
+        seed: int | None = None,
     ):
-        """Permutation p-value using locus-resampling, modeled on hierfstat.
+        """Compute permutation p-value by shuffling individual labels between populations.
 
-        This method computes the observed Fst for two populations and generates a distribution of Fst values by resampling loci with replacement. It then calculates an empirical p-value based on the distribution. This method is useful for assessing the significance of Fst values in population genetics studies.
+        This method calculates the observed multi-locus Fst between two populations and then generates a null distribution under the hypothesis of no population structure by randomly permuting individuals between the two groups.
 
         Args:
-            pop1_inds (np.ndarray): Population 1 indices.
-            pop2_inds (np.ndarray): Population 2 indices.
-            full_matrix (np.ndarray): Genotype matrix.
-            n_bootstraps (int): Number of locus-resampling replicates.
-            seed (int): RNG seed.
+            pop1_inds (np.ndarray): Indices of individuals in population 1.
+            pop2_inds (np.ndarray): Indices of individuals in population 2.
+            full_matrix (np.ndarray): Genotype matrix (individuals x loci).
+            n_permutations (int): Number of permutation replicates to perform. Must be a positive integer.
+            seed (int | None): Random seed for reproducibility. If None, uses a random seed.
 
         Returns:
-            Tuple: (observed Fst, empirical p-value, np.ndarray of permuted Fst)
+            tuple:
+                float: Observed Fst between the two populations.
+                float: Empirical p-value as (count(null >= observed) + 1) / (n + 1).
+                np.ndarray: Array of permuted Fst values.
         """
-        a_vals, d_vals = self.fst_variance_components_per_locus(
-            pop1_inds, pop2_inds, full_matrix.copy()
-        )
-        valid = ~np.isnan(a_vals) & ~np.isnan(d_vals)
-        a_vals = a_vals[valid]
-        d_vals = d_vals[valid]
-
-        # Calculate observed Fst
-        d_vals_sum = np.sum(d_vals)
-        if d_vals_sum == 0 or not np.any(valid):
-            obs_fst = np.nan
-            pops = np.array(self.genotype_data.populations, dtype=object)
-            self.logger.warning(
-                f"All loci are invalid or lack variance for pairwise populations: {np.unique(pops[pop1_inds])[0]} and {np.unique(pops[pop2_inds])[0]}. Setting observed Fst to NaN."
-            )
+        if seed is None:
+            rng = np.random.default_rng()
         else:
-            obs_fst = np.sum(a_vals) / np.sum(d_vals)
+            if not isinstance(seed, int):
+                msg = f"Seed must be an integer or None, but got: {type(seed)}"
+                self.logger.error(msg)
+                raise TypeError(msg)
+            if seed < 0:
+                msg = f"Seed must be a non-negative integer, but got a negative value: {seed}"
+                self.logger.error(msg)
+                raise ValueError(msg)
 
-        rng = np.random.default_rng(seed)
-        dist = np.full((n_bootstraps,), np.nan, dtype=float)
+            # Use the provided seed for reproducibility
+            rng = np.random.default_rng(seed)
 
-        for i in range(n_bootstraps):
-            sample_idx = rng.choice(len(a_vals), size=len(a_vals), replace=True)
-            num = np.sum(a_vals[sample_idx])
-            den = np.sum(d_vals[sample_idx])
-            dist[i] = num / den if den > 0 else np.nan
+        # Combine and count sizes
+        combined = np.concatenate([pop1_inds, pop2_inds])
+        n1 = len(pop1_inds)
 
-        valid = ~np.isnan(dist)
-        if np.any(valid):
-            dist = dist[valid]
+        # 1. Observed Fst
+        pop_indices = {"A": pop1_inds, "B": pop2_inds}
+        obs_fst = self._compute_multilocus_fst(
+            full_matrix, pop_indices, full_matrix.shape[1], "A", "B"
+        )
 
-        if np.all(np.isnan(dist)) or dist.size == 0:
-            pops = np.array(self.genotype_data.populations, dtype=object)
-
-            self.logger.warning(
-                f"No valid bootstrap replicates for populations: {np.unique(pops[pop1_inds])[0]} and {np.unique(pops[pop2_inds])[0]}. Setting p-value to NaN."
+        # 2. Build null distribution by permuting labels
+        dist = np.empty(n_permutations, dtype=float)
+        for i in tqdm(range(n_permutations), desc="Fst Permutations", unit="perms"):
+            permuted = rng.permutation(combined)
+            perm_A = permuted[:n1]
+            perm_B = permuted[n1:]
+            perm_indices = {"A": perm_A, "B": perm_B}
+            dist[i] = self._compute_multilocus_fst(
+                full_matrix, perm_indices, full_matrix.shape[1], "A", "B"
             )
-            if dist.size == 0:
-                dist = np.full((n_bootstraps,), np.nan, dtype=float)
 
+        # 3. Filter out any NaNs
+        valid = ~np.isnan(dist)
+        if not np.any(valid):
+            # No valid permutations => return p-value 1.0
             return obs_fst, 1.0, dist
+        dist = dist[valid]
 
+        # 4. One-tailed p-value: fraction of permuted >= observed
         p_val = (np.sum(dist >= obs_fst) + 1) / (len(dist) + 1)
         return obs_fst, p_val, dist
 
-    def weir_cockerham_fst_bootstrap_per_locus(
-        self,
-        n_bootstraps: int = 1000,
-        seed: int = 42,
-        alternative: Literal["both", "upper", "lower"] = "upper",
-        outdir: Path | None = None,
-    ) -> dict[Tuple[str, str], pd.DataFrame]:
-        """
-        Compute per-locus Weir & Cockerham's Fst, empirical p-values, Z-scores, and bootstraps for each population pair.
-
-        Args:
-            n_bootstraps (int): Number of bootstrap replicates.
-            seed (int): Random seed for reproducibility.
-            alternative (str): Type of test: "both" (two-tailed), "upper", or "lower".
-            outdir (Path): Optional path to save outlier plots and CSV summaries. If None, no files are saved. Defaults to None.
-
-        Returns:
-            dict: Keys are (pop1, pop2), values are DataFrames with columns:
-                - 'Locus': Locus index (int)
-                - 'Fst': Observed Fst
-                - 'Pval': Empirical P-value from bootstraps
-                - 'Z': Z-score (standardized Fst from bootstrap distribution)
-                - 'Bootstraps': List of bootstrap values for the locus
-        """
-        rng = np.random.default_rng(seed)
-        full_matrix = self.genotype_data.snp_data.astype(str)
-        popmap = self.genotype_data.popmap_inverse
-        sample_names = self.genotype_data.samples
-        sample_to_idx = {name: i for i, name in enumerate(sample_names)}
-        pop_indices = {
-            pop_name: np.array([sample_to_idx[s] for s in samples], dtype=int)
-            for pop_name, samples in popmap.items()
-        }
-
-        n_loci = full_matrix.shape[1]
-        result = {}
-
-        for pop1, pop2 in itertools.combinations(popmap.keys(), 2):
-            inds1 = pop_indices[pop1]
-            inds2 = pop_indices[pop2]
-
-            a_vals, d_vals = self.fst_variance_components_per_locus(
-                inds1, inds2, full_matrix.copy()
-            )
-            with np.errstate(divide="ignore", invalid="ignore"):
-                observed_fst = np.where(d_vals > 0, a_vals / d_vals, np.nan)
-
-            bootstraps = np.full((n_loci, n_bootstraps), np.nan)
-            for b in range(n_bootstraps):
-                loci_sample = rng.choice(n_loci, size=n_loci, replace=True)
-                a_sample = a_vals[loci_sample]
-                d_sample = d_vals[loci_sample]
-
-                for loc in range(n_loci):
-                    mask = loci_sample == loc
-                    if not np.any(mask):
-                        continue
-                    num = np.sum(a_sample[mask])
-                    den = np.sum(d_sample[mask])
-                    if den > 0:
-                        bootstraps[loc, b] = num / den
-
-            pvals = np.full(n_loci, np.nan)
-            z_scores = np.full(n_loci, np.nan)
-            bootstrap_lists = []
-
-            for i in range(n_loci):
-                boot = bootstraps[i, :]
-                boot = boot[~np.isnan(boot)]
-                bootstrap_lists.append(boot.copy())
-                if len(boot) == 0 or np.isnan(observed_fst[i]):
-                    continue
-
-                mean_boot = np.mean(boot)
-                std_boot = np.std(boot)
-                z_scores[i] = (
-                    (observed_fst[i] - mean_boot) / std_boot if std_boot > 0 else np.nan
-                )
-
-                if alternative == "both":
-                    pvals[i] = (
-                        np.count_nonzero(
-                            np.abs(boot - mean_boot) >= abs(observed_fst[i] - mean_boot)
-                        )
-                        + 1
-                    ) / (len(boot) + 1)
-                elif alternative == "upper":
-                    pvals[i] = (np.count_nonzero(boot >= observed_fst[i]) + 1) / (
-                        len(boot) + 1
-                    )
-                elif alternative == "lower":
-                    pvals[i] = (np.count_nonzero(boot <= observed_fst[i]) + 1) / (
-                        len(boot) + 1
-                    )
-                else:
-                    raise ValueError(
-                        "Invalid alternative. Choose from 'both', 'upper', or 'lower'."
-                    )
-
-            df = pd.DataFrame(
-                {
-                    "Locus": np.arange(n_loci),
-                    "Fst": observed_fst,
-                    "Pval": pvals,
-                    "Z": z_scores,
-                    "Bootstraps": bootstrap_lists,
-                }
-            )
-
-            result[(pop1, pop2)] = df
-
-            # Plot and save only outliers
-            outliers = df[df["Pval"] < 0.05]
-            if not outliers.empty and outdir:
-                # Save outlier table
-                fname_csv = f"fst_outliers_{pop1}_{pop2}.csv"
-                outliers.drop(columns=["Bootstraps"]).to_csv(
-                    outdir / fname_csv, index=False
-                )
-
-        return result
-
-    def check_fst_denominator_stability(
+    def _check_fst_denominator_stability(
         self,
         pop1_inds: np.ndarray,
         pop2_inds: np.ndarray,
@@ -1192,6 +1146,8 @@ class FstDistance:
         report: bool = True,
     ) -> pd.DataFrame:
         """Check denominator stability (d_i) per-locus to assess Fst stability.
+
+        This method evaluates the stability of the Fst denominator (d_i) for each locus by checking for zero or near-zero values. It computes the numerator (a_i) and denominator (d_i) for each locus and categorizes them into 'OK', 'Zero', or 'Unstable' based on the value of d_i. It also logs a summary of loci that may yield unstable Fst values.
 
         Args:
             pop1_inds (np.ndarray): Indices of individuals in population 1.
@@ -1214,7 +1170,7 @@ class FstDistance:
         results = []
         for i, (a, d) in enumerate(zip(a_vals, d_vals)):
             if np.isnan(d):
-                status = "NaN"
+                status = "Failed"
             elif d == 0.0:
                 status = "Zero"
             elif abs(d) < threshold:
@@ -1238,8 +1194,8 @@ class FstDistance:
             self.logger.info(f"  NaN loci: {num_nan}")
 
             if num_zero + num_unstable + num_nan > 0:
-                self.logger.warning(
-                    f"  {num_zero + num_unstable + num_nan} loci may yield unstable Fst values."
-                )
-
+                if self.verbose:
+                    self.logger.warning(
+                        "  Some loci have zero or near-zero denominators, which may lead to unstable Fst values."
+                    )
         return df
