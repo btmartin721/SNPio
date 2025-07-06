@@ -1,4 +1,4 @@
-# SNPio: A Python API for Population Genomic Data I/O, Filtering, and Analysis
+# SNPio: A Python API for Population Genomic Data I/O, Filtering, Analysis, and Encoding
 
 ![SNPio Logo](snpio/img/snpio_logo.png)
 
@@ -10,7 +10,7 @@
 
 You can install SNPio using one of the following methods:
 
-### ✅ Pip Installation (Recommended)
+### ✅ Pip Installation
 
 ```bash
 python3 -m venv snpio-env
@@ -28,10 +28,16 @@ conda install -c btmartin721 snpio
 
 ### 🐳 Docker
 
+To run the Docker image interactively in a terminal, run the following commands:
+
 ```bash
 docker pull btmartin721/snpio:latest
 docker run -it btmartin721/snpio:latest
 ```
+
+If you'd like to run SNPio in a jupyter notebook, instructions to do so in the docker container will be printed to the terminal.  
+
+> **Note:** All three installation versions (pip, conda, docker) are actively maintained and kept up-to-date with CI/CD routines.
 
 > **Note:** SNPio supports Unix-based systems. Windows users should install via WSL.
 
@@ -44,7 +50,7 @@ docker run -it btmartin721/snpio:latest
 ```python
 from snpio import (
     NRemover2, VCFReader, PhylipReader, StructureReader,
-    GenePopReader, Plotting, GenotypeEncoder, PopGenStatistics
+    GenePopReader, GenotypeEncoder, PopGenStatistics
 )
 ```
 
@@ -78,27 +84,33 @@ Includes:
 
 - File readers (VCF, PHYLIP, STRUCTURE, GENEPOP)
 - Genotype filtering (NRemover2)
-- PCA and missingness plots (Plotting)
+- PCA and missingness plots (PopGenStatistics)
 - Genotype encoding (GenotypeEncoder)
 - Population statistics (PopGenStatistics)
-- Experimental: Tree parsing (TreeParser)
+- Experimental: Phylogenetic tree parsing (TreeParser)
 
 ---
 
 ## 🧪 Development Notes
 
-To run tests:
+See [CONTRIBUTING.md](https://github.com/btmartin721/snpio/CONTRIBUTING.md) for more information on contributing to the SNPio code.
+
+To run unit tests:
 
 ```bash
 pip install snpio[dev]
 pytest tests/
 ```
 
+This will run all unit tests in the ```tests``` directory.
+
 ---
 
 ## 🧾 License and Citation
 
-SNPio is licensed under the **GPL-3.0 License**. Please cite any publication(s) when using SNPio in your research.
+SNPio is licensed under the [GPL-3.0 License](https://github.com/btmartin721/snpio/LICENSE).  
+
+Please cite any publication(s) when using SNPio in your research. A manuscript is currently in development, and this section will be updated upon acceptance.
 
 ---
 
