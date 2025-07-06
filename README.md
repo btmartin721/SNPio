@@ -2,7 +2,7 @@
 
 ![SNPio Logo](snpio/img/snpio_logo.png)
 
-**SNPio** is a Python package designed to streamline the process of reading, filtering, encoding, and analyzing genotype data. It supports VCF, PHYLIP, STRUCTURE, and GENEPOP file formats, and provides high-level tools for visualization, downstream machine learning analysis, and population genetic inference.
+**SNPio** is a Python package designed to streamline the process of reading, filtering, encoding, and analyzing genotype alignments. It supports VCF, PHYLIP, STRUCTURE, and GENEPOP file formats, and provides high-level tools for visualization, downstream machine learning analysis, and population genetic inference.
 
 ---
 
@@ -93,7 +93,7 @@ Includes:
 
 ## 🧪 Development Notes
 
-See [CONTRIBUTING.md](https://github.com/btmartin721/snpio/CONTRIBUTING.md) for more information on contributing to the SNPio code.
+See [CONTRIBUTING.md](https://github.com/btmartin721/SNPio/blob/master/CONTRIBUTING.md) for more information on contributing to the SNPio code.
 
 To run unit tests:
 
@@ -102,13 +102,13 @@ pip install snpio[dev]
 pytest tests/
 ```
 
-This will run all unit tests in the ```tests``` directory.
+This will run all unit tests in the `tests` directory.
 
 ---
 
 ## 🧾 License and Citation
 
-SNPio is licensed under the [GPL-3.0 License](https://github.com/btmartin721/snpio/LICENSE).  
+SNPio is licensed under the [GPL-3.0 License](https://github.com/btmartin721/SNPio/blob/master/LICENSE).  
 
 Please cite any publication(s) when using SNPio in your research. A manuscript is currently in development, and this section will be updated upon acceptance.
 
@@ -120,10 +120,10 @@ We welcome community contributions!
 
 - Report bugs or request features on [GitHub Issues](https://github.com/btmartin721/snpio/issues)
 - Submit a pull request
-- Visit the [documentation](https://snpio.readthedocs.io/latest) for contributing guidelines
+- See [CONTRIBUTING.md](https://github.com/btmartin721/SNPio/blob/master/CONTRIBUTING.md) for contributing guidelines.
 
 ---
 
 ## 🙏 Acknowledgments
 
-Thanks for using SNPio. We hope it facilitates your population genomic research. Reach out with questions or feedback via GitHub!
+Thanks for using SNPio. We hope it facilitates your population genomic research. Feel free to reach out with questions or feedback!
