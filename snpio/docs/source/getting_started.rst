@@ -778,7 +778,7 @@ After completing your filtering and statistical analyses:
 
 .. code-block:: python
 
-  from snpio.multiqc import SNPioMultiQCReport
+  from snpio import SNPioMultiQCReport
 
   report = SNPioMultiQCReport.build(
       prefix="my_report",
@@ -786,8 +786,19 @@ After completing your filtering and statistical analyses:
       overwrite=True
   )
 
+.. note::
+
+  ``SNPioMultiQCReport`` should not be initialized directly. Instead, use it without parentheses followed by calling the `build()` method to generate the report from the current session's results.
+
+.. tip::
+
+    ``SNPioMultiQCReport`` should be called **after** all filtering and analysis steps are complete. It collects results from the current session and generates a comprehensive report of all filtering and analysis results.
 
 This creates a self-contained `.html` report with interactive visualizations, significance summaries, and analysis metadata.
+
+.. tip::
+
+  The MultiQC HTML report can be viewed in Firefox, Chrome, and possibly other web browsers. It is fully self-contained, meaning all data and visualizations are embedded in the HTML file.
 
 .. note::
 
