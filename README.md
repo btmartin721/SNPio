@@ -4,6 +4,20 @@
 
 **SNPio** is a Python package designed to streamline the process of reading, filtering, encoding, and analyzing genotype alignments. It supports VCF, PHYLIP, STRUCTURE, and GENEPOP file formats, and provides high-level tools for visualization, downstream machine learning analysis, and population genetic inference.
 
+SNPio Includes:
+
+- File I/O (VCFReader, PhylipReader, StructureReader, GenePopReader)
+- Genotype filtering (NRemover2)
+- Genotype encoding for AI & machine learning applications (GenotypeEncoder)
+- Population genetic statistics & Principal Component Analysis (PopGenStatistics)
+- Experimental: Phylogenetic tree parsing (TreeParser)
+
+---
+
+## 📖 Full Documentation
+
+Detailed API usage, tutorials, and examples are available in the [Documentation](https://snpio.readthedocs.io/en/latest/)
+
 ---
 
 ## 🔧 Installation
@@ -74,35 +88,14 @@ You can also specify `include_pops` and `exclude_pops` to control population-lev
 
 ---
 
-## 📖 Full Documentation
-
-Detailed API usage, tutorials, and examples are available at:
-
-🔗 [https://snpio.readthedocs.io/latest](https://snpio.readthedocs.io/latest)
-
-Includes:
-
-- File readers (VCF, PHYLIP, STRUCTURE, GENEPOP)
-- Genotype filtering (NRemover2)
-- PCA and missingness plots (PopGenStatistics)
-- Genotype encoding (GenotypeEncoder)
-- Population statistics (PopGenStatistics)
-- Experimental: Phylogenetic tree parsing (TreeParser)
-
----
-
 ## 🧪 Development Notes
 
-See [CONTRIBUTING.md](https://github.com/btmartin721/SNPio/blob/master/CONTRIBUTING.md) for more information on contributing to the SNPio code.
-
-To run unit tests:
+To run unit all tests:
 
 ```bash
 pip install snpio[dev]
 pytest tests/
 ```
-
-This will run all unit tests in the `tests` directory.
 
 ---
 
