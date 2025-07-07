@@ -3,6 +3,12 @@
 This document outlines the changes made to the project with each
 release.
 
+## Version 1.5.4 (2025-07-07)
+
+### Bug Fixes
+
+Dockerfile to ensure that the latest SNPio version is installed into the docker image. There was a bug where it was installing an older version of SNPio.
+
 ## Version 1.5.0 (2025-07-04)
 
 This major release introduces a fully interactive MultiQC report generator that integrates results across all SNPio modules. It also includes significant upgrades to the `PopGenStatistics` class, new downstream analysis capabilities, and key bug fixes.
