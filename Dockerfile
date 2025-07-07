@@ -25,22 +25,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Create a new Conda environment and install dependencies
+# Create the Conda environment (as root)
 RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
     python=3.12 \
     numpy=2.2.6 \
     pandas=2.2.3 \
     pip && \
-    conda clean -afy && \
-    conda init bash && \
-    echo "conda activate $CONDA_ENV" > ~/.bashrc
-
-RUN pip install --upgrade pip
-
-RUN pip install --upgrade --no-cache-dir \
-    snpio \
-    pytest \
-    jupyterlab && \
     conda clean -afy
 
 # Create a non-root user and set home directory
@@ -65,8 +55,13 @@ COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpio
 # Switch to non-root user
 USER snpiouser
 
+# Install packages with pip inside the environment as snpiouser
+RUN /bin/bash -c "source activate $CONDA_ENV && \
+    pip install --upgrade pip && \
+    pip install snpio pytest jupyterlab"
+
 # Run tests (non-blocking; allows image to build even if tests fail)
-RUN pytest tests/ || echo "Tests failed during build; continuing..."
+RUN /bin/bash -c "source activate $CONDA_ENV && pytest tests/ || echo 'Tests failed during build; continuing...'" 
 
 # Default container command
-CMD ["bash"]
+CMD ["/bin/bash"]
