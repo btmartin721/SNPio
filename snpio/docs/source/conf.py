@@ -33,7 +33,7 @@ sphinxcontrib.bibtex.plugin.register_plugin(
 project = "SNPio"
 copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
 author = "Drs. Bradley T. Martin and Tyler K. Chafin"
-release = "1.5.2"
+release = "1.5.3"
 
 # -- Path setup -----------------------------------------------------------
 # Add the project's root directory to sys.path
