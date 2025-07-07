@@ -275,3 +275,5 @@ results/missing_report_test_output/
 test.json
 test.vcf.gz
 test.vcf.gz.tbi
+dtest_validation/
+snpio_dtests_output/
