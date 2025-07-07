@@ -7,26 +7,7 @@ on:
     inputs:
       manual_tag:
         description: 'Manually specify a version tag (e.g., 1.5.3). Leave blank to auto-generate.'
-        required: false
-        default: ''
-  push:
-    branches:
-      - master
-      - main
-    paths:
-      - 'pyproject.toml'
-      - 'recipe/meta.yaml'
-      - 'snpio/**'
-      - 'tests/**'
-  pull_request:
-    branches:
-      - master
-      - main
-    paths:
-      - 'pyproject.toml'
-      - 'recipe/meta.yaml'
-      - 'snpio/**'
-      - 'tests/**'
+        required: true
 
 jobs:
   version-release:
