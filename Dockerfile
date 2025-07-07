@@ -35,7 +35,9 @@ RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
     conda init bash && \
     echo "conda activate $CONDA_ENV" > ~/.bashrc
 
-RUN pip install --no-cache-dir \
+RUN pip install --upgrade pip
+
+RUN pip install --upgrade --no-cache-dir \
     snpio \
     pytest \
     jupyterlab && \
