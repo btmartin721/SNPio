@@ -59,6 +59,7 @@ COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpio
 # Switch to non-root user
 USER snpiouser
 ENV HOME=/home/snpiouser
+RUN mkdir $HOME/.config/matplotlib
 ENV MPLCONFIGDIR=$HOME/.config/matplotlib
 RUN chmod -R u+w $HOME/.config/matplotlib
 
