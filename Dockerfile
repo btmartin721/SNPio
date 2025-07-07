@@ -31,7 +31,9 @@ RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
     numpy=2.2.6 \
     pandas=2.2.3 \
     pip && \
-    conda clean -afy
+    conda clean -afy && \
+    conda init bash && \
+    echo "conda activate $CONDA_ENV" > ~/.bashrc
 
 # Create a non-root user and set home directory
 RUN useradd -ms /bin/bash snpiouser && \
