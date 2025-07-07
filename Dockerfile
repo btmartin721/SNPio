@@ -7,10 +7,11 @@ SHELL ["/bin/bash", "-l", "-c"]
 # Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CONDA_ENV=snpioenv \
-    PATH=/opt/conda/envs/${CONDA_ENV}/bin:/opt/conda/bin:$PATH \
     HOME=/home/snpiouser \
     MPLCONFIGDIR=/home/snpiouser/.config/matplotlib
+
+# Expose the new env's bin directory
+ENV PATH=/opt/conda/envs/snpioenv/bin:/opt/conda/bin:$PATH
 
 # Install system-level dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -24,13 +25,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Ensure conda.sh is sourced in every bash session
 RUN echo ". /opt/conda/etc/profile.d/conda.sh" >> /etc/bash.bashrc
 
-# Update base conda, create our env with Python & core deps
+# Update base conda and create our env
 RUN conda update -n base -c defaults conda \
-    && conda create -y -n ${CONDA_ENV} -c conda-forge -c btmartin721 \
+    && conda create -y -n snpioenv -c conda-forge -c btmartin721 \
          python=3.12 numpy=2.2.6 pandas=2.2.3 pip \
     && conda clean -afy
 
-# Create a non-root user and directories
+# Create a non-root user and app directories
 RUN useradd -ms /bin/bash snpiouser \
     && mkdir -p /home/snpiouser/.config/matplotlib /app/{results,docs,example_data} \
     && chown -R snpiouser:snpiouser /home/snpiouser /app
@@ -38,22 +39,22 @@ RUN useradd -ms /bin/bash snpiouser \
 # Switch to non-root
 USER snpiouser
 
-# Auto-activate our conda env in interactive shells
-RUN echo "conda activate ${CONDA_ENV}" >> /home/snpiouser/.bashrc
+# Auto-activate snpioenv in interactive shells
+RUN echo "conda activate snpioenv" >> /home/snpiouser/.bashrc
 
 # Set working directory
 WORKDIR /app
 
-# Copy application code & tests
+# Copy in your code & tests
 COPY --chown=snpiouser:snpiouser tests/            tests/
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/ scripts_and_notebooks/
 COPY --chown=snpiouser:snpiouser snpio/example_data/    example_data/
 COPY --chown=snpiouser:snpiouser README.md           docs/README.md
 
-# Install snpio, pytest, and Jupyter into the env (PATH already set)
+# Install snpio, pytest, and Jupyter into the env (now on PATH)
 RUN pip install --upgrade pip snpio pytest jupyterlab
 
-# Run your tests (failures won’t stop the build)
+# Run tests (failures won't stop the build)
 RUN pytest tests/ \
     || echo 'Tests failed during build; continuing…'
 
