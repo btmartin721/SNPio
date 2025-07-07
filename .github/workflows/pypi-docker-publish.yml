@@ -63,6 +63,7 @@ jobs:
         run: |
           twine upload dist/*
           echo "PyPi upload complete."
+          sleep 60
 
       ##########################################
       # Docker Multi-Arch Build and Push
