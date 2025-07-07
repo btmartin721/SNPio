@@ -1,69 +1,61 @@
 # Base image with Conda
 FROM continuumio/miniconda3
 
-# Set environment variables
+# Use bash login shells so conda.sh is auto-sourced
+SHELL ["/bin/bash", "-l", "-c"]
+
+# Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CONDA_ENV=snpioenv
+    CONDA_ENV=snpioenv \
+    PATH=/opt/conda/envs/${CONDA_ENV}/bin:/opt/conda/bin:$PATH \
+    HOME=/home/snpiouser \
+    MPLCONFIGDIR=/home/snpiouser/.config/matplotlib
 
 # Install system-level dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    gcc \
-    git \
-    curl \
-    wget \
-    libbz2-dev \
-    liblzma-dev \
-    libz-dev \
-    libcurl4-openssl-dev \
-    libssl-dev \
-    libncurses-dev \
-    libhdf5-dev \
-    ca-certificates \
-    unzip \
-    procps \
+        build-essential gcc git curl wget \
+        libbz2-dev liblzma-dev libz-dev \
+        libcurl4-openssl-dev libssl-dev \
+        libncurses-dev libhdf5-dev \
+        ca-certificates unzip procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Create the Conda environment (as root)
-RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
-    python=3.12 \
-    numpy=2.2.6 \
-    pandas=2.2.3 \
-    pip && \
-    conda clean -afy && \
-    conda init bash && \
-    echo "conda activate $CONDA_ENV" > ~/.bashrc
+# Ensure conda.sh is sourced in every bash session
+RUN echo ". /opt/conda/etc/profile.d/conda.sh" >> /etc/bash.bashrc
 
-# Create a non-root user and set home directory
-RUN useradd -ms /bin/bash snpiouser && \
-    mkdir -p /home/snpiouser/.config/matplotlib /app/results /app/docs /app/example_data && \
-    chown -R snpiouser:snpiouser /app /home/snpiouser
+# Update base conda, create our env with Python & core deps
+RUN conda update -n base -c defaults conda \
+    && conda create -y -n ${CONDA_ENV} -c conda-forge -c btmartin721 \
+         python=3.12 numpy=2.2.6 pandas=2.2.3 pip \
+    && conda clean -afy
 
-# Ensure HOME and MPLCONFIGDIR are set correctly
-ENV HOME=/home/snpiouser
-ENV MPLCONFIGDIR=$HOME/.config/matplotlib
+# Create a non-root user and directories
+RUN useradd -ms /bin/bash snpiouser \
+    && mkdir -p /home/snpiouser/.config/matplotlib /app/{results,docs,example_data} \
+    && chown -R snpiouser:snpiouser /home/snpiouser /app
+
+# Switch to non-root
+USER snpiouser
+
+# Auto-activate our conda env in interactive shells
+RUN echo "conda activate ${CONDA_ENV}" >> /home/snpiouser/.bashrc
 
 # Set working directory
 WORKDIR /app
 
-# Copy application files with correct permissions
-COPY --chown=snpiouser:snpiouser tests/ tests/
+# Copy application code & tests
+COPY --chown=snpiouser:snpiouser tests/            tests/
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/ scripts_and_notebooks/
-COPY --chown=snpiouser:snpiouser snpio/example_data/ example_data/
-COPY --chown=snpiouser:snpiouser README.md docs/README.md
-COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpiouser/.bashrc
+COPY --chown=snpiouser:snpiouser snpio/example_data/    example_data/
+COPY --chown=snpiouser:snpiouser README.md           docs/README.md
 
-# Switch to non-root user
-USER snpiouser
-ENV PATH=$HOME/.local/bin:$PATH
+# Install snpio, pytest, and Jupyter into the env (PATH already set)
+RUN pip install --upgrade pip snpio pytest jupyterlab
 
-# Install into the env
-RUN conda run -n $CONDA_ENV pip install --upgrade pip snpio pytest jupyterlab
-
-# Run tests
-RUN conda run -n $CONDA_ENV pytest tests/ \
+# Run your tests (failures won’t stop the build)
+RUN pytest tests/ \
     || echo 'Tests failed during build; continuing…'
 
-# Default container command
-CMD ["/bin/bash"]
+# Default to an interactive bash with your env on PATH
+CMD ["bash"]
