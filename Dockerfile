@@ -46,10 +46,6 @@ RUN useradd -ms /bin/bash snpiouser && \
     mkdir -p /home/snpiouser/.config/matplotlib /app/results /app/docs /app/example_data && \
     chown -R snpiouser:snpiouser /app /home/snpiouser
 
-# Ensure HOME and MPLCONFIGDIR are set correctly
-ENV HOME=/home/snpiouser
-ENV MPLCONFIGDIR=$HOME/.config/matplotlib
-
 # Set working directory
 WORKDIR /app
 
@@ -62,6 +58,9 @@ COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpio
 
 # Switch to non-root user
 USER snpiouser
+ENV HOME=/home/snpiouser
+ENV MPLCONFIGDIR=$HOME/.config/matplotlib
+RUN chmod -R u+w $HOME/.config/matplotlib
 
 # Run tests (non-blocking; allows image to build even if tests fail)
 RUN pytest tests/ || echo "Tests failed during build; continuing..."
