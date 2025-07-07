@@ -4,6 +4,14 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.5.4 (2025-07-07)
+--------------------------
+
+Bug Fixes
+~~~~~~~~~
+
+- Docker image now correctly installs the latest version of SNPio from PyPI. Before, it was installing an older version due to a caching issue in the Docker build process. The Dockerfile has been updated to ensure that the latest version is always installed.
+
 Version 1.5.0 (2025-07-04)
 --------------------------
 
