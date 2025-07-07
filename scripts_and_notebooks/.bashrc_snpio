@@ -1,5 +1,5 @@
 # Activate virtual environment
-source /opt/venv/bin/activate
+source activate snpioenv
 
 # Pretty prompt
 export PS1="\[\e[1;32m\][SNPio:\w]\$\[\e[0m\] "
