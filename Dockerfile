@@ -54,14 +54,14 @@ COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpio
 
 # Switch to non-root user
 USER snpiouser
+ENV PATH=$HOME/.local/bin:$PATH
 
-# Install packages with pip inside the environment as snpiouser
-RUN /bin/bash -c "source activate $CONDA_ENV && \
-    pip install --upgrade pip && \
-    pip install snpio pytest jupyterlab"
+# Install into the env
+RUN conda run -n $CONDA_ENV pip install --upgrade pip snpio pytest jupyterlab
 
-# Run tests (non-blocking; allows image to build even if tests fail)
-RUN /bin/bash -c "source activate $CONDA_ENV && pytest tests/ || echo 'Tests failed during build; continuing...'" 
+# Run tests
+RUN conda run -n $CONDA_ENV pytest tests/ \
+    || echo 'Tests failed during build; continuing…'
 
 # Default container command
 CMD ["/bin/bash"]
