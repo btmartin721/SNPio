@@ -35,6 +35,8 @@ RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
     conda init bash && \
     echo "conda activate $CONDA_ENV" > ~/.bashrc
 
+ENV PATH /opt/conda/envs/$CONDA_ENV/bin:$PATH
+
 RUN conda run -n $CONDA_ENV pip install --no-cache-dir \
     snpio \
     pytest \
