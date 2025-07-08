@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create a new Conda environment and install dependencies
 RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
-    python=3.13.5 \
+    python=3.12 \
     numpy=2.2.6 \
     pandas=2.2.3 \
     pip && \
@@ -35,7 +35,7 @@ RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
     conda init bash && \
     echo "conda activate $CONDA_ENV" > ~/.bashrc
 
-RUN pip install --no-cache-dir \
+RUN conda run -n $CONDA_ENV pip install --no-cache-dir \
     snpio \
     pytest \
     jupyterlab && \
@@ -63,7 +63,7 @@ ENV MPLCONFIGDIR=$HOME/.config/matplotlib
 RUN chmod -R u+w $HOME/.config/matplotlib
 
 # Run tests (non-blocking; allows image to build even if tests fail)
-RUN pytest tests/ || echo "Tests failed during build; continuing..."
+RUN conda run -n $CONDA_ENV pytest tests/ || echo "Tests failed during build; continuing..."
 
 # Default container command
 CMD ["bash"]
