@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Create a new Conda environment and install dependencies
 RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
-    python=3.13 \
+    python=3.13.5 \
     numpy=2.2.6 \
     pandas=2.2.3 \
     pip && \
