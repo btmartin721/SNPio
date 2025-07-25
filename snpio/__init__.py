@@ -7,6 +7,20 @@ try:
 except PackageNotFoundError:
     __version__ = "unknown"  # Default if package is not installed
 
+# Defines the public API for the package
+__all__ = [
+    "GenotypeEncoder",
+    "TreeParser",
+    "NRemover2",
+    "GenePopReader",
+    "PhylipReader",
+    "StructureReader",
+    "VCFReader",
+    "Plotting",
+    "PopGenStatistics",
+    "SNPioMultiQC",
+    "__version__",
+]
 
 from snpio.analysis.genotype_encoder import GenotypeEncoder
 from snpio.analysis.tree_parser import TreeParser
