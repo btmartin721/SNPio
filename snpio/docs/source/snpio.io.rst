@@ -1,32 +1,34 @@
 snpio.io package
 ================
 
-Submodules
-----------
+.. automodule:: snpio.io.vcf_reader
 
-snpio.io.phylip_reader module
-------------------------------
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   
+   VCFReader
 
 .. automodule:: snpio.io.phylip_reader
-   :members:
-   :no-index:
-   :undoc-members:
-   :show-inheritance:
 
-snpio.io.structure_reader module
----------------------------------
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+   
+   PhylipReader
 
 .. automodule:: snpio.io.structure_reader
-   :members:
-   :no-index:
-   :undoc-members:
-   :show-inheritance:
 
-snpio.io.vcf_reader module
----------------------------
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
 
-.. automodule:: snpio.io.vcf_reader
-   :members:
-   :no-index:
-   :undoc-members:
-   :show-inheritance:
+   StructureReader
+
+.. automodule:: snpio.io.genepop_reader
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   GenePopReader
