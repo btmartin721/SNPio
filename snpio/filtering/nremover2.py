@@ -1,4 +1,5 @@
 # Standard library imports
+from functools import wraps
 from typing import TYPE_CHECKING, Callable, Dict, List, Tuple
 
 # Third-party imports
@@ -83,9 +84,9 @@ class NRemover2:
     Attributes:
         genotype_data (GenotypeData): An instance of the GenotypeData class.
 
-        filtering_helper (FilteringHelper): An instance of the FilteringHelper class.
+        _filtering_helper (FilteringHelper): An instance of the FilteringHelper class.
 
-        filtering_methods (FilteringMethods): An instance of the FilteringMethods class.
+        _filtering_methods (FilteringMethods): An instance of the FilteringMethods class.
 
         df_sample_list (List[pd.DataFrame]): A list of DataFrames containing filtering results for samples.
 
@@ -157,6 +158,8 @@ class NRemover2:
         thin_loci: Thin out loci within a specified distance of each other.
 
         random_subset_loci: Randomly subset the loci (columns) in the SNP dataset.
+
+        filter_allele_depth: Filters out loci based on the total allele depth.
 
         search_thresholds: Plots the proportion of missing data against the filtering thresholds.
 
@@ -236,8 +239,259 @@ class NRemover2:
             self.logger = self.genotype_data.logger
 
         # Initialize the filtering helper and methods
-        self.filtering_helper = FilteringHelper(self)
-        self.filtering_methods = FilteringMethods(self)
+        self._filtering_helper = FilteringHelper(self)
+        self._filtering_methods = FilteringMethods(self)
+
+    @wraps(FilteringHelper.search_thresholds)
+    def search_thresholds(self, *args, **kwargs) -> None:
+        """Search across filtering thresholds and plot the proportions.
+
+        This method iterates through various combinations of filtering thresholds and applies the corresponding filtering methods to the genotype data. It then prepares DataFrames for plotting the results. The filtering methods include missing data thresholds, minor allele frequency (MAF) thresholds, minor allele count (MAC) thresholds, and boolean thresholds. The method also allows for specifying the order in which the filtering methods are applied.
+
+        Args:
+            thresholds (List[float], optional): A list of missing data thresholds to search. Defaults to None.
+            maf_thresholds (List[float], optional): A list of minor allele frequency thresholds to search. Defaults to None.
+            mac_thresholds (List[int], optional): A list of minor allele count thresholds to search. Defaults to None.
+            filter_order (List[str], optional): A list of filtering methods to apply in order. If None, the default order is: "filter_missing_sample", "filter_missing_pop", "filter_maf", "filter_mac", "filter_monomorphic", "filter_biallelic", "filter_singletons". Defaults to None.
+
+        Note:
+            - This method is designed to be used with the NRemover2 class.
+            - The filtering methods are applied in the order specified by the `filter_order` parameter.
+            - If `filter_order` is None, the default order is used.
+            - This method can take a long time to run, depending on the number of combinations of thresholds.
+
+        """
+        return self._filtering_helper.search_thresholds(*args, **kwargs)
+
+    @wraps(FilteringMethods.filter_missing_sample)
+    def filter_missing_sample(self, threshold: float) -> "NRemover2":
+        """Remove samples with missing data proportion > threshold.
+
+        This method evaluates the proportion of missing genotypes for each sample and removes those whose missing rate exceeds the user-defined ``threshold`` argument.
+
+        Args:
+            threshold (float): Proportion cutoff (0 ≤ threshold ≤ 1). Samples with more missing data than this threshold will be removed.
+
+        Returns:
+            NRemover2: The NRemover2 object with updated `sample_indices`.
+
+        Raises:
+            InvalidThresholdError: If `threshold` is not in the range [0, 1].
+        """
+        return self._filtering_methods.filter_missing_sample(threshold)
+
+    @wraps(FilteringMethods.filter_missing)
+    def filter_missing(self, threshold: float) -> "NRemover2":
+        """Filters out loci (columns) with missing data proportion greater than the specified threshold.
+
+        A genotype is considered missing for if it contains any of the following values: 'N', '-', '.', or '?'.
+
+        Args:
+            threshold (float): Maximum allowable proportion of missing data per locus (0.0 to 1.0 inclusive).
+
+        Returns:
+            NRemover2: The NRemover2 object with updated loci_indices.
+
+        Raises:
+            TypeError: If threshold is not a float.
+            InvalidThresholdError: If threshold is outside the range [0.0, 1.0].
+
+        Notes:
+            - Uses vectorized NumPy operations to calculate missingness.
+            - The mask is applied only to currently active loci and samples.
+        """
+        return self._filtering_methods.filter_missing(threshold)
+
+    @wraps(FilteringMethods.filter_missing_pop)
+    def filter_missing_pop(self, threshold: float) -> "NRemover2":
+        """Filters loci (columns) based on missing data per population.
+
+        This method calculates the proportion of missing genotype values per locus for each user-defined population. A locus is retained only if it meets the missing data threshold in **all** populations. Missing genotypes are defined as: "N", "-", ".", or "?". Sample-to-population assignments are taken from `self.nremover.popmap_inverse`.
+
+        Args:
+            threshold (float): Maximum allowable proportion of missing data per population.
+
+        Returns:
+            NRemover2: NRemover2 object with updated `loci_indices`.
+
+        Raises:
+            MissingPopulationMapError: If `popmap_inverse` is not defined.
+        """
+        return self._filtering_methods.filter_missing_pop(threshold)
+
+    @wraps(FilteringMethods.filter_mac)
+    def filter_mac(
+        self, min_count: int, exclude_heterozygous: bool = False
+    ) -> "NRemover2":
+        """Filters loci where the minor allele count is below the given minimum count.
+
+        The minor allele count is calculated for each locus, and loci with a count below the threshold are removed.
+
+        Args:
+            min_count (int): The minimum minor allele count to retain a locus.
+
+            exclude_heterozygous (bool, optional): Whether to exclude heterozygous sites from the MAC calculation. Defaults to False.
+
+        Returns:
+            NRemover2: The NRemover2 object with the filtered alignment's boolean loci_indices array set.
+        """
+        return self._filtering_methods.filter_mac(
+            min_count, exclude_heterozygous=exclude_heterozygous
+        )
+
+    @wraps(FilteringMethods.filter_maf)
+    def filter_maf(
+        self, threshold: float, exclude_heterozygous: bool = False
+    ) -> "NRemover2":
+        """Filters loci where the minor allele frequency is below the threshold.
+
+        The minor allele frequency is calculated as the proportion of the minor allele at each locus.
+
+        Args:
+            threshold (float): The minimum minor allele frequency required to keep a locus.
+
+        Returns:
+            NRemover2: The NRemover2 object with the filtered alignment's boolean loci_indices array set.
+        """
+        return self._filtering_methods.filter_maf(
+            threshold, exclude_heterozygous=exclude_heterozygous
+        )
+
+    @wraps(FilteringMethods.filter_monomorphic)
+    def filter_monomorphic(self, exclude_heterozygous: bool = False) -> "NRemover2":
+        """Filter out monomorphic loci with only one valid allele.
+
+        This method removes monomorphic loci (i.e., loci with only one valid allele). A locus is considered polymorphic if it contains more than one valid allele (A, C, G, T). If `exclude_heterozygous` is False, IUPAC heterozygotes contribute one count to each of their two underlying alleles.
+
+        Args:
+            exclude_heterozygous (bool): If True, ignores heterozygous genotypes during allele detection.
+
+        Returns:
+            NRemover2: The updated NRemover2 object with filtered loci.
+        """
+        return self._filtering_methods.filter_monomorphic(
+            exclude_heterozygous=exclude_heterozygous
+        )
+
+    @wraps(FilteringMethods.filter_singletons)
+    def filter_singletons(self, exclude_heterozygous: bool = False) -> "NRemover2":
+        """Filter out singleton loci (loci where the only variant allele is a singleton).
+
+        This method identifies and removes loci that have only one allele present across all samples. A singleton locus is defined as one where the minor allele count is 1, and it has at least two different alleles present (including heterozygotes if ``exclude_heterozygous`` is False).
+
+        Args:
+            exclude_heterozygous (bool): If True, heterozygotes (IUPAC ambiguity codes) are ignored.
+
+        Returns:
+            NRemover2: The updated NRemover2 object with filtered loci.
+        """
+        return self._filtering_methods.filter_singletons(
+            exclude_heterozygous=exclude_heterozygous
+        )
+
+    @wraps(FilteringMethods.filter_biallelic)
+    def filter_biallelic(self, exclude_heterozygous: bool = False) -> "NRemover2":
+        """Retain only biallelic loci, and remove loci with more or fewer than two alleles.
+
+        This method checks each column of the alignment and retains only those columns that are biallelic (i.e., those with only two valid alleles).
+
+        Args:
+            exclude_heterozygous (bool): If True, heterozygous genotypes (IUPAC ambiguity codes) are not used for the allele counts. If False, heterozygous genotypes are considered when determining if a locus is biallelic.
+
+        Returns:
+            NRemover2: The updated NRemover2 object.
+        """
+        return self._filtering_methods.filter_biallelic(
+            exclude_heterozygous=exclude_heterozygous
+        )
+
+    @wraps(FilteringMethods.filter_linked)
+    def filter_linked(self, seed: int | None = None) -> "NRemover2":
+        """Filter to retain only one locus per chromosome/scaffold from a VCF file.
+
+        For each unique value in the VCF 'CHROM' field, this method randomly selects a single locus among currently active loci (`loci_indices`) and removes all others. This is intended to reduce linkage by ensuring no more than one SNP per chromosome or scaffold.
+
+        Args:
+            seed (int | None): Optional seed for reproducibility. If None, uses a random number generator without a fixed seed.
+
+        Returns:
+            NRemover2: The updated NRemover2 object with filtered `loci_indices`.
+
+        Raises:
+            AlignmentFormatError: If filetype is not VCF.
+            FileNotFoundError: If the HDF5 file containing CHROM data is missing.
+            KeyError: If the HDF5 file lacks a 'chrom' field.
+        """
+        return self._filtering_methods.filter_linked(seed=seed)
+
+    @wraps(FilteringMethods.thin_loci)
+    def thin_loci(
+        self, size: int = 100, remove_all: bool = False, seed: int | None = None
+    ) -> "NRemover2":
+        """Thin loci that are within `size` base pairs of each other.
+
+        Operates per chromosome/scaffold and either:
+
+        - Retains one SNP per cluster of nearby SNPs (`remove_all=False`, default).
+        - Removes all loci that have another SNP within `size` bp (`remove_all=True`).
+
+        Args:
+            size (int): Distance in base pairs for defining SNP proximity.
+            remove_all (bool): If True, removes *all* SNPs within `size` of another. If False, retains one SNP per proximity cluster.
+            seed (int | None): Optional seed for reproducibility.
+
+        Returns:
+            NRemover2: The updated NRemover2 object with thinned loci.
+
+        Raises:
+            AlignmentFormatError: If filetype is not VCF.
+            AlignmentError: If alignment is missing.
+        """
+        return self._filtering_methods.thin_loci(size, remove_all=remove_all, seed=seed)
+
+    @wraps(FilteringMethods.filter_allele_depth)
+    def filter_allele_depth(self, min_total_depth: int = 10) -> "NRemover2":
+        """Filter loci where total allele depth (AD) across all retained samples is below threshold.
+
+        This method reads the 'AD' FORMAT field from the HDF5-backed VCF attributes and removes loci where the sum of all allele depths across all retained samples is less than `min_total_depth`.
+
+        Args:
+            min_total_depth (int): Minimum summed allele depth required to retain a locus.
+
+        Returns:
+            NRemover2: The updated NRemover2 object with filtered loci.
+
+        Raises:
+            AlignmentFormatError: If the filetype is not VCF.
+            KeyError: If the AD field is missing from VCF metadata.
+        """
+        return self._filtering_methods.filter_allele_depth(
+            min_total_depth=min_total_depth
+        )
+
+    @wraps(FilteringMethods.random_subset_loci)
+    def random_subset_loci(self, size: int, seed: int | None = None) -> "NRemover2":
+        """Randomly subset loci from the current alignment.
+
+        This method randomly selects a subset of loci (columns) to retain.
+
+        The size can be provided as:
+            - an integer (absolute number of loci to keep), or
+            - a float (proportion of remaining loci to keep).
+
+        Args:
+            size (int | float): If int, must be >0 and ≤ total number of retained loci.
+                                If float, must be in the interval (0, 1].
+            seed (int | None): Optional seed for reproducibility. If None, uses a random number generator without a fixed seed.
+
+        Returns:
+            NRemover2: The updated NRemover2 object with a subset of loci retained.
+
+        Raises:
+            ValueError: If size is invalid or results in no loci.
+            TypeError: If size is not int or float.
+        """
+        return self._filtering_methods.random_subset_loci(size, seed=seed)
 
     def _reset_filtering_state(self) -> None:
         """Resets the filtering state of the alignment and indices to their original state."""
@@ -400,7 +654,7 @@ class NRemover2:
         Args:
             filter_methods (Dict[str, Tuple[Callable, np.ndarray | bool | None]]): A dictionary of filter methods and their corresponding thresholds.
         """
-        self.propagate_chain()
+        self._propagate_chain()
         for method_name, (method, thresholds) in filter_methods.items():
             self.current_thresholds = thresholds
 
@@ -481,7 +735,7 @@ class NRemover2:
             df, search_mode=self.search_mode, fn=filename
         )
 
-    def propagate_chain(self) -> None:
+    def _propagate_chain(self) -> None:
         """Propagates the filtering chain to the next step, marking the chain as active.
 
         This method marks the filtering chain as active, allowing further filtering steps to be applied. It should be called after resolving the previous chain and before starting a new chain.
@@ -695,7 +949,7 @@ class NRemover2:
             raise RuntimeError(msg)
 
         if not self.search_mode and self.verbose:
-            self.filtering_helper.print_filtering_report()
+            self._filtering_helper.print_filtering_report()
 
         si = self.sample_indices.astype(bool)
         li = self.loci_indices.astype(bool)
@@ -829,9 +1083,9 @@ class NRemover2:
         # Ensure filtering_methods is initialized before accessing it
         if name in ["filtering_methods", "filtering_helper"]:
             if name == "filtering_methods" and "filtering_methods" not in self.__dict__:
-                self.filtering_methods = FilteringMethods(self)
+                self._filtering_methods = FilteringMethods(self)
             if name == "filtering_helper" and "filtering_helper" not in self.__dict__:
-                self.filtering_helper = FilteringHelper(self)
+                self._filtering_helper = FilteringHelper(self)
             return self.__dict__[name]
 
         # Try accessing the attribute directly from NRemover2
@@ -842,12 +1096,14 @@ class NRemover2:
 
         # Safely access filtering_methods and filtering_helper attributes
         if "filtering_methods" in self.__dict__ and hasattr(
-            self.filtering_methods, name
+            self._filtering_methods, name
         ):
-            return getattr(self.filtering_methods, name)
+            return getattr(self._filtering_methods, name)
 
-        if "filtering_helper" in self.__dict__ and hasattr(self.filtering_helper, name):
-            return getattr(self.filtering_helper, name)
+        if "filtering_helper" in self.__dict__ and hasattr(
+            self._filtering_helper, name
+        ):
+            return getattr(self._filtering_helper, name)
 
         # Raise AttributeError if the attribute is not found
         raise AttributeError(
