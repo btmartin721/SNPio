@@ -24,5 +24,8 @@
     ],
     "https://raw.githubusercontent.com/conda-forge/conda-smithy/main/conda_smithy/data/conda-forge.json": "file:///Users/btm002/Documents/research/SNPio/recipes/snpio/meta.yaml"
   },
-  "makefile.configureOnOpen": false
+  "makefile.configureOnOpen": false,
+  "python-envs.defaultEnvManager": "ms-python.python:conda",
+  "python-envs.defaultPackageManager": "ms-python.python:conda",
+  "python-envs.pythonProjects": [ ]
 }
