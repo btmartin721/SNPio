@@ -1,6 +1,6 @@
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -9,6 +9,9 @@ import snpio.utils.custom_exceptions as exceptions
 from snpio.utils import misc, sequence_tools
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
+
+if TYPE_CHECKING:
+    from snpio.read_input.genotype_data import GenotypeData
 
 
 class GenotypeEncoder:
@@ -45,7 +48,7 @@ class GenotypeEncoder:
         replace_vals (List[str]): List of values to replace missing values with.
     """
 
-    def __init__(self, genotype_data: Any) -> None:
+    def __init__(self, genotype_data: "GenotypeData") -> None:
         """Initialize the GenotypeEncoder object.
 
         This class provides methods to encode genotypes to various formats suitable for machine learning, including 012, one-hot, and integer encodings, as well as the inverse operations.
@@ -251,7 +254,7 @@ class GenotypeEncoder:
                 mono_sites = [str(x) for x in monomorphic_sites]
                 fout.write(",".join(mono_sites))
 
-            self.logger.warning(
+            self.logger.info(
                 f"Monomorphic sites detected. You can check the monomorphic locus indices in the following log file: {outfile}"
             )
 
@@ -261,7 +264,7 @@ class GenotypeEncoder:
                 nba = [str(x) for x in non_biallelic_sites]
                 fout.write(",".join(nba))
 
-            self.logger.warning(
+            self.logger.info(
                 f"SNP column indices listed in the log file {outfile} had >2 alleles and was forced to be bi-allelic. If that is not desired, please fix or remove the column and re-run."
             )
 
@@ -651,6 +654,68 @@ class GenotypeEncoder:
             return of
         return df_decoded.to_numpy()
 
+    def encode_alleles_two_channel(
+        self, snp_data: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Convert IUPAC genotypes to two integer allele matrices.
+
+        This method encodes the SNP data into two separate matrices representing the two alleles for each sample and locus.
+
+        Each matrix will have shape (N_samples, N_loci), where each entry is an integer representing one of the two alleles (reference or alternate).
+
+        Args:
+            snp_data (np.ndarray): An (n_samples x n_loci) numpy array of IUPAC-encoded genotypes, where each entry is a single character string representing the genotype (e.g., "A", "T", "C", "G", "N", "-", etc.). Heterozygous genotypes are represented by ambiguity codes (e.g., "W", "S", "M", "K", "R", "Y").
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Two matrices where each row corresponds to a sample and each column to a locus. The first matrix contains the first allele (allele1) and the second matrix contains the second allele (allele2).
+        """
+        IUPAC_MAP = self.iupac.get_two_channel_iupac()
+        n_samples, n_loci = snp_data.shape
+        allele1 = np.full((n_samples, n_loci), -1, dtype=np.int8)
+        allele2 = np.full((n_samples, n_loci), -1, dtype=np.int8)
+        for i in range(n_samples):
+            for j in range(n_loci):
+                a1, a2 = IUPAC_MAP.get(snp_data[i, j].upper(), (-1, -1))
+                allele1[i, j], allele2[i, j] = a1, a2
+        return allele1, allele2
+
+    def decode_alleles_two_channel(
+        self, allele1: np.ndarray, allele2: np.ndarray
+    ) -> np.ndarray:
+        """Convert two integer allele matrices back into IUPAC-encoded genotypes.
+
+        This is the inverse of ``encode_alleles_two_channel``: given allele1 and allele2 (each shape (n_samples, n_loci), values in {0,1,2,3} or -1 for missing), reconstruct the original SNP matrix of IUPAC codes: A/C/G/T for homozygotes, ambiguity codes (W,S,M,K,R,Y) for heterozygotes, and "N" for missing.
+
+        Args:
+            allele1: An (n_samples x n_loci) int array of first alleles.
+            allele2: An (n_samples x n_loci) int array of second alleles.
+
+        Returns:
+            An (n_samples x n_loci) numpy array of dtype '<U1' with IUPAC codes.
+        """
+        # 1) Build inverse map from numeric pairs → IUPAC letter
+        IUPAC_MAP = self.iupac.get_two_channel_iupac()  # str → (int,int)
+        inv_map: dict[tuple[int, int], str] = {}
+        for base, pair in IUPAC_MAP.items():
+            inv_map[pair] = base
+            # also allow the reversed order for heterozygotes
+            if pair[0] != pair[1]:
+                inv_map[(pair[1], pair[0])] = base
+        # ensure missing maps to "N"
+        inv_map[(-1, -1)] = "N"
+
+        # 2) Allocate output array of single‐character strings
+        n_samples, n_loci = allele1.shape
+        genotypes = np.full((n_samples, n_loci), "N", dtype="<U1")
+
+        # 3) Fill by lookup
+        for i in range(n_samples):
+            for j in range(n_loci):
+                key = (int(allele1[i, j]), int(allele2[i, j]))
+                genotypes[i, j] = inv_map.get(key, "N")
+
+        return genotypes
+
     @property
     def genotypes_012(self) -> np.ndarray:
         """Encode 012 genotypes as a numpy array.
@@ -747,3 +812,46 @@ class GenotypeEncoder:
         Xt = self.inverse_int_iupac(X)
         self.snp_data = Xt
         self.logger.debug(f"Decoded integer-encoded genotypes: {Xt}")
+
+    @property
+    def two_channel_alleles(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Two-channel allele matrices.
+
+        This property encodes the SNP data into two separate matrices representing the two alleles for each sample and locus. Each matrix will have shape (N_samples, N_loci), where each entry is an integer representing one of the two alleles (reference or alternate).
+
+        Warning:
+            This method forces the SNP data to be bi-allelic. Genotypes represented by IUPAC ambiguity codes representing more than two alleles will be set to missing values (-1).
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: Two matrices where each row corresponds to a sample and each column to a locus. The first matrix contains the first allele (allele1) and the second matrix contains the second allele (allele2).
+        """
+        alleles = self.encode_alleles_two_channel(self.snp_data)
+        self.logger.debug(f"Alleles (first channel): {alleles[0]}")
+        self.logger.debug(f"Alleles (second channel): {alleles[1]}")
+        return alleles
+
+    @two_channel_alleles.setter
+    def two_channel_alleles(self, value: Tuple[np.ndarray, np.ndarray]) -> None:
+        """Set the two-channel allele matrices.
+
+        This method decodes the two-channel allele matrices back to a 2D list of IUPAC genotypes as ``snp_data``.
+
+        Args:
+            value (Tuple[np.ndarray, np.ndarray]): Two matrices where each row corresponds to a sample and each column to a locus. The first matrix contains the first allele (allele1) and the second matrix contains the second allele (allele2).
+        """
+        if not isinstance(value, tuple):
+            msg = f"Value must be a tuple of two numpy arrays, but got: {type(value)}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        if len(value) != 2:
+            msg = f"Value must be a tuple of two numpy arrays, but got: {len(value)} elements"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        allele1 = misc.validate_input_type(value[0], return_type="array")
+        allele2 = misc.validate_input_type(value[1], return_type="array")
+        self.snp_data = self.decode_alleles_two_channel(allele1, allele2)
+        self.logger.debug(
+            f"Decoded two-channel alleles: {self.snp_data} with shape {self.snp_data.shape}"
+        )
