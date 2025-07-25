@@ -166,7 +166,7 @@ class TestPopGenStatistics(unittest.TestCase):
             genotype_data, verbose=self.verbose, debug=self.debug
         )
 
-        summary_stats = popgen_stats.summary_statistics()
+        summary_stats, allele_summary_stats = popgen_stats.summary_statistics()
 
         # --- 1. Check structural validity ---
         self.assertIn("overall", summary_stats)
