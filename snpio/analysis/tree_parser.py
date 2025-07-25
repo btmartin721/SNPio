@@ -317,7 +317,8 @@ class TreeParser(GenotypeData):
 
         The IQ-TREE file contains the standard output of an IQ-TREE run and includes the Q-matrix. This method reads the Q matrix from the IQ-TREE file and returns it as a pandas DataFrame object. The IQ-TREE file should contain the rate matrix Q in the format:
 
-        ```
+        .. code-block:: text
+
             Rate matrix Q
 
             A	C	G	T
@@ -325,7 +326,6 @@ class TreeParser(GenotypeData):
             0.000000	-0.000000	0.000000	0.000000
             0.000000	0.000000	-0.000000	0.000000
             0.000000	0.000000	0.000000	-0.000000
-        ```
 
         The header row and index column are optional and can be omitted. The Q matrix values and header should be separated by whitespace or commas, and the matrix should be square with the columns and index in the order A, C, G, T.
 
