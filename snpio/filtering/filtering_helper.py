@@ -9,6 +9,7 @@ import snpio.utils.custom_exceptions as exceptions
 
 if TYPE_CHECKING:
     import logging
+
     from snpio.filtering.nremover2 import NRemover2
 
 
