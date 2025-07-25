@@ -6,31 +6,26 @@ from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple
 
 import holoviews as hv
 import matplotlib as mpl
-from pysam import index
+import plotly.express as px
 
 mpl.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import seaborn as sns
 from holoviews import opts
 from mpl_toolkits.mplot3d import Axes3D  # Don't remove this import.
 
 hv.extension("bokeh")
 
-from sklearn.decomposition import PCA
-from sklearn.impute import KNNImputer
-from sklearn.preprocessing import StandardScaler
-
-from snpio.analysis.genotype_encoder import GenotypeEncoder
 from snpio.utils import misc
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC, build_dataframe
 from snpio.utils.multiqc_reporter import SNPioMultiQC
 
 if TYPE_CHECKING:
+    from snpio.read_input.genotype_data import GenotypeData
     from snpio.utils.missing_stats import MissingStats
 
 
@@ -73,7 +68,7 @@ class Plotting:
 
     def __init__(
         self,
-        genotype_data: Any,
+        genotype_data: "GenotypeData",
         show: bool | None = None,
         plot_format: str | None = None,
         dpi: int | None = None,
@@ -99,29 +94,20 @@ class Plotting:
             debug (bool | None): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
 
         Note:
-            - The `genotype_data` attribute must be provided during initialization.
-
             - The `show`, `plot_format`, `dpi`, `plot_fontsize`, `plot_title_fontsize`, `despine`, `verbose`, and `debug` attributes are set based on the provided values, the `genotype_data` object, or default values.
 
-            - The `output_dir` attribute is set to the `prefix_output/nremover/plots` directory.
+            - The `output_dir` attribute is set to the `prefix_output/nremover/plots` directory or the `prefix_output/plots` directory if the genotype data was not filtered when initializing the `Plotting` class.
 
-            - The `logger` attribute is set based on the `debug` attribute.
-
-            - The `boolean_filter_methods`, `missing_filter_methods`, and `maf_filter_methods` attributes are set to lists of filter methods.
-
-            - The `mpl_params` dictionary contains default Matplotlib parameters for the plots.
-
-            - The Matplotlib parameters are updated with the `mpl_params` dictionary.
+            - The `mpl_params` dictionary contains default Matplotlib parameters for the plots and are updated with the `mpl_params` dictionary.
 
             - The `plotting` object is used to set the attributes based on the provided values, the `genotype_data` object, or default values.
         """
         self.genotype_data = genotype_data
         self.prefix: str = getattr(genotype_data, "prefix", "plot")
 
+        self.output_dir: Path = Path(f"{self.prefix}_output")
         if self.genotype_data.was_filtered:
-            self.output_dir: Path = Path(f"{self.prefix}_output") / "nremover"
-        else:
-            self.output_dir: Path = Path(f"{self.prefix}_output")
+            self.output_dir: Path = self.output_dir / "nremover"
 
         self.output_dir_gd: Path = self.output_dir / "plots" / "gtdata"
         self.output_dir_analysis: Path = self.output_dir / "plots" / "analysis"
@@ -600,7 +586,13 @@ class Plotting:
     def plot_d_statistics(
         self, df: pd.DataFrame, method: Literal["patterson", "partitioned", "dfoil"]
     ) -> None:
-        """Create plots for D-statistics with multiple‐test corrections."""
+        """Create plots for D-statistics with multiple-test corrections.
+
+        This method generates plots for D-statistics based on the specified method. It creates a bar plot of significance counts and a distribution plot of Z-scores.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing D-statistics results with columns for significance and Z-scores. Expected columns include: "Significant (Raw)", "Significant (Bonferroni)", "Significant (FDR-BH)", "Z_<stat>" (or just "Z" if method == "patterson"), and sample combo columns starting with "P_<stat>".
+        """
         method = method.lower()
         if method not in {"patterson", "partitioned", "dfoil"}:
             raise ValueError(f"Unsupported method: {method}")
@@ -614,7 +606,7 @@ class Plotting:
 
         # 1) Bar Plot of Significance Counts
         fig, ax = plt.subplots(figsize=(14, 6))
-        if method != "dfoil":
+        if method == "patterson":
             # Single-vector: raw, bonf, fdr
             sig = df["Significant (Raw)"].sum()
             ns = (~df["Significant (Raw)"]).sum()
@@ -627,8 +619,8 @@ class Plotting:
                     "Correction": [
                         "Raw",
                         "Raw",
-                        "Bonferri",
-                        "Bonferri",
+                        "Bonferroni",
+                        "Bonferroni",
                         "FDR-BH",
                         "FDR-BH",
                     ],
@@ -639,8 +631,51 @@ class Plotting:
             sns.barplot(
                 data=counts, x="Correction", y="Count", hue="Significance", ax=ax
             )
-            ax.set_title(f"{method.capitalize()} D-Statistics Significance Counts")
-        else:
+            ax.set_title("Patterson's D-Statistics Significance Counts")
+
+        elif method == "partitioned":
+            # Partitioned: 3 stats × 3 corrections
+            dnames = ["D1", "D2", "D12"]
+            rows = []
+
+            for stat in dnames:
+                for corr, col in [
+                    ("Raw", f"P_{stat}"),
+                    ("Bonferroni", f"P_{stat}_bonf"),
+                    ("FDR-BH", f"P_{stat}_fdr"),
+                ]:
+                    sig = (df[col] < 0.05).sum()
+                    ns = (df[col] >= 0.05).sum()
+                    rows.append(
+                        {
+                            "Stat": stat,
+                            "Correction": corr,
+                            "Significant": sig,
+                            "Not Significant": ns,
+                        }
+                    )
+
+            counts = pd.DataFrame(rows).melt(
+                id_vars=["Stat", "Correction"],
+                value_vars=["Significant", "Not Significant"],
+                var_name="Sig",
+                value_name="Count",
+            )
+            sns.catplot(
+                data=counts,
+                x="Stat",
+                y="Count",
+                hue="Sig",
+                col="Correction",
+                kind="bar",
+                height=6,
+                aspect=1,
+                sharey=False,
+            )
+            ax = plt.gca()
+            ax.set_title("Partitioned D-Statistics Significance Counts")
+
+        elif method == "dfoil":
             # DFOIL: 4 stats × 3 corrections
             dnames = ["DFO", "DFI", "DOL", "DIL"]
             rows = []
@@ -689,11 +724,27 @@ class Plotting:
 
         # 2) Distribution of Z-Scores
         fig, ax = plt.subplots(figsize=(10, 6))
-        if method != "dfoil":
-            sns.histplot(df["Z-Score"], kde=True, ax=ax)
-            ax.axvline(df["Z-Score"].mean(), linestyle="--")
+        if method == "patterson":
+            sns.histplot(df["Z"], kde=True, ax=ax)
+            ax.axvline(df["Z"].mean(), linestyle="--")
             ax.set_title(f"{method.capitalize()} Z-Score Distribution")
             ax.set_xlabel("Z-Score")
+
+        elif method == "partitioned":
+            # melt D1, D2, D12
+            dnames = ["D1", "D2", "D12"]
+            melt = df[[f"Z_{s}" for s in dnames]].melt(
+                var_name="Statistic", value_name="Z-score"
+            )
+            sns.histplot(
+                data=melt,
+                x="Z-score",
+                hue="Statistic",
+                multiple="stack",
+                kde=True,
+                ax=ax,
+            )
+            ax.set_title("Partitioned D-Statistics Z-Score Distribution")
         else:
             # melt Z_DFO, Z_DFI, etc.
             dnames = ["DFO", "DFI", "DOL", "DIL"]
@@ -709,6 +760,7 @@ class Plotting:
                 ax=ax,
             )
             ax.set_title("D-FOIL Z-Score Distribution")
+            ax.set_xlabel("Z-Score")
         out = f"{method}_z_distribution.{self.plot_format}"
         plt.tight_layout()
         fig.savefig(self.output_dir_analysis / out)
@@ -721,15 +773,34 @@ class Plotting:
         n = df["Sample Combo"].nunique()
         fig_height = max(8, n * 0.4)
         fig, ax = plt.subplots(figsize=(14, fig_height))
-        if method != "dfoil":
+        if method == "patterson":
             sns.barplot(
                 data=df,
-                x="Z-Score",
+                x="Z",
                 y="Sample Combo",
                 hue="Significant (FDR-BH)",
                 ax=ax,
             )
-            ax.set_title(f"{method.capitalize()} Z-Score per Sample Combo")
+            ax.set_title("Patterson's D Z-Score per Sample Combo")
+
+        elif method == "partitioned":
+            dfnames = ["D1", "D2", "D12"]
+
+            melt = df.melt(
+                id_vars=["Sample Combo"],
+                value_vars=[f"Z_{s}" for s in dfnames],
+                var_name="Statistic",
+                value_name="Z-Score",
+            )
+            sns.barplot(
+                data=melt,
+                x="Z-Score",
+                y="Sample Combo",
+                hue="Statistic",
+                ax=ax,
+            )
+            ax.set_title("Partitioned-D Z-Score per Sample Combo")
+
         else:
             # for DFOIL we stack 4 bars per combo
             dnames = ["DFO", "DFI", "DOL", "DIL"]
@@ -756,7 +827,7 @@ class Plotting:
             plt.show()
         plt.close()
 
-        if method != "dfoil":
+        if method == "patterson":
             # Patterson or Partitioned
             # Format significance counts into a two‐column table
             significance_df = pd.DataFrame(
@@ -774,18 +845,26 @@ class Plotting:
                     ],
                 }
             ).melt(id_vars="Correction", var_name="Significance", value_name="Count")
+
             significance_df = self._format_significance_labels(significance_df)
+
+            if method == "patterson":
+                method_name_pretty = "Patterson's 4-taxon D-statistic"
+            elif method == "partitioned":
+                method_name_pretty = "Partitioned D-statistic"
+            elif method == "dfoil":
+                method_name_pretty = "DFOIL D-statistic"
 
             self.snpio_mqc.queue_table(
                 df=significance_df,
                 panel_id=f"{method}_d_statistics_significance_counts",
                 section="introgression",
-                title=f"SNPio: {method.capitalize()} D-Statistics Significance Counts",
+                title=f"SNPio: {method_name_pretty} D-Statistics Significance Counts",
                 index_label="Significance (Correction)",
-                description="Counts of significant and not significant D-statistics under each multiple‐test correction.",
+                description=f"This table summarizes the number of significant and non-significant {method_name_pretty} results. It provides counts for uncorrected p-values, as well as for values adjusted using Bonferroni and FDR-BH multiple-test corrections.",
                 pconfig={
                     "id": f"{method}_d_statistics_significance_counts",
-                    "title": f"SNPio: {method.capitalize()} D-Statistics Significance Counts",
+                    "title": f"SNPio: {method_name_pretty} D-Statistics Significance Counts",
                     "col1_header": "Significance (Correction)",
                     "scale": "YlOrBr",
                     "namespace": "introgression",
@@ -797,22 +876,22 @@ class Plotting:
                     },
                     "Count": {
                         "title": "Number of D-statistics",
-                        "description": "How many sample‐combinations were significant or not.",
+                        "description": "How many sample-combinations were significant or not.",
                         "scale": "YlOrBr",
                     },
                 },
             )
 
             self.snpio_mqc.queue_custom_lineplot(
-                df=df["Z-Score"],
+                df=df["Z"],
                 panel_id=f"{method}_d_statistics_distribution",
                 section="introgression",
-                title=f"SNPio: {method.capitalize()} D-Statistics Z-Score Distribution",
-                description="Distribution of Z-scores across all sample combinations.",
+                title=f"SNPio: {method_name_pretty} D-Statistics Z-Score Distribution",
+                description="This plot illustrates the distribution of Z-scores for all sample combinations, providing a visual assessment of the overall trend and variance in the D-statistic results.",
                 index_label="Z-Score Bins",
                 pconfig={
                     "id": f"{method}_d_statistics_distribution",
-                    "title": f"SNPio: {method.capitalize()} Z-Score Distribution",
+                    "title": f"SNPio: {method_name_pretty} Z-Score Distribution",
                     "xlab": "Z-Score",
                     "ylab": "Estimated Density",
                     "ymin": 0,
@@ -821,9 +900,15 @@ class Plotting:
                 },
             )
 
-        else:
+        elif method in {"partitioned", "dfoil"}:
             # NOTE: DFOIL is different — build 4×3 table of significance counts
-            dnames = ["DFO", "DFI", "DOL", "DIL"]
+
+            dfnames = (
+                ["D1", "D2", "D12"]
+                if method == "partitioned"
+                else ["DFO", "DFI", "DOL", "DIL"]
+            )
+
             rows = []
             for stat in dnames:
                 for corr, col in [
@@ -841,6 +926,7 @@ class Plotting:
                             "Not Significant": ns,
                         }
                     )
+
             significance_df = pd.DataFrame(rows).melt(
                 id_vars=["Statistic", "Correction"],
                 value_vars=["Significant", "Not Significant"],
@@ -852,20 +938,20 @@ class Plotting:
                 df=significance_df,
                 panel_id=f"{method}_d_statistics_significance_counts",
                 section="introgression",
-                title="SNPio: D-FOIL D-Statistics Significance Counts",
+                title=f"SNPio: {method_name_pretty} D-Statistics Significance Counts",
                 index_label="Statistic / Correction",
-                description="Per‐statistic and per‐correction counts of significant vs non‐significant tests for D-FOIL.",
+                description=f"This table breaks down the counts of significant versus non-significant tests for each {method_name_pretty} D-statistic ({', '.join(dfnames)}), categorized by the type of multiple-test correction applied (Uncorrected, Bonferroni, FDR-BH).",
                 pconfig={
                     "id": f"{method}_d_statistics_significance_counts",
-                    "title": "SNPio: D-FOIL Significance Counts",
+                    "title": f"SNPio: {method_name_pretty} Significance Counts",
                     "col1_header": "Statistic, Correction",
                     "scale": "YlOrBr",
                     "namespace": "introgression",
                 },
                 headers={
                     "Statistic": {
-                        "title": "DFOIL Statistic",
-                        "description": "Which sub‐statistic (DFO, DFI, DOL, DIL).",
+                        "title": f"{method.capitalize()} Statistic",
+                        "description": f"Which sub-statistic ({', '.join(dfnames)}).",
                     },
                     "Correction": {
                         "title": "P-Value Correction",
@@ -873,7 +959,7 @@ class Plotting:
                     },
                     "Count": {
                         "title": "Number of Tests",
-                        "description": "Count of sample‐combinations in each category.",
+                        "description": "Count of sample-combinations in each category.",
                         "scale": "YlOrBr",
                     },
                 },
@@ -885,12 +971,12 @@ class Plotting:
                     df=df[f"Z_{stat}"],
                     panel_id=f"{method}_{stat}_z_distribution",
                     section="introgression",
-                    title=f"SNPio: D-FOIL {stat} Z-Score Distribution",
-                    description=f"Distribution of Z-scores for D-FOIL {stat}.",
+                    title=f"SNPio: {method_name_pretty} {stat} Z-Score Distribution",
+                    description=f"This plot shows the distribution of Z-scores specifically for the {stat} component of the {method_name_pretty} D-statistic, allowing for a detailed look at its behavior across all sample combinations.",
                     index_label="Z-Score Bins",
                     pconfig={
                         "id": f"{method}_{stat}_z_distribution",
-                        "title": f"D-FOIL {stat} Z-Score Distribution",
+                        "title": f"{method_name_pretty} {stat} Z-Score Distribution",
                         "xlab": "Z-Score",
                         "ylab": "Estimated Density",
                         "ymin": 0,
@@ -898,6 +984,10 @@ class Plotting:
                         "xmax": 4.5,
                     },
                 )
+        else:
+            msg = f"Unsupported method for D-statistics plotting: {method}. Supported methods are 'patterson', 'partitioned', and 'dfoil'."
+            self.logger.error(msg)
+            raise ValueError(msg)
 
     def _format_significance_labels(self, df: pd.DataFrame) -> pd.DataFrame:
         df["Significance (Correction)"] = (
@@ -927,6 +1017,11 @@ class Plotting:
         Args:
             outlier_snps (pd.DataFrame): DataFrame containing outlier SNPs and their Fst values.
             method (str): Method used for outlier detection ("dbscan" or "permutation").
+            max_outliers_to_plot (int | None): Maximum number of outliers to plot. If None, all outliers are plotted.
+
+        Raises:
+            ValueError: If the method is not "dbscan" or "permutation".
+            ValueError: If max_outliers_to_plot is not positive.
         """
 
         # Copy the DataFrame to avoid modifying the original data
@@ -1019,16 +1114,18 @@ class Plotting:
         plt.close()
 
         if max_outliers_to_plot is None:
+            method_pretty = "DBSCAN" if method == "dbscan" else "Permutation"
+
             self.snpio_mqc.queue_heatmap(
                 df=fst_pivot,
                 panel_id=f"fst_outliers_{method}_method",
                 section="outliers",
-                title=f"SNPio: Fst Outliers ({method.capitalize()} Method)",
-                description=f"Fst outliers detected using the {method} method. The table contains the locus names for Fst outliers, adjusted P-values (q_value), contributing population pairs to each outlier, and the observed Weir and Cockerham (1984) Fst values. All outliers are shown. Q-values are adjusted P-values based on the specified multiple test correction method.",
+                title=f"SNPio: Fst Outliers ({method_pretty} Method)",
+                description=f"This heatmap displays Fst outliers detected using the {method_pretty} method. The table includes locus names for Fst outliers, their adjusted P-values (q-values), the population pairs contributing to each outlier, and the observed Weir and Cockerham (1984) Fst values. All outliers are shown. Q-values represent adjusted P-values based on the chosen multiple test correction method.",
                 index_label="Contributing Population Pair",
                 pconfig={
                     "id": f"fst_outliers_{method}_method",
-                    "title": f"SNPio: Fst Outliers ({method.capitalize()} Method)",
+                    "title": f"SNPio: Fst Outliers ({method_pretty} Method)",
                     "xlab": "Population 1",
                     "ylab": "Population 2",
                     "zlab": "Q-value (Adjusted P-value)",
@@ -1043,18 +1140,20 @@ class Plotting:
             and isinstance(max_outliers_to_plot, int)
             and max_outliers_to_plot > 0
         ):
+            method_pretty = "DBSCAN" if method == "dbscan" else "Permutation"
+
             self.snpio_mqc.queue_heatmap(
                 df=fst_pivot[["Locus", "q_value", "Population_Pair"]]
                 .set_index(["Locus", "Population_Pair"])
                 .head(max_outliers_to_plot),
                 panel_id=f"fst_outliers_{method}_method",
                 section="outliers",
-                title=f"SNPio: Fst Outliers ({method.capitalize()} Method)",
-                description=f"Fst outliers detected using the {method} method. The table contains the locus names for Fst outliers, adjusted P-values (q_value), contributing population pairs to each outlier, and the observed Weir and Cockerham (1984) Fst values. Due to space limitations, only the top {max_outliers_to_plot} outliers are shown. Q-values are adjusted P-values based on the specified multiple test correction method.",
+                title=f"SNPio: Fst Outliers ({method_pretty} Method)",
+                description=f"This heatmap displays Fst outliers detected using the {method_pretty} method. The table includes locus names for Fst outliers, their adjusted P-values (q-values), the population pairs contributing to each outlier, and the observed Weir and Cockerham (1984) Fst values. For space reasons, only the top {max_outliers_to_plot} outliers are displayed. Q-values represent adjusted P-values based on the chosen multiple test correction method.",
                 index_label="Contributing Population Pair",
                 pconfig={
                     "id": f"fst_outliers_{method}_method",
-                    "title": f"SNPio: Fst Outliers ({method.capitalize()} Method)",
+                    "title": f"SNPio: Fst Outliers ({method_pretty} Method)",
                     "xlab": "Population 1",
                     "ylab": "Population 2",
                     "zlab": "Q-value (Adjusted P-value)",
@@ -1070,15 +1169,17 @@ class Plotting:
             raise ValueError(msg)
 
     def plot_summary_statistics(
-        self, summary_statistics: dict, use_pvalues: bool = False
+        self,
+        summary_statistics: Dict[str, pd.DataFrame | pd.Series | dict],
+        use_pvalues: bool = False,
     ) -> None:
         """Plot summary statistics per sample and per population.
 
         This method plots summary statistics per sample and per population on the same figure. The summary statistics are plotted as lines for each statistic (Ho, He, Pi, Fst). The method also plots summary statistics per sample and per population using Seaborn PairGrid plots. The method saves the plots to the output directory and displays them if ``show`` is True.
 
         Args:
-            summary_statistics (dict): Dictionary containing summary statistics for plotting.
-            use_pvalues (bool, optional): If True, display p-values for Fst values. Defaults to False.
+            summary_statistics (Dict[str, pd.DataFrame | pd.Series | dict]): Dictionary containing summary statistics for plotting.
+            use_pvalues (bool): If True, display p-values for Fst values. Defaults to False.
         """
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=False)
 
@@ -1139,11 +1240,7 @@ class Plotting:
             section="detailed_statistics",
             title="SNPio: Summary Statistics",
             index_label="Summary Statistic",
-            description=(
-                "Box plot of genetic differentiation summary statistics: "
-                "(Nucleotide Diversity (Pi), Expected Heterozygosity (He), "
-                "Observed Heterozygosity (Ho)). Each overlaid point corresponds to an outlier locus outside the Interquartile Range (IQR)."
-            ),
+            description="This box plot visualizes key genetic differentiation summary statistics: Nucleotide Diversity (Pi), Expected Heterozygosity (He), and Observed Heterozygosity (Ho). Each point overlaid on the plot represents an outlier locus falling outside the Interquartile Range (IQR).",
             pconfig={
                 "id": "summary_statistics_overall",
                 "title": "SNPio: Summary Statistics",
@@ -1173,27 +1270,15 @@ class Plotting:
 
         df_per_pop_pivot_ho = df_per_pop[
             ["Locus (CHROM:POS)", "Population ID", "Ho"]
-        ].pivot(
-            index="Locus (CHROM:POS)",
-            columns="Population ID",
-            values="Ho",
-        )
+        ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="Ho")
 
         df_per_pop_pivot_he = df_per_pop[
             ["Locus (CHROM:POS)", "Population ID", "He"]
-        ].pivot(
-            index="Locus (CHROM:POS)",
-            columns="Population ID",
-            values="He",
-        )
+        ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="He")
 
         df_per_pop_pivot_pi = df_per_pop[
             ["Locus (CHROM:POS)", "Population ID", "Pi"]
-        ].pivot(
-            index="Locus (CHROM:POS)",
-            columns="Population ID",
-            values="Pi",
-        )
+        ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="Pi")
 
         self.snpio_mqc.queue_custom_boxplot(
             df=df_per_pop_pivot_pi,
@@ -1201,7 +1286,7 @@ class Plotting:
             section="detailed_statistics",
             title="SNPio: Per-locus Nucleotide Diversity (Pi) for each Population",
             index_label="Locus (CHROM:POS)",
-            description="Box plot of per-locus Nucleotide Diversity (Pi) for each population. Points represent outlier loci outside the box whiskers.",
+            description="This box plot displays the per-locus Nucleotide Diversity (Pi) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual diversity levels within a population.",
         )
 
         self.snpio_mqc.queue_custom_boxplot(
@@ -1210,7 +1295,7 @@ class Plotting:
             section="detailed_statistics",
             title="SNPio: Per-locus Expected Heterozygosity (He) for each Population",
             index_label="Locus (CHROM:POS)",
-            description="Box plot of per-locus Expected Heterozygosity (He) for each population. Points represent outlier loci outside the box whiskers.",
+            description="This box plot shows the per-locus Expected Heterozygosity (He) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual expected heterozygosity levels within a population.",
         )
 
         self.snpio_mqc.queue_custom_boxplot(
@@ -1219,7 +1304,7 @@ class Plotting:
             section="detailed_statistics",
             title="SNPio: Per-locus Observed Heterozygosity (Ho) for each Population",
             index_label="Locus (CHROM:POS)",
-            description="Box plot of per-locus Observed Heterozygosity (Ho) for each population. Points represent outlier loci outside the box whiskers.",
+            description="This box plot presents the per-locus Observed Heterozygosity (Ho) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual observed heterozygosity levels within a population.",
         )
 
         # Plot Fst heatmap
@@ -1232,6 +1317,7 @@ class Plotting:
         )
 
     def _flatten_fst_data(self, fst_dict, stat_name):
+        """Flatten the Fst data into a tidy DataFrame."""
         df = pd.DataFrame(fst_dict).T
         df.index.name = "Population"
         df.reset_index(inplace=True)
@@ -1243,6 +1329,7 @@ class Plotting:
         }
 
     def _flatten_overall(self, overall_dict):
+        """Flatten the overall statistics into a tidy DataFrame."""
         df = pd.DataFrame(overall_dict)
         df = df.reset_index()
         df = df.rename(columns={"index": "Index"})
@@ -1260,12 +1347,11 @@ class Plotting:
         second level. It will convert DataFrames to dicts, Series to lists,
         and handle other types accordingly.
 
+        Args:
+            per_pop_dict (Dict[str, Any]): A dictionary where keys are population identifiers and values are either dicts, DataFrames, or Series containing statistics.
+
         Returns:
-            pd.DataFrame: A tidy DataFrame with the following columns:
-            - population: Population identifier
-            - locus: Locus index
-            - He: Expected heterozygosity
-            - Ho: Observed heterozygosity
+            pd.DataFrame: A tidy DataFrame with the following columns: population: Population identifier, locus: Locus index, He: Expected heterozygosity, Ho: Observed heterozygosity
         """
         rows: Dict[Dict[str, Any]] = {}
 
@@ -1346,8 +1432,8 @@ class Plotting:
 
         Args:
             df (pd.DataFrame): The input DataFrame containing the filtering report.
-            search_mode (bool, optional): Whether the Sankey diagram is being plotted in search mode. Defaults to False.
-            fn (str | None, optional): The filename to save the plot. If None, the default filename is used. Defaults to None.
+            search_mode (bool): Whether the Sankey diagram is being plotted in search mode. Defaults to False.
+            fn (str | None): The filename to save the plot. If None, the default filename is used. Defaults to None.
 
         Returns:
             None: A plot is saved to a file.
@@ -1575,9 +1661,7 @@ class Plotting:
             section="filtering",
             title="SNPio: Sankey Filtering Report",
             index_label="Filter Method",
-            description=(
-                "Sankey filtering report showing the flow of loci through the filtering steps. Retained loci are shown in green, while removed loci are shown in red. The Sankey diagram shows the number of loci kept and removed at each step."
-            ),
+            description="This Sankey diagram visualizes the flow of loci through various filtering steps. Loci that are retained are shown in green, while those removed are shown in red. The diagram interactively displays the number of loci kept and removed at each stage of the filtering process.",
         )
 
         self.logger.info(f"Sankey filtering report diagram saved to: {fname}")
@@ -1589,7 +1673,6 @@ class Plotting:
 
         Args:
             df (pd.DataFrame): The input dataframe containing the genotype counts.
-
             annotation_size (int, optional): The font size for count annotations. Defaults to 15.
 
         Returns:
@@ -1647,9 +1730,7 @@ class Plotting:
             panel_id="genotype_distribution",
             section="genotype_distribution",
             title="SNPio: Genotype Distribution",
-            description=(
-                "Bar plot showing the distribution of genotype counts across all samples."
-            ),
+            description="This bar plot shows the total counts of different genotypes (e.g., A/A, A/T, T/T) across all samples and all loci in the dataset, providing a summary of the allelic variation.",
             index_label="Genotype Int",
         )
 
@@ -1665,18 +1746,6 @@ class Plotting:
 
         Raises:
             ValueError: Raised if the input dataframe is empty.
-
-        Note:
-            - The input dataframe must contain the filtering results.
-            - The input dataframe must contain the filtering results for the per-sample and per-locus missing data proportions.
-            - The input dataframe must contain the filtering results for the MAF and boolean filtering thresholds.
-            - The input dataframe must contain the filtering results for the removed and kept loci proportions.
-            - The input dataframe must contain the filtering results for the removed and kept loci counts.
-            - The input dataframe must contain the filtering results for the filtering method.
-            - The input dataframe must contain the filtering results for the filtering step.
-            - The input dataframe must contain the filtering results for the filtering thresholds.
-            - The input dataframe must contain the filtering results for the removed and kept loci counts.
-            - The input dataframe must contain the filtering results for the removed and kept loci proportions.
         """
         if df_combined.empty:
             msg = "No data to plot. Please check the filtering thresholds."
@@ -1686,11 +1755,11 @@ class Plotting:
         self.logger.info("Plotting search results.")
         self.logger.debug(f"Combined data: {df_combined}")
 
-        df_combined["Missing_Threshold"] = df_combined["Missing_Threshold"].round(2)
-        df_combined["MAF_Threshold"] = df_combined["MAF_Threshold"].round(2)
-        df_combined["Bool_Threshold"] = df_combined["Bool_Threshold"].round(2)
-        df_combined["Removed_Prop"] = df_combined["Removed_Prop"].round(2)
-        df_combined["Kept_Prop"] = df_combined["Kept_Prop"].round(2)
+        df_combined["Missing_Threshold"] = df_combined["Missing_Threshold"].round(3)
+        df_combined["MAF_Threshold"] = df_combined["MAF_Threshold"].round(3)
+        df_combined["Bool_Threshold"] = df_combined["Bool_Threshold"].round(3)
+        df_combined["Removed_Prop"] = df_combined["Removed_Prop"].round(3)
+        df_combined["Kept_Prop"] = df_combined["Kept_Prop"].round(3)
 
         # Existing plotting methods
         self._plot_combined(df_combined)
@@ -1707,9 +1776,7 @@ class Plotting:
             section="filtering",
             title="SNPio: Combined NRemover2 Filtering Results",
             index_label="Filter Method",
-            description=(
-                "Combined filtering results showing the proportion of loci removed and kept for each filtering method."
-            ),
+            description="This table presents a comprehensive summary of the filtering results from the NRemover2 search, detailing the proportion of loci that were removed and kept for each filtering method and its corresponding threshold.",
             pconfig={
                 "id": "filtering_results_combined",
                 "title": "SNPio: Combined NRemover2 Filtering Results",
@@ -1789,13 +1856,121 @@ class Plotting:
 
             plt.close()
 
+            outpath = self._plot_combined_missing_plotly(df)
+
+            self.snpio_mqc.queue_html(
+                html=outpath,
+                panel_id="filtering_results_missing_loci_samples_plotly",
+                section="filtering",
+                title="SNPio: Missing Data Filtering Results (Per-locus and Sample)",
+                index_label="Filter Method",
+                description="This interactive plot displays the results of missing data filtering, showing the proportion of loci removed and kept for various missing data thresholds, applied at both a per-locus and per-sample level.",
+            )
+
         else:
-            self.logger.info("Missing data filtering results ares empty.")
+            self.logger.info("Missing data filtering results are empty.")
+
+    def _plot_combined_missing_plotly(self, df: pd.DataFrame) -> Path:
+        df = df[
+            df["Filter_Method"].isin(["filter_missing", "filter_missing_sample"])
+        ].copy()
+
+        if df.empty:
+            self.logger.info("Missing data filtering results are empty.")
+            raise ValueError("No sample or global missing data to plot.")
+
+        self.logger.info(
+            "Plotting global and sample-level missing data filtering results."
+        )
+        self.logger.debug(f"Missing data: {df}")
+
+        # Melt and build legend labels
+        plot_df = self._prepare_plot_dataframe(
+            df,
+            id_vars=[
+                "Missing_Threshold",
+                "Filter_Method",
+                "Kept_Count",
+                "Removed_Count",
+            ],
+        )
+
+        fig = px.line(
+            plot_df,
+            x="Missing_Threshold",
+            y="Proportion",
+            color="Legend_Label",
+            line_group="Legend_Label",
+            markers=True,
+            hover_data={
+                "Missing_Threshold": True,
+                "Proportion": ":.3f",
+                "Filter_Method": True,
+                "Filter_Type": True,
+            },
+            title="Global and Sample-Level Missing Data Filtering",
+        )
+
+        fig.update_layout(
+            template="plotly_white",
+            xaxis_title="Missing Data Threshold",
+            yaxis_title="Proportion",
+            height=500,
+            width=1000,
+            margin=dict(t=60, b=50),
+        )
+        fig.update_xaxes(range=[-0.01, 1.01])
+        fig.update_yaxes(range=[-0.05, 1.12])
+
+        outpath: Path = (
+            self.output_dir_gd / "filtering_results_missing_loci_samples.html"
+        )
+        fig.write_html(str(outpath), include_plotlyjs="cdn")
+        return outpath
+
+    def _prepare_plot_dataframe(
+        self, df: pd.DataFrame, id_vars: List[str]
+    ) -> pd.DataFrame:
+        """Prepare the DataFrame for plotting combined missing data results.
+
+        This method prepares the DataFrame for plotting combined missing data results. It melts the DataFrame to create a long format suitable for plotting with Plotly. The resulting DataFrame contains the missing data thresholds, filter methods, removed and kept counts, and proportions for each filter type.
+
+        Args:
+            df (pd.DataFrame): The input DataFrame containing the missing data results.
+            id_vars (List[str]): The columns to melt the DataFrame on.
+        Returns:
+            pd.DataFrame: The prepared DataFrame for plotting.
+        """
+        plot_df = df.melt(
+            id_vars=id_vars,
+            value_vars=["Removed_Prop", "Kept_Prop"],
+            var_name="Filter_Type",
+            value_name="Proportion",
+        )
+
+        group_vars = [x for x in id_vars if not x.endswith("Count")]
+        group_vars += ["Filter_Type"]
+        plot_df = plot_df.groupby(group_vars, as_index=False).agg(
+            {"Proportion": "mean"}
+        )
+        plot_df = plot_df.drop_duplicates(subset=group_vars)
+
+        if "Filter_Method" in plot_df.columns:
+            plot_df["Legend_Label"] = (
+                plot_df["Filter_Method"] + " - " + plot_df["Filter_Type"]
+            )
+        else:
+            plot_df["Legend_Label"] = (
+                "Population-wise Missing - " + plot_df["Filter_Type"]
+            )
+
+        # Sort for clean lines
+        return plot_df.sort_values(by=[id_vars[0], "Legend_Label"])
 
     def _plot_pops(self, df: pd.DataFrame) -> None:
         """Plot population-level missing data proportions.
 
-        This method plots the proportion of loci removed and kept for each population-level missing data threshold. The plot is saved to a file.
+        This method plots the proportion of loci removed and kept for each population-level missing data threshold. The plot is saved to a file. The plot shows the proportion of loci removed and kept for each missing data threshold at the population level. The plot is saved to a file in the output directory with the filename: ``<prefix>_output/gtdata/plots/filtering_results_missing_population.{plot_format}``.
 
         Args:
             df (pd.DataFrame): The input dataframe containing the population-level missing data.
@@ -1805,16 +1980,6 @@ class Plotting:
 
         Raises:
             ValueError: Raised if the input dataframe is empty.
-
-        Note:
-            - The input dataframe must contain the population-level missing data proportions.
-            - The input dataframe must contain the population-level missing data proportions for the removed and kept loci.
-            - The input dataframe must contain the population-level missing data proportions for the missing data threshold.
-            - The input dataframe must contain the population-level missing data proportions for the filtering method.
-            - The input dataframe must contain the population-level missing data proportions for the filtering step.
-            - The input dataframe must contain the population-level missing data proportions for the removed and kept loci counts.
-            - The input dataframe must contain the population-level missing data proportions for the removed and kept loci proportions.
-            - The input dataframe must contain the population-level missing data proportions for the filtering thresholds.
         """
         df = df[df["Filter_Method"] == "filter_missing_pop"].copy()
 
@@ -1858,8 +2023,69 @@ class Plotting:
 
             plt.close()
 
+            outfile = self._plot_missing_pop_plotly(df)
+
+            self.snpio_mqc.queue_html(
+                html=outfile,
+                panel_id="filtering_results_missing_population_plotly",
+                section="filtering",
+                title="SNPio: Population-Level Missing Data Filtering",
+                index_label="Missing Threshold",
+                description="This interactive plot illustrates how the proportion of loci changes with different missing data thresholds applied at the population level. Loci are retained only if they meet the specified missing data threshold across all populations; otherwise, they are removed.",
+            )
+
         else:
             self.logger.info("Population-level missing data is empty.")
+
+    def _plot_missing_pop_plotly(self, df: pd.DataFrame) -> Path:
+        """Plot per-population missing data thresholds using Plotly Express.
+
+        This method generates an interactive line plot for the population-level missing data thresholds. The plot shows the proportion of loci removed and kept for each missing data threshold. The plot is saved to an HTML file.
+
+        Args:
+            df (pd.DataFrame): The input dataframe containing the population-level missing data.
+
+        Returns:
+            Path: The path to the generated HTML file.
+
+        Raises:
+            ValueError: Raised if the input dataframe is empty.
+        """
+        df = df[df["Filter_Method"] == "filter_missing_pop"].copy()
+
+        if df.empty:
+            self.logger.info("Population-level missing data is empty.")
+            raise ValueError("No population-level missing data to plot.")
+
+        self.logger.info("Plotting population-level missing data.")
+
+        plot_df = self._prepare_plot_dataframe(
+            df, id_vars=["Missing_Threshold", "Kept_Count", "Removed_Count"]
+        )
+
+        fig = px.line(
+            plot_df,
+            x="Missing_Threshold",
+            y="Proportion",
+            color="Legend_Label",
+            line_group="Legend_Label",
+            markers=True,
+            hover_data={"Missing_Threshold": True, "Proportion": ":.3f"},
+            title="Population-Level Missing Data Filtering",
+        )
+
+        fig.update_layout(
+            template="plotly_white",
+            xaxis_title="Missing Data Threshold",
+            yaxis_title="Proportion",
+            height=500,
+            width=900,
+        )
+        fig.update_yaxes(range=[-0.05, 1.12])
+
+        outpath = self.output_dir_gd / "filtering_results_missing_population.html"
+        fig.write_html(str(outpath), include_plotlyjs="cdn")
+        return outpath
 
     def _plot_maf(self, df: pd.DataFrame) -> None:
         """Plot MAF filtering data.
@@ -1922,7 +2148,6 @@ class Plotting:
                 plt.show()
 
             plt.close()
-
         else:
             self.logger.info("MAF data is empty.")
 
@@ -1963,6 +2188,118 @@ class Plotting:
         else:
             self.logger.info("MAC data is empty.")
 
+        if not df.empty or not df_mac.empty:
+            # Plot MAF and MAC data using Plotly
+            maf_outpath, mac_outpath = self._plot_maf_plotly(df)
+
+            if maf_outpath is not None:
+                self.snpio_mqc.queue_html(
+                    html=maf_outpath,
+                    panel_id="maf_thresholds",
+                    section="filtering",
+                    title="SNPio: MAF Threshold Search Results",
+                    index_label="Index",
+                    description="This interactive plot displays how the proportion of loci changes with different Minor Allele Frequency (MAF) thresholds. It helps in selecting an appropriate MAF filter by showing the trade-off between loci retained and removed.",
+                )
+
+            if mac_outpath is not None:
+                self.snpio_mqc.queue_html(
+                    html=mac_outpath,
+                    panel_id="mac_thresholds",
+                    section="filtering",
+                    title="SNPio: MAC Threshold Search Results",
+                    index_label="Index",
+                    description="This interactive plot shows the effect of different Minor Allele Count (MAC) thresholds on the dataset. It visualizes the proportion of loci that are kept or discarded, aiding in the selection of an optimal MAC filter.",
+                )
+
+    def _plot_maf_plotly(self, df: pd.DataFrame) -> Tuple[Path | None, Path | None]:
+        """Plot MAF and MAC filtering data using Plotly Express and save as HTML.
+
+        This method plots the MAF and MAC filtering data using Plotly Express. It generates interactive line plots for both MAF and MAC thresholds, showing the proportion of loci removed and kept. The plots are saved as HTML files.
+
+        Args:
+            df (pd.DataFrame): The input dataframe containing the MAF and MAC data.
+
+        Returns:
+            Tuple[Path | None, Path | None]: Paths to the saved HTML files for MAF and MAC plots.
+        """
+        df_mac = df[df["Filter_Method"] == "filter_mac"].copy()
+        df_maf = df[df["Filter_Method"] == "filter_maf"].copy()
+
+        if df_mac.empty and df_maf.empty:
+            self.logger.warning(
+                "Both MAF and MAC data are empty. Try checking the 'filter_mac' and/or 'filter_maf' filtering thresholds."
+            )
+            return None, None
+
+        if df_mac.empty or df_maf.empty:
+            self.logger.warning(
+                "One of MAF or MAC data is empty. Only plotting the available data."
+            )
+
+        maf_outpath = None
+        mac_outpath = None
+
+        # --- MAF Plot ---
+        if not df_maf.empty:
+            self.logger.info("Plotting minor allele frequency (MAF) data.")
+
+            plot_df = self._prepare_plot_dataframe(df_maf, id_vars=["MAF_Threshold"])
+
+            fig_maf = px.line(
+                plot_df,
+                x="MAF_Threshold",
+                y="Proportion",
+                color="Legend_Label",
+                line_group="Legend_Label",
+                markers=True,
+                hover_data={"MAF_Threshold": True, "Proportion": ":.3f"},
+                title="MAF Filtering Summary",
+            )
+
+            fig_maf.update_layout(
+                template="plotly_white",
+                xaxis_title="MAF Threshold",
+                yaxis_title="Proportion",
+                height=500,
+                width=900,
+            )
+            fig_maf.update_yaxes(range=[-0.05, 1.12])
+
+            maf_outpath = self.output_dir_gd / "filtering_results_maf.html"
+            fig_maf.write_html(str(maf_outpath), include_plotlyjs="cdn")
+
+        # --- MAC Plot (unchanged) ---
+        if not df_mac.empty:
+            self.logger.info("Plotting minor allele count (MAC) data.")
+
+            plot_df = self._prepare_plot_dataframe(df_mac, id_vars=["MAC_Threshold"])
+
+            fig_mac = px.line(
+                plot_df,
+                x="MAC_Threshold",
+                y="Proportion",
+                color="Legend_Label",
+                line_group="Legend_Label",
+                markers=True,
+                hover_data={"MAC_Threshold": True, "Proportion": ":.3f"},
+                title="MAC Filtering Summary",
+            )
+
+            fig_mac.update_layout(
+                template="plotly_white",
+                xaxis_title="MAC Threshold",
+                yaxis_title="Proportion",
+                height=500,
+                width=900,
+            )
+            fig_mac.update_yaxes(range=[-0.05, 1.12])
+
+            mac_outpath = self.output_dir_gd / "filtering_results_mac.html"
+            fig_mac.write_html(str(mac_outpath), include_plotlyjs="cdn")
+
+        return maf_outpath, mac_outpath
+
     def _plot_boolean(self, df: pd.DataFrame) -> None:
         """Plot boolean datasets, including: Monomorphic, Biallelic, Thin Loci, Singleton, and Linked.
 
@@ -1976,16 +2313,6 @@ class Plotting:
 
         Raises:
             ValueError: Raised if the input dataframe is empty.
-
-        Note:
-            - The input dataframe must contain the boolean filtering data.
-            - The input dataframe must contain the boolean filtering data for the removed and kept loci.
-            - The input dataframe must contain the boolean filtering data for the boolean filtering threshold.
-            - The input dataframe must contain the boolean filtering data for the filtering method.
-            - The input dataframe must contain the boolean filtering data for the filtering step.
-            - The input dataframe must contain the boolean filtering data for the removed and kept loci counts.
-            - The input dataframe must contain the boolean filtering data for the removed and kept loci proportions.
-            - The input dataframe must contain the boolean filtering data for the filtering thresholds.
         """
         df = df[df["Filter_Method"].isin(self.boolean_filter_methods)].copy()
 
@@ -1994,7 +2321,7 @@ class Plotting:
 
             fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
-            for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
+            for ax, ycol in zip(axs, ["Kept_Prop", "Removed_Prop"]):
                 ax: plt.Axes = sns.lineplot(
                     x="Bool_Threshold",
                     y=ycol,
@@ -2032,8 +2359,79 @@ class Plotting:
 
             plt.close()
 
+            # Melt the DataFrame for combined Removed_Prop and Kept_Prop plots
+            outpath = self._bool_filter_summary_plotly(df)
+
+            self.snpio_mqc.queue_html(
+                html=outpath,
+                panel_id="boolean_thresholds",
+                section="filtering",
+                title="SNPio: Boolean Filtering Results",
+                index_label="Index",
+                description="These line graphs show the impact of various boolean filters (e.g., Biallelic, Singletons, Monomorphic) on the dataset. The plots visualize the proportion of loci that are removed and kept, helping to understand the effect of each filtering criterion.",
+            )
+
         else:
-            self.logger.info("Boolean data is empty.")
+            self.logger.warning(
+                "Filtered boolean dataset was empty. This likely means that either 'filter_biallelic', 'filter_monomorphic', or 'filter_singletons' removed all loci."
+            )
+
+    def _bool_filter_summary_plotly(self, df: pd.DataFrame) -> Path:
+        """Plot boolean filtering results using Plotly Express.
+
+        This method creates an interactive line plot summarizing the boolean filtering results. It visualizes the proportion of loci removed and kept for each boolean filtering threshold, grouped by filter method and type.
+
+        Args:
+            df (pd.DataFrame): The input DataFrame containing boolean filtering data.
+
+        Returns:
+            Path: The path to the saved HTML file.
+        """
+        plot_df = self._prepare_plot_dataframe(
+            df,
+            id_vars=["Bool_Threshold", "Filter_Method", "Kept_Count", "Removed_Count"],
+        )
+
+        # Create line plot with hover data
+        fig = px.line(
+            plot_df,
+            x="Bool_Threshold",
+            y="Proportion",
+            color="Filter_Method",
+            line_dash="Filter_Type",
+            markers=True,
+            facet_col="Filter_Type",
+            facet_col_spacing=0.1,
+            hover_data={
+                "Bool_Threshold": True,
+                "Proportion": ":.3f",
+                "Filter_Method": True,
+                "Filter_Type": False,
+            },
+            title="Boolean Filtering Method Summary",
+        )
+
+        fig.update_layout(
+            template="plotly_white",
+            height=500,
+            width=950,
+            legend_title="Filter Method",
+            margin=dict(t=60, b=50),
+        )
+
+        fig.update_xaxes(
+            title_text="Heterozygous Genotypes",
+            tickvals=[0.0, 1.0],
+            ticktext=["Included", "Excluded"],
+            range=[-0.05, 1.05],
+        )
+
+        fig.update_yaxes(title_text="Proportion", range=[-0.05, 1.12])
+
+        # Save to file
+        outpath: Path = self.output_dir_gd / "filtering_results_bool.html"
+        fig.write_html(str(outpath), include_plotlyjs="cdn")
+        return outpath
 
     def plot_pop_counts(self, populations: pd.Series) -> None:
         """Plot the population counts.
@@ -2048,14 +2446,6 @@ class Plotting:
 
         Raises:
             ValueError: Raised if the input data is not a pandas Series.
-
-        Note:
-            - The population data should be in the format of a pandas Series.
-            - The plot will be saved in the '<prefix>_output/gtdata/plots' directory.
-            - Supported image formats include: "pdf", "svg", "png", and "jpeg" (or "jpg").
-            - The plot will be colored based on the median count and proportion.
-            - The plot will show the counts and proportions of each population ID.
-            - The plot will show the counts and proportions of each population ID.
         """
         # Create the countplot
         fig, axs = plt.subplots(1, 2, figsize=(16, 9))
@@ -2083,18 +2473,13 @@ class Plotting:
         df_perc.columns = ["Population ID", "Percentage"]
 
         color = "#8551A8"
-        unique_y = df["Population ID"].unique().tolist()
-        cats = {
-            "Count": {"name": "Count", "color": color},
-            "Proportion": {"name": "Proportion", "color": color},
-        }
 
         self.snpio_mqc.queue_barplot(
             df=[df, df_perc],
             panel_id="population_counts",
             section="overview",
             title="SNPio: Population Counts",
-            description="Counts samples belonging to each population.",
+            description="This bar plot displays the number of samples belonging to each population, providing a clear overview of the sample distribution across the defined populations.",
             index_label="Population ID",
             pconfig={
                 "id": "population_counts",
@@ -2157,13 +2542,15 @@ class Plotting:
 
         This method generates a series of bar plots and heatmaps to visualize the missing data statistics across individuals, loci, and populations. It calculates the missing proportions and creates visualizations to help identify patterns of missingness in the genotype data.
 
+        Args:
+            df (pd.DataFrame): The input DataFrame containing genotype data.
+            prefix (str, optional): Prefix for the output file names. Defaults to None.
+            zoom (bool, optional): If True, zooms in on the missing proportions (0-1). Defaults to False.
+            bar_color (str, optional): Color for the bar plots. Defaults to "gray".
+            heatmap_palette (str, optional): Color palette for the heatmaps. Defaults to "magma".
+
         Returns:
-            MissingStats: The dataclass bundle containing all missing value statistics. It contains the following attributes:
-            - per_individual: Series with missing proportions per individual.
-            - per_locus: Series with missing proportions per locus.
-            - per_population: Series with missing proportions per population.
-            - per_individual_population: DataFrame with missing proportions per individual and population.
-            - per_population_locus: DataFrame with missing proportions per population and locus.
+            MissingStats: The dataclass bundle containing all missing value statistics. It contains the following attributes: Per_individual: Series with missing proportions per individual, Per_locus: Series with missing proportions per locus, Per_population: Series with missing proportions per population, Per_individual_population: DataFrame with missing proportions per individual and population, Per_population_locus: DataFrame with missing proportions per population and locus.
         """
         self.logger.info("Generating missingness report...")
 
@@ -2296,9 +2683,10 @@ class Plotting:
 
         Args:
             df (pd.DataFrame): The input DataFrame containing the distance matrix data.
-            pvals (pd.DataFrame, optional): The p-values for the distance matrix. Defaults to None.
-            palette (str, optional): The color palette to use for the heatmap. Defaults to "coolwarm".
-            title (str, optional): The title of the plot. Defaults to "Distance Matrix".
+            pvals (pd.DataFrame): The p-values for the distance matrix. Defaults to None.
+            palette (str): The color palette to use for the heatmap. Defaults to "coolwarm".
+            title (str): The title of the plot. Defaults to "Distance Matrix".
+            dist_type (str): The type of distance to plot. Defaults to "fst".
         """
         self._plot_fst_heatmap(
             df,
@@ -2307,4 +2695,739 @@ class Plotting:
             palette=palette,
             title=title,
             dist_type=dist_type,
+        )
+
+    def plot_allele_summary(
+        self, summary: pd.Series, figsize: Tuple[int, int] = (12, 6)
+    ) -> None:
+        """Plot allele summary statistics from summarize_alleles output.
+
+        This method visualizes: Missingness (overall, median, percent with any, quartiles); Heterozygosity (overall, mean per-sample/locus); Allelic spectrum & HWE (mono→quad, mean/effective # alleles, expected het & F_IS); MAF summary & spectrum (singleton, mean/median, rare, 5 frequency bins)
+
+        Args:
+            summary (pd.Series): Output from summarize_alleles.
+            figsize (Tuple[int, int]): Base size (w,h); height is doubled for a 2 x 2 grid.
+
+        Raises:
+            ValueError: If any of the expected keys are missing.
+        """
+        # ensure all needed keys exist
+        needed = [
+            # Missingness
+            "Overall Missing Prop.",
+            "Median Sample Missing",
+            "Median Locus Missing",
+            "Pct Samples with Missing",
+            "Pct Loci with Missing",
+            "Sample Miss Q1",
+            "Sample Miss Q3",
+            "Locus Miss Q1",
+            "Locus Miss Q3",
+            # Heterozygosity
+            "Overall Heterozygosity Prop.",
+            "Mean Sample Heterozygosity Prop.",
+            "Mean Locus Heterozygosity Prop.",
+            # Allelic spectrum & HWE
+            "Prop. Monomorphic",
+            "Prop. Biallelic",
+            "Prop. Triallelic",
+            "Prop. Quadallelic",
+            "Mean Alleles per Locus",
+            "Mean Effective Alleles",
+            "Mean Expected Heterozygosity",
+            "Mean F_IS",
+            # MAF summary & bins
+            "Prop. Singleton Loci",
+            "MAF Mean",
+            "MAF Median",
+            "Prop. Rare Variants",
+            "MAF < 0.01",
+            "0.01 ≤ MAF < 0.05",
+            "0.05 ≤ MAF < 0.10",
+            "0.10 ≤ MAF < 0.20",
+            "MAF ≥ 0.20",
+        ]
+        missing = set(needed) - set(summary.index)
+        if missing:
+            raise ValueError(f"plot_allele_summary: missing keys {missing}")
+
+        sns.set_theme(style="whitegrid", font_scale=1.2)
+        # keep width, double the height for a 2×2 grid
+        fig, axs = plt.subplots(
+            2, 2, figsize=(figsize[0], figsize[1] * 2), constrained_layout=True
+        )
+
+        # 1) Missingness
+        miss_keys = [
+            "Overall Missing Prop.",
+            "Median Sample Missing",
+            "Median Locus Missing",
+            "Pct Samples with Missing",
+            "Pct Loci with Missing",
+        ]
+        sns.barplot(
+            y=miss_keys,
+            x=summary[miss_keys].values,
+            ax=axs[0, 0],
+            palette="Blues_d",
+            hue=miss_keys,
+            legend=False,
+        )
+        axs[0, 0].set(title="Missingness", xlim=(0, 1))
+
+        # 2) Heterozygosity
+        het_keys = [
+            "Overall Heterozygosity Prop.",
+            "Mean Sample Heterozygosity Prop.",
+            "Mean Locus Heterozygosity Prop.",
+        ]
+        sns.barplot(
+            y=het_keys,
+            x=summary[het_keys].values,
+            ax=axs[0, 1],
+            hue=het_keys,
+            palette="Greens_d",
+            legend=False,
+        )
+        axs[0, 1].set(title="Heterozygosity", xlim=(0, 1))
+
+        # 3) Allelic spectrum & HWE
+        spec_keys = [
+            "Prop. Monomorphic",
+            "Prop. Biallelic",
+            "Prop. Triallelic",
+            "Prop. Quadallelic",
+            "Mean Alleles per Locus",
+            "Mean Effective Alleles",
+            "Mean Expected Heterozygosity",
+            "Mean F_IS",
+        ]
+        sns.barplot(
+            y=spec_keys,
+            x=summary[spec_keys].values,
+            ax=axs[1, 0],
+            palette="Purples_d",
+            hue=spec_keys,
+            legend=False,
+        )
+        axs[1, 0].set(title="Allelic Spectrum & HWE", xlim=(0, 1))
+
+        # 4) MAF summary & spectrum
+        maf_keys = [
+            "Prop. Singleton Loci",
+            "MAF Mean",
+            "MAF Median",
+            "Prop. Rare Variants",
+            "MAF < 0.01",
+            "0.01 ≤ MAF < 0.05",
+            "0.05 ≤ MAF < 0.10",
+            "0.10 ≤ MAF < 0.20",
+            "MAF ≥ 0.20",
+        ]
+        sns.barplot(
+            y=maf_keys,
+            x=summary[maf_keys].values,
+            ax=axs[1, 1],
+            palette="Oranges_d",
+            hue=maf_keys,
+            legend=False,
+        )
+        axs[1, 1].set(title="MAF Summary & Spectrum", xlim=(0, 1))
+
+        # save & (optionally) show
+        savepath: Path = self.output_dir_gd / f"allele_summary.{self.plot_format}"
+        fig.savefig(savepath)
+        if self.show:
+            plt.show()
+        plt.close(fig)
+
+        # 1. Mapping from original keys → prettier, more intuitive labels
+        pretty_names = {
+            # Missingness
+            "Overall Missing Prop.": "Overall Missingness",
+            "Median Sample Missing": "Median Missingness per Sample",
+            "Median Locus Missing": "Median Missingness per Locus",
+            "Sample Miss Q1": "Sample Missingness (1st Quartile)",
+            "Sample Miss Q3": "Sample Missingness (3rd Quartile)",
+            "Locus Miss Q1": "Locus Missingness (1st Quartile)",
+            "Locus Miss Q3": "Locus Missingness (3rd Quartile)",
+            # Heterozygosity
+            "Overall Heterozygosity Prop.": "Overall Heterozygosity",
+            "Mean Sample Heterozygosity Prop.": "Mean Sample Heterozygosity",
+            "Mean Locus Heterozygosity Prop.": "Mean Locus Heterozygosity",
+            "Sample Heterozygosity Q1": "Sample Heterozygosity (1st Quartile)",
+            "Sample Heterozygosity Q3": "Sample Heterozygosity (3rd Quartile)",
+            "Locus Heterozygosity Q1": "Locus Heterozygosity (1st Quartile)",
+            "Locus Heterozygosity Q3": "Locus Heterozygosity (3rd Quartile)",
+            # Allelic spectrum & HWE
+            "Prop. Monomorphic": "Monomorphic Loci (%)",
+            "Prop. Biallelic": "Biallelic Loci (%)",
+            "Prop. Triallelic": "Triallelic Loci (%)",
+            "Prop. Quadallelic": "Quadallelic Loci (%)",
+            "Mean Expected Heterozygosity": "Mean Expected Heterozygosity",
+            "Mean F_IS": "Mean Inbreeding Coefficient (F_IS)",
+            # MAF & singletons
+            "Prop. Singleton Loci": "Singleton Loci (%)",
+            "MAF Mean": "Mean Minor Allele Frequency",
+            "MAF Median": "Median Minor Allele Frequency",
+            "Prop. Rare Variants": "Rare Variant Loci (%)",
+            "MAF < 0.01": "MAF < 1%",
+            "0.01 ≤ MAF < 0.05": "1% ≤ MAF < 5%",
+            "0.05 ≤ MAF < 0.10": "5% ≤ MAF < 10%",
+            "0.10 ≤ MAF < 0.20": "10% ≤ MAF < 20%",
+            "MAF ≥ 0.20": "MAF ≥ 20%",
+        }
+
+        # 2. Rename the summary Series
+        pretty_summary = summary.rename(pretty_names)
+
+        # 3. Original key groups
+        missing_orig = [
+            "Overall Missing Prop.",
+            "Median Sample Missing",
+            "Median Locus Missing",
+            "Sample Miss Q1",
+            "Sample Miss Q3",
+            "Locus Miss Q1",
+            "Locus Miss Q3",
+        ]
+        het_orig = [
+            "Overall Heterozygosity Prop.",
+            "Mean Sample Heterozygosity Prop.",
+            "Mean Locus Heterozygosity Prop.",
+            "Sample Heterozygosity Q1",
+            "Sample Heterozygosity Q3",
+            "Locus Heterozygosity Q1",
+            "Locus Heterozygosity Q3",
+        ]
+        spec_orig = [
+            "Prop. Monomorphic",
+            "Prop. Biallelic",
+            "Prop. Triallelic",
+            "Prop. Quadallelic",
+            "Mean Expected Heterozygosity",
+            "Mean F_IS",
+        ]
+        maf_orig = [
+            "Prop. Singleton Loci",
+            "MAF Mean",
+            "MAF Median",
+            "Prop. Rare Variants",
+            "MAF < 0.01",
+            "0.01 ≤ MAF < 0.05",
+            "0.05 ≤ MAF < 0.10",
+            "0.10 ≤ MAF < 0.20",
+            "MAF ≥ 0.20",
+        ]
+
+        # 4. Build lists of the new, pretty keys
+        missing_keys = [pretty_names[k] for k in missing_orig]
+        het_keys = [pretty_names[k] for k in het_orig]
+        spec_keys = [pretty_names[k] for k in spec_orig]
+        maf_keys = [pretty_names[k] for k in maf_orig]
+
+        # 5. Slice into four Series (one per tab)
+        data_missing = pretty_summary[missing_keys]
+        data_het = pretty_summary[het_keys]
+        data_spec = pretty_summary[spec_keys]
+        data_maf = pretty_summary[maf_keys]
+
+        # 6. Define the tab buttons' labels and y-axis labels
+        data_labels = [
+            {"name": "Missingness", "ylab": "Proportion", "ymin": 0, "ymax": 1},
+            {"name": "Heterozygosity", "ylab": "Proportion", "ymin": 0, "ymax": 1},
+            {
+                "name": "Allelic Spectrum & HWE",
+                "ylab": "Proportion",
+                "ymin": 0,
+                "ymax": 1,
+            },
+            {
+                "name": "MAF Summary & Spectrum",
+                "ylab": "Proportion",
+                "ymin": 0,
+                "ymax": 1,
+            },
+        ]
+
+        # 7. Queue the MultiQC barplot with four switchable datasets
+        self.snpio_mqc.queue_barplot(
+            df=[data_missing, data_het, data_spec, data_maf],
+            panel_id="allele_summary",
+            section="allele_summary",
+            title="SNPio: Allele Summary Statistics",
+            description="This interactive bar plot provides a comprehensive overview of allele summary statistics, organized into four switchable panels: Missingness, Heterozygosity, Allelic Spectrum & HWE, and MAF & Singletons. Each panel visualizes different aspects of the genetic data, allowing for a thorough assessment of data quality and characteristics.",
+            index_label="Statistic",
+            pconfig={
+                "id": "allele_summary",
+                "title": "SNPio: Allele Summary Statistics",
+                "series_label": "Statistic",
+                "data_labels": data_labels,
+            },
+        )
+
+    def plot_d_statistics_heatmap(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"] = "patterson",
+    ):
+        """Plot a heatmap of D-statistics using Plotly, colored by -log10(P-value), with '*' depicting significance with P < 0.05 for uncorrected D-statistics and '**' (Bonferroni) and '†' (FDR-BH) overlaid for significance from multiple testing corrections.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame with per sample combination D-statistics and P-values.
+            method_name (Literal["patterson", "partitioned", "dfoil"]): D-statistics method used ('patterson', 'partitioned', 'dfoil'). Defaults to 'patterson'.
+        """
+        df = df.copy()
+
+        # Replace empty strings with NaN and coerce numerics
+        df = df.replace(r"^\s*$", np.nan, regex=True)
+
+        df = df[df["Method"] == method_name]
+
+        # Identify relevant D-statistic and P-value columns
+        if method_name == "patterson":
+            d_cols = ["D-statistic"]
+            pval_map = {"D-statistic": "P-value"}
+        elif method_name == "partitioned":
+            d_cols = ["D1", "D2", "D12"]
+            pval_map = {d: f"P_{d}" for d in d_cols}
+        elif method_name == "dfoil":
+            d_cols = ["DFO", "DFI", "DOL", "DIL"]
+            pval_map = {d: f"P_{d}" for d in d_cols}
+        else:
+            msg = f"Unsupported method: {method_name}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        # Ensure D-statistic columns are numeric
+        df[d_cols] = df[d_cols].apply(pd.to_numeric)
+
+        # Filter valid columns
+        d_cols = [
+            col
+            for col in d_cols
+            if col in df.columns and pd.api.types.is_numeric_dtype(df[col])
+        ]
+        pval_cols = [pval_map[d] for d in d_cols if pval_map[d] in df.columns]
+
+        if not d_cols or not pval_cols:
+            msg = f"No valid D-statistic or P-value columns found for method: {method_name}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        def format_quartet_label(label: str) -> str:
+            parts = label.split("-")
+            if len(parts) == 4:
+                # Patterson D
+                return (
+                    f"P1: {parts[0]}, P2: {parts[1]}, P3: {parts[2]}, Out: {parts[3]}"
+                )
+            elif len(parts) == 5:
+                # Partitioned-D or DFOIL
+                return f"P1: {parts[0]}, P2: {parts[1]}, P3: {parts[2]}, P4: {parts[3]}, Out: {parts[4]}"
+            else:
+                # Unexpected format
+                return label  # fallback
+
+        # Assemble matrices
+        # Apply to index
+        df.index = df.index.to_series().apply(format_quartet_label)
+        quartet_labels = df.index.values
+        stat_matrix = df[d_cols].to_numpy(dtype=float)
+        pval_matrix = df[pval_cols].to_numpy(dtype=float)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_pval_matrix = -np.log10(pval_matrix)  # Handle log10(0)
+        log_pval_matrix[np.isinf(log_pval_matrix)] = np.nan
+
+        # Initialize empty annotation matrix
+        annotations = np.full_like(stat_matrix, "", dtype=str)
+
+        # Iterate over each cell and apply precedence
+        for j, stat in enumerate(d_cols):
+            # Build column names for each correction type
+            col_raw = "Significant (Raw)"
+            col_bonf = "Significant (Bonferroni)"
+            col_fdr = "Significant (FDR-BH)"
+
+            if method_name != "patterson":
+                col_raw = f"{col_raw} {stat}"
+                col_bonf = f"{col_bonf} {stat}"
+                col_fdr = f"{col_fdr} {stat}"
+
+            # Sanity check
+            for col in [col_raw, col_bonf, col_fdr]:
+                if col not in df.columns:
+                    msg = f"Column '{col}' not found in DataFrame for method '{method_name}'."
+                    self.logger.error(msg)
+                    raise ValueError(msg)
+
+            raw_flags = df[col_raw].astype(bool).values
+            bonf_flags = df[col_bonf].astype(bool).values
+            fdr_flags = df[col_fdr].astype(bool).values
+
+            # Priority: Bonferroni > FDR > Raw
+            for i in range(len(df)):
+                if bonf_flags[i]:
+                    annotations[i, j] = "**"
+                elif fdr_flags[i]:
+                    annotations[i, j] = "†"
+                elif raw_flags[i]:
+                    annotations[i, j] = "*"
+                else:
+                    annotations[i, j] = ""
+
+        # Create figure with annotations
+        fig = px.imshow(
+            log_pval_matrix,
+            x=d_cols,
+            y=quartet_labels,
+            color_continuous_scale="Reds",
+            aspect="auto",
+            labels={"color": "-log10(P-value)"},
+            zmin=0,
+            zmax=-np.log10(0.001),  # Adjust as needed
+        )
+
+        for i in range(len(quartet_labels)):
+            for j in range(len(d_cols)):
+                if annotations[i, j]:
+                    fig.add_annotation(
+                        text=annotations[i, j],
+                        x=j,
+                        y=i,
+                        showarrow=False,
+                        font=dict(color="black", size=14),
+                        xanchor="center",
+                        yanchor="middle",
+                    )
+
+        # Update layout
+        if method_name == "patterson":
+            title = "Patterson's D-statistics Heatmap"
+            xaxis_title = "Patterson's D-statistic"
+        elif method_name == "partitioned":
+            title = "Partitioned D-statistics Heatmap"
+            xaxis_title = "Partitioned D-statistics"
+        elif method_name == "dfoil":
+            title = "DFOIL D-statistics Heatmap"
+            xaxis_title = "DFOIL D-statistics"
+
+        n_rows = len(df)
+        row_height = 30  # pixels per row
+        min_height = 300  # Minimum height for the figure
+        max_height = 1200  # Prevent excessively tall plots
+        fig_height = min(max(n_rows * row_height, min_height), max_height)
+
+        fig.update_layout(
+            title=title,
+            xaxis_title=xaxis_title,
+            yaxis_title="Sample Combination",
+            xaxis_side="top",
+            template="plotly_white",
+            height=fig_height,
+        )
+
+        fig.update_yaxes(showticklabels=False)
+
+        fn = f"d_statistics_heatmap_{method_name}.html"
+        output_path = self.output_dir_analysis / fn
+        fig.write_html(output_path)
+
+        if method_name == "patterson":
+            method_name_pretty = "Patterson's 4-taxon D-statistic"
+        elif method_name == "partitioned":
+            method_name_pretty = "Partitioned D-statistic"
+        elif method_name == "dfoil":
+            method_name_pretty = "DFOIL D-statistic"
+
+        self.snpio_mqc.queue_html(
+            output_path,
+            panel_id=f"d_statistics_heatmap_{method_name}",
+            section="introgression",
+            title=f"SNPio: D-statistics Heatmap ({method_name_pretty})",
+            index_label="Quartet",
+            description=f"This is a heatmap of {method_name_pretty}, with cells colored by the -log10(P-value). Significance is marked with annotations: '*' for uncorrected p-value < 0.05, '**' for Bonferroni-adjusted significance, and '†' for FDR-BH-adjusted significance. The p-values are derived from Z-scores computed over all bootstrap replicates. Each row represents a sample combination (quartet or quintet), and each column corresponds to a specific D-statistic. Deeper red indicates stronger statistical significance.",
+        )
+
+    def plot_dstat_significance_counts(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"],
+    ) -> None:
+        """Plot number of significant results per D-statistic
+
+        Plots the number of significant results for each D-statistic type, grouped by correction method (Raw, Bonferroni, FDR-BH). The plot is generated using Plotly Express and displayed in a bar chart format.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame containing D-statistics and significance counts.
+            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
+        """
+        # Define D-stat columns based on method
+        if method_name == "patterson":
+            d_cols = ["D-statistic"]
+        elif method_name == "partitioned":
+            d_cols = ["D1", "D2", "D12"]
+        elif method_name == "dfoil":
+            d_cols = ["DFO", "DFI", "DOL", "DIL"]
+        else:
+            raise ValueError(f"Unknown method: {method_name}")
+
+        # Collect significance counts
+        records = []
+        for d in d_cols:
+            for label in ["Raw", "Bonferroni", "FDR-BH"]:
+                colname = f"Significant ({label})"
+                if method_name != "patterson":
+                    colname += f" {d}"
+                if colname in df.columns:
+                    count = df[colname].sum()
+                    records.append(
+                        {"D-statistic": d, "Correction": label, "Count": count}
+                    )
+
+        df = pd.DataFrame(records)
+
+        # Plot
+        fig = px.bar(
+            df,
+            x="D-statistic",
+            y="Count",
+            color="Correction",
+            barmode="group",
+            title=f"Significant Test Counts for {method_name.title()}",
+            template="plotly_white",
+        )
+
+        if self.show:
+            fig.show()
+
+        fn = f"d_statistics_significance_counts_{method_name}.html"
+        output_path = self.output_dir_analysis / fn
+        fig.write_html(output_path)
+
+        if method_name == "patterson":
+            method_name_pretty = "Patterson's 4-taxon D-statistic"
+        elif method_name == "partitioned":
+            method_name_pretty = "Partitioned D-statistic"
+        elif method_name == "dfoil":
+            method_name_pretty = "DFOIL D-statistic"
+
+        self.snpio_mqc.queue_html(
+            output_path,
+            panel_id=f"d_statistics_significance_counts_{method_name}",
+            section="introgression",
+            title=f"SNPio: D-statistics Significance Counts ({method_name_pretty})",
+            index_label="D-statistic",
+            description=f"This bar plot quantifies the number of significant {method_name_pretty} results for each D-statistic, grouped by the multiple-test correction method applied (Raw, Bonferroni, FDR-BH). It provides a quick comparison of how many tests were significant under different levels of statistical stringency.",
+        )
+
+    def plot_dstat_chi_square_distribution(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"],
+    ):
+        """Plot the distribution of Chi-square values for D-statistics.
+
+        This method generates a violin plot of Chi-square values for the specified D-statistics method. It handles different D-statistics methods and applies appropriate transformations to the Chi-square values.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame containing D-statistics and Chi-square values.
+            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
+        """
+        if method_name == "patterson":
+            d_cols = ["D"]
+        elif method_name == "partitioned":
+            d_cols = ["D1", "D2", "D12"]
+        elif method_name == "dfoil":
+            d_cols = ["DFO", "DFI", "DOL", "DIL"]
+
+        chi_cols = [f"X2_{d}" if method_name != "patterson" else "X2" for d in d_cols]
+
+        # Reset index to make sample combinations a column
+        df = df.reset_index().rename(columns={"Quartet": "Sample Combination"})
+
+        hover_data = ["Sample Combination"] + [
+            f"P_X2_{d}" if method_name != "patterson" else "P_X2" for d in d_cols
+        ]
+
+        # Melt the dataframe while retaining sample combinations
+        long_df = df[hover_data + chi_cols].melt(
+            id_vars=hover_data, var_name="D-statistic", value_name="Chi2"
+        )
+
+        fig = px.violin(
+            long_df,
+            x="D-statistic",
+            y="Chi2",
+            box=True,
+            points="all",
+            title="Chi-square Value Distributions by D-statistic",
+            template="plotly_white",
+            hover_data=hover_data,
+        )
+
+        if self.show:
+            fig.show()
+
+        fn = f"dstat_chi_square_distribution_{method_name}.html"
+        output_path = self.output_dir_analysis / fn
+        fig.write_html(output_path)
+
+        if method_name == "patterson":
+            method_name_pretty = "Patterson's 4-taxon D-statistic"
+        elif method_name == "partitioned":
+            method_name_pretty = "Partitioned D-statistic"
+        elif method_name == "dfoil":
+            method_name_pretty = "DFOIL D-statistic"
+
+        self.snpio_mqc.queue_html(
+            output_path,
+            panel_id=f"dstat_chi_square_distribution_{method_name}",
+            section="introgression",
+            title=f"SNPio: D-statistics Chi-square Distribution ({method_name_pretty})",
+            index_label="D-statistic",
+            description=f"This violin plot displays the distribution of Chi-square values for each {method_name_pretty}. The inner boxplot shows the interquartile range, and individual points represent specific Chi-square values. This visualization helps in assessing the variability and spread of Chi-square values across the different D-statistics.",
+        )
+
+    def plot_dstat_pvalue_distribution(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"],
+    ):
+        """Plot the distribution of -log10(P-values) for D-statistics.
+
+        This method generates a histogram of -log10(P-values) for the specified D-statistics method. It handles different D-statistics methods and applies appropriate transformations to the P-values.
+
+        Args:
+            df (pd.DataFrame): Input DataFrame containing D-statistics and P-values.
+            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
+        """
+        if method_name == "patterson":
+            d_cols = ["D-statistic"]
+            pval_cols = ["P-value"]
+        elif method_name == "partitioned":
+            d_cols = ["D1", "D2", "D12"]
+            pval_cols = [f"P_{d}" for d in d_cols]
+        elif method_name == "dfoil":
+            d_cols = ["DFO", "DFI", "DOL", "DIL"]
+            pval_cols = [f"P_{d}" for d in d_cols]
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            long_df = (
+                df[pval_cols]
+                .apply(lambda col: -np.log10(pd.to_numeric(col, errors="coerce")))
+                .melt(var_name="P-value", value_name="-log10(P)")
+                .dropna()
+            )
+
+        fig = px.histogram(
+            long_df,
+            x="-log10(P)",
+            color="P-value",
+            nbins=50,
+            title="-log10(P-values) Distribution",
+            template="plotly_white",
+        )
+
+        if self.show:
+            fig.show()
+
+        fn = f"dstat_pvalue_distribution_{method_name}.html"
+        output_path = self.output_dir_analysis / fn
+        fig.write_html(output_path)
+
+        if method_name == "patterson":
+            method_name_pretty = "Patterson's 4-taxon D-statistic"
+        elif method_name == "partitioned":
+            method_name_pretty = "Partitioned D-statistic"
+        elif method_name == "dfoil":
+            method_name_pretty = "DFOIL D-statistic"
+
+        self.snpio_mqc.queue_html(
+            output_path,
+            panel_id=f"dstat_pvalue_distribution_{method_name}",
+            section="introgression",
+            title=f"SNPio: D-statistics -log10(P-value) Distribution ({method_name_pretty})",
+            index_label="P-value",
+            description=f"This histogram shows the distribution of -log10 transformed P-values for each {method_name_pretty}. This plot allows for easy visualization of the significance landscape, highlighting the frequency of highly significant results.",
+        )
+
+    def plot_stacked_significance_barplot(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"],
+    ) -> None:
+        """Create a stacked bar plot showing the count of mutually exclusive significance categories (Bonferroni, FDR-BH, Raw, Not significant) for each D-statistic.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing D-statistic significance flags.
+            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
+        """
+        records = []
+
+        if method_name == "patterson":
+            d_stats = ["D"]
+        elif method_name == "partitioned":
+            d_stats = ["D1", "D2", "D12"]
+        elif method_name == "dfoil":
+            d_stats = ["DFO", "DFI", "DOL", "DIL"]
+        else:
+            msg = f"Unknown method: {method_name}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        for stat in d_stats:
+
+            def sig_category(row):
+                if row.get(f"Significant (Bonferroni) {stat}", False):
+                    return "Bonferroni"
+                elif row.get(f"Significant (FDR-BH) {stat}", False):
+                    return "FDR-BH"
+                elif row.get(f"Significant (Raw) {stat}", False):
+                    return "Raw"
+                else:
+                    return "Not significant"
+
+            df[f"SigCategory_{stat}"] = df.apply(sig_category, axis=1)
+            counts = df[f"SigCategory_{stat}"].value_counts()
+            for cat, count in counts.items():
+                records.append({"D-statistic": stat, "Category": cat, "Count": count})
+
+        stacked_df = pd.DataFrame(records)
+
+        fig = px.bar(
+            stacked_df,
+            x="D-statistic",
+            y="Count",
+            color="Category",
+            title="Significance Category Distribution for All D-statistics",
+            category_orders={
+                "Category": ["Bonferroni", "FDR-BH", "Raw", "Not significant"]
+            },
+            template="plotly_white",
+            barmode="stack",
+        )
+
+        if self.show:
+            fig.show()
+
+        fn = f"dstat_stacked_significance_barplot_{method_name}.html"
+        output_path = self.output_dir_analysis / fn
+        fig.write_html(output_path)
+
+        if method_name == "patterson":
+            method_name_pretty = "Patterson's 4-taxon D-statistic"
+        elif method_name == "partitioned":
+            method_name_pretty = "Partitioned D-statistic"
+        elif method_name == "dfoil":
+            method_name_pretty = "DFOIL D-statistic"
+
+        self.snpio_mqc.queue_html(
+            output_path,
+            panel_id=f"dstat_stacked_significance_barplot_{method_name}",
+            section="introgression",
+            title=f"SNPio: Stacked Significance Barplot for {method_name_pretty}",
+            index_label="D-statistic",
+            description=f"This stacked bar plot shows the breakdown of significance categories (Bonferroni, FDR-BH, Raw, and Not significant) for each {method_name_pretty}. Each bar represents the total count of results for a statistic, segmented by the highest level of significance achieved. This provides a clear, comparative view of the evidence for introgression across different statistical tests.",
         )
