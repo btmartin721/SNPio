@@ -1,225 +1,103 @@
-import logging
-import tempfile
 import unittest
-from pathlib import Path
-
 import numpy as np
-from snpio import VCFReader
-from snpio.popgenstats.d_statistics import DStatistics
+from snpio.popgenstats.dstat import PattersonDStats  # Adjust as needed
 
-logger = logging.getLogger("test")
-logger.setLevel(logging.WARNING)
+MISSING = -9
 
 
-class TestDStatistics(unittest.TestCase):
+class DummyGenotypeData:
+    """Stub minimal GenotypeData for Patterson's D tests."""
+
+    def __init__(self, arr: np.ndarray):
+        self.genotypes_012 = arr
+        self.prefix = ""
+        self.samples = [f"Sample_{i}" for i in range(arr.shape[0])]
+        self.num_inds = arr.shape[0]
+        self.num_snps = arr.shape[1]
+        self.plot_format = "png"
+        self.verbose = False
+        self.debug = False
+        self.ref = ["A"] * self.num_inds
+        self.alt = ["T"] * self.num_inds
+
+        arr = arr.astype(str)
+        arr[arr == "0"] = "A"
+        arr[arr == "1"] = "W"
+        arr[arr == "2"] = "T"
+        arr[arr == "-9"] = "N"
+        self.snp_data = arr
+        self.was_filtered = True
+
+
+class TestPattersonD(unittest.TestCase):
     def setUp(self):
-        np.random.seed(42)
-        self.tmpdir = tempfile.TemporaryDirectory()
+        self.n_ind = 5
+        self.n_loci = 100
+        self.rng = np.random.default_rng(42)
 
-        # create a simple popmap with 4 samples per population
-        self.popmap = Path(self.tmpdir.name) / "popmap.txt"
-        self.num_per_pop = 4
-        self.pops = {
-            pop: [f"{pop}_{i}" for i in range(self.num_per_pop)]
-            for pop in ("P1", "P2", "P3", "P4", "O")
-        }
-        self.samples = []
-        with open(self.popmap, "w") as f:
-            for pop, ids in self.pops.items():
-                for sid in ids:
-                    f.write(f"{sid}\t{pop}\n")
-                    self.samples.append(sid)
+        # P1, P2, P3, OUT
+        self.pops = [
+            np.arange(0, 5),
+            np.arange(5, 10),
+            np.arange(10, 15),
+            np.arange(15, 20),
+        ]
 
-    def tearDown(self):
-        self.tmpdir.cleanup()
+        self.n_pops = 4
 
-    def write_multi_vcf(self, records):
-        header = (
-            "##fileformat=VCFv4.2\n"
-            "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t"
-            + "\t".join(self.samples)
-            + "\n"
-        )
-        lines = [header]
-        for rec in records:
-            fields = []
-            for sid in self.samples:
-                gt = rec["genotypes"].get(sid, (None, None))
-                fields.append("./." if None in gt else f"{gt[0]}/{gt[1]}")
-            lines.append(
-                f"{rec['chrom']}\t{rec['pos']}\t.\t{rec['ref']}\t{rec['alt']}"
-                + "\t.\t.\t.\tGT\t"
-                + "\t".join(fields)
-                + "\n"
-            )
-        p = Path(self.tmpdir.name) / "test.vcf"
-        p.write_text("".join(lines))
-        return p
+    def _build_perfect_abba(self):
+        arr = np.zeros((20, self.n_loci), dtype=int)
+        arr[self.pops[0], :] = 0  # P1 = ancestral
+        arr[self.pops[1], :] = 2  # P2 = derived
+        # P3 = mix of ancestral and derived
+        arr[self.pops[2][:3], :] = 0
+        arr[self.pops[2][3:], :] = 2
+        arr[self.pops[3], :] = 0  # OUT = ancestral
+        return arr
 
-    def load_alignment(self, vcf_path):
-        vcf = VCFReader(filename=str(vcf_path), popmapfile=str(self.popmap))
-        return vcf.snp_data, vcf.samples
+    def _build_perfect_baba(self):
+        arr = np.zeros((self.n_pops * self.n_ind, self.n_loci), dtype=int)
+        arr[self.pops[0], :] = 2  # P1
+        arr[self.pops[1], :] = 0  # P2
+        arr[self.pops[2][:3], :] = 0  # P3 partial ancestral
+        arr[self.pops[2][3:], :] = 2  # P3 partial derived
+        arr[self.pops[3], :] = 0  # OUT
+        return arr
 
-    def run_dstat(self, records, method, num_bootstraps=200):
-        # load data and set up DStatistics
-        alignment, samples = self.load_alignment(self.write_multi_vcf(records))
-        idx = {s: i for i, s in enumerate(samples)}
-        ds = DStatistics(alignment=alignment, sample_ids=samples, logger=logger)
+    def _apply_missing(self, arr, frac=0.2):
+        mask = self.rng.random(arr.shape) < frac
+        arr[mask] = MISSING
+        return arr
 
-        # select individuals
-        d1 = [idx[s] for s in self.pops["P1"]]
-        d2 = [idx[s] for s in self.pops["P2"]]
-        d3 = [idx[s] for s in self.pops["P3"]]
-        out = [idx[s] for s in self.pops["O"]]
-        if method in ("partitioned", "dfoil"):
-            d4 = [idx[s] for s in self.pops["P4"]]
+    def test_positive_d(self):
+        arr = self._build_perfect_abba()
+        gd = DummyGenotypeData(arr)
+        pds = PattersonDStats(gd)
+        results, _ = pds.calculate(*self.pops, n_boot=200, seed=0)
+        self.assertAlmostEqual(results["D"][0], 1.0, places=1)
 
-        # encode and bootstrap indices
-        geno_enc = ds._encode_alleles(alignment)
-        n_snps = geno_enc.shape[1]
-        rng = np.random.default_rng(42)
-        snp_idx = rng.choice(n_snps, size=(num_bootstraps, n_snps), replace=True)
+    def test_negative_d(self):
+        arr = self._build_perfect_baba()
+        gd = DummyGenotypeData(arr)
+        pds = PattersonDStats(gd)
+        results, _ = pds.calculate(*self.pops, n_boot=200, seed=1)
+        self.assertAlmostEqual(results["D"][0], -1.0, places=1)
 
-        # dispatch
-        if method == "patterson":
-            boots = ds._patterson_d_bootstrap(
-                geno_enc,
-                np.array(d1),
-                np.array(d2),
-                np.array(d3),
-                np.array(out),
-                snp_idx,
-            )
-            return ds._dstat_z_and_p(boots)
+    def test_zero_d(self):
+        abba = self._build_perfect_abba()
+        baba = self._build_perfect_baba()
+        arr = np.hstack([abba[:, :50], baba[:, :50]])  # 50 ABBA, 50 BABA
+        gd = DummyGenotypeData(arr)
+        pds = PattersonDStats(gd)
+        results, _ = pds.calculate(*self.pops, n_boot=200, seed=2)
+        self.assertAlmostEqual(results["D"][0], 0.0, places=1)
 
-        elif method == "partitioned":
-            boots = ds._partitioned_d_bootstrap(
-                geno_enc,
-                np.array(d1),
-                np.array(d2),
-                np.array(d3),
-                np.array(d4),
-                np.array(out),
-                snp_idx,
-            )
-            return ds._dstat_z_and_p(boots)
-
-        elif method == "dfoil":
-            boots = ds._dfoil_bootstrap(
-                geno_enc,
-                np.array(d1),
-                np.array(d2),
-                np.array(d3),
-                np.array(d4),
-                np.array(out),
-                snp_idx,
-            )
-            stats = ds._dfoil_z_and_p(boots)
-            means, zs, ps = zip(*stats)
-            return list(means), list(zs), list(ps)
-
-        else:
-            raise ValueError(f"Unknown method: {method}")
-
-    # record generators
-    def _make_record(self, pos, pattern):
-        geno = {}
-        P1, P2, P3, P4, O = (self.pops[k] for k in ("P1", "P2", "P3", "P4", "O"))
-        for sid in O:
-            geno[sid] = (0, 0)
-        if pattern == "ABBA":
-            for sid in P1 + P4:
-                geno[sid] = (0, 0)
-            for sid in P2 + P3:
-                geno[sid] = (0, 1)
-        elif pattern == "BABA":
-            for sid in P2 + P4:
-                geno[sid] = (0, 0)
-            for sid in P1 + P3:
-                geno[sid] = (0, 1)
-        else:
-            raise ValueError(pattern)
-        return {"chrom": "1", "pos": pos, "ref": "A", "alt": "T", "genotypes": geno}
-
-    def _make_null(self, pos):
-        geno = {}
-        for pop in ("P1", "P2", "P3", "P4", "O"):
-            for sid in self.pops[pop]:
-                r = np.random.rand()
-                geno[sid] = (0, 1) if r < 0.2 else (1, 1) if r < 0.4 else (0, 0)
-        return {"chrom": "1", "pos": pos, "ref": "A", "alt": "T", "genotypes": geno}
-
-    def _make_dfoil_record_null(self, pos):
-        """Generate a “null” D-FOIL record at the given position:
-        randomly assigns each individual either homozygous ref (0/0),
-        homozygous alt (1/1), or het (0/1) at rates 40%, 40%, 20%.
-        """
-        geno = {}
-        # populations in order P1, P2, P3, P4, O
-        for pop in ("P1", "P2", "P3", "P4", "O"):
-            for sid in self.pops[pop]:
-                r = np.random.rand()
-                if r < 0.2:
-                    geno[sid] = (0, 1)  # heterozygote
-                elif r < 0.6:
-                    geno[sid] = (0, 0)  # homozygous reference
-                else:
-                    geno[sid] = (1, 1)  # homozygous alternate
-
-        return {
-            "chrom": "1",
-            "pos": pos,
-            "ref": "A",
-            "alt": "T",
-            "genotypes": geno,
-        }
-
-    # actual tests
-    def test_patterson_significant(self):
-        recs = [self._make_record(1000 + i, "ABBA") for i in range(45)]
-        recs += [self._make_record(2000 + i, "BABA") for i in range(5)]
-        d_obs, z, p = self.run_dstat(recs, "patterson")
-        self.assertGreater(abs(z), 2.0)
-        self.assertLess(p, 0.05)
-
-    def test_patterson_null(self):
-        recs = [self._make_null(3000 + i) for i in range(1000)]
-        d_obs, z, p = self.run_dstat(recs, "patterson")
-        self.assertLess(abs(z), 3.0)
-        self.assertGreater(p, 0.01)
-
-    def test_partitioned_significant(self):
-        recs = [self._make_record(5000 + i, "ABBA") for i in range(45)]
-        recs += [self._make_record(6000 + i, "BABA") for i in range(5)]
-        recs += [self._make_null(7000 + i) for i in range(5)]
-        d_obs, z, p = self.run_dstat(recs, "partitioned")
-        self.assertTrue(abs(z) > 2.0)
-        self.assertLess(p, 0.05)
-
-    def test_partitioned_null(self):
-        recs = [self._make_null(8000 + i) for i in range(2000)]
-        d_obs, z, p = self.run_dstat(recs, "partitioned")
-        self.assertLess(abs(z), 3.0)
-        self.assertGreater(p, 0.01)
-
-    def test_dfoil_significant(self):
-        # simple signal for DFO
-        recs = [self._make_null(20000 + i) for i in range(200)]  # null baseline
-        # spike a few ABBA-like patterns in P1/P2 to boost DFO
-        recs += [self._make_record(30000 + i, "ABBA") for i in range(50)]
-        means, zs, ps = self.run_dstat(recs, "dfoil")
-        self.assertTrue(any(m > 0.1 for m in np.abs(means)))
-
-    def test_dfoil_null(self):
-        # Use the D-FOIL null record generator for a more realistic null distribution
-        recs = [self._make_dfoil_record_null(40000 + i) for i in range(3000)]
-        means, zs, ps = self.run_dstat(recs, "dfoil")
-        for idx, (m, z, p) in enumerate(zip(means, zs, ps)):
-            self.assertLess(abs(m), 0.2, f"DFOIL mean[{idx}] too large under null: {m}")
-            self.assertLess(abs(z), 2.0, f"DFOIL Z[{idx}] too extreme under null: {z}")
-            self.assertGreater(
-                p, 0.01, f"DFOIL P[{idx}] unexpectedly small under null: {p}"
-            )
+    def test_missing_data(self):
+        arr = self._apply_missing(self._build_perfect_abba(), frac=0.2)
+        gd = DummyGenotypeData(arr)
+        pds = PattersonDStats(gd)
+        results, _ = pds.calculate(*self.pops, n_boot=200, seed=3)
+        self.assertGreaterEqual(results["D"][0], 0.7)  # still strongly positive
 
 
 if __name__ == "__main__":
