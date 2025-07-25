@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Mapping, Sequence
 from itertools import permutations
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -75,6 +75,31 @@ class IUPAC:
             frozenset(["C", "G"]): "S",
             frozenset(["C", "T"]): "Y",
             frozenset(["G", "T"]): "K",
+        }
+
+    def get_two_channel_iupac(self) -> Dict[str, Tuple[int, int]]:
+        """Get a two-channel IUPAC dictionary to map genotypes to tuples of integers (0-3).
+
+        This method returns a dictionary mapping IUPAC codes to tuples of integers representing the two channels.
+
+        Returns:
+            Dict[str, Tuple[int, int]]: A dictionary mapping IUPAC codes to tuples of integers.
+        """
+        return {
+            "A": (0, 0),  # A/A
+            "T": (2, 2),  # T/T
+            "C": (1, 1),  # C/C
+            "G": (3, 3),  # G/G
+            "W": (0, 2),  # A/T
+            "S": (1, 3),  # C/G
+            "M": (0, 1),  # A/C
+            "K": (2, 3),  # T/G
+            "R": (0, 3),  # A/G
+            "Y": (1, 2),  # C/T
+            "N": (-1, -1),  # Missing
+            "-": (-1, -1),  # Missing
+            ".": (-1, -1),  # Missing
+            "?": (-1, -1),  # Missing
         }
 
     def get_phased_encoding(self) -> Dict[str, str]:
@@ -216,22 +241,22 @@ class IUPAC:
             >>> # Outputs: {'A': 'A', 'C': 'C', 'G': 'G', 'T': 'T', 'M': 'AC', 'R': 'AG', 'W': 'AT', 'S': 'CG', 'Y': 'CT', 'K': 'GT', 'V': 'ACG', 'H': 'ACT', 'D': 'AGT', 'B': 'CGT', 'X': 'GATC', 'N': 'GATC'}
         """
         return {
-            "A": "A",
-            "C": "C",
-            "G": "G",
-            "T": "T",
-            "M": "AC",
-            "R": "AG",
-            "W": "AT",
-            "S": "CG",
-            "Y": "CT",
-            "K": "GT",
-            "V": "ACG",
-            "H": "ACT",
-            "D": "AGT",
-            "B": "CGT",
-            "X": "GATC",
-            "N": "GATC",
+            "A": ("A", "A"),
+            "C": ("C", "C"),
+            "G": ("G", "G"),
+            "T": ("T", "T"),
+            "M": ("A", "C"),
+            "R": ("A", "G"),
+            "W": ("A", "T"),
+            "S": ("C", "G"),
+            "Y": ("C", "T"),
+            "K": ("G", "T"),
+            "V": ("A", "C", "G"),
+            "H": ("A", "C", "T"),
+            "D": ("A", "G", "T"),
+            "B": ("C", "G", "T"),
+            "X": ("G", "A", "T", "C"),
+            "N": ("G", "A", "T", "C"),
         }
 
     def get_gt2iupac(self) -> Dict[str, str]:
