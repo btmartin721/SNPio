@@ -282,3 +282,4 @@ allele_summary_test_output/
 full_test_output/
 allele_sumstats_test_output/
 full_test*_output/
+multiqc_report.html
