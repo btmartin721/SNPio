@@ -1,6 +1,12 @@
 Welcome to SNPio's documentation!
 =================================
 
+SNPio is a Python package designed for efficient input/ output, filtering, encoding, and analysis of SNP (Single Nucleotide Polymorphism) data. It provides tools for reading, filtering, analyzing, and visualizing SNP data from various formats. It is intended to be efficient, intuitive, and easy to use for researchers working with genetic data.
+
+This documentation provides an overview of the package's modules, classes, and functions, along with examples and usage guidelines.
+
+`Click Here <./_static/multiqc_report.html>`_ to view an example MultiQC report generated from SNPio that showcases all the features and functionalities of the package.
+
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
@@ -8,11 +14,14 @@ Welcome to SNPio's documentation!
    getting_started
    example_script
    changelog
-   modules
 
-Indices and tables
-==================
+.. toctree::
+   :maxdepth: 2
+   :caption: API Reference:
 
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
+   snpio
+   snpio.io
+   snpio.filtering
+   snpio.popgenstats
+   snpio.analysis
+   snpio.plotting
