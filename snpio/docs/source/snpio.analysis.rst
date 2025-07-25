@@ -1,23 +1,18 @@
-snpio.analysis package
-======================
-
-Submodules
-----------
-
-snpio.analysis.genotype_encoder module
----------------------------------------
+snpio.analysis
+==============
 
 .. automodule:: snpio.analysis.genotype_encoder
-   :members:
-   :undoc-members:
-   :no-index:
-   :show-inheritance:
 
-snpio.analysis.tree_builder module
------------------------------------
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   GenotypeEncoder
 
 .. automodule:: snpio.analysis.tree_parser
-   :members:
-   :undoc-members:
-   :no-index:
-   :show-inheritance:
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   TreeParser
