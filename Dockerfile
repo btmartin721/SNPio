@@ -25,22 +25,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     && rm -rf /var/lib/apt/lists/*
 
-# Create the Conda environment (as root)
+# Create a new Conda environment and install dependencies
 RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
     python=3.12 \
     numpy=2.2.6 \
     pandas=2.2.3 \
     pip && \
+    conda clean -afy && \
+    conda init bash && \
+    echo "conda activate $CONDA_ENV" > ~/.bashrc
+
+ENV PATH /opt/conda/envs/$CONDA_ENV/bin:$PATH
+
+RUN conda run -n $CONDA_ENV pip install --no-cache-dir \
+    snpio \
+    pytest \
+    jupyterlab && \
     conda clean -afy
 
 # Create a non-root user and set home directory
 RUN useradd -ms /bin/bash snpiouser && \
     mkdir -p /home/snpiouser/.config/matplotlib /app/results /app/docs /app/example_data && \
     chown -R snpiouser:snpiouser /app /home/snpiouser
-
-# Ensure HOME and MPLCONFIGDIR are set correctly
-ENV HOME=/home/snpiouser
-ENV MPLCONFIGDIR=$HOME/.config/matplotlib
 
 # Set working directory
 WORKDIR /app
@@ -54,14 +60,12 @@ COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpio
 
 # Switch to non-root user
 USER snpiouser
-ENV PATH=$HOME/.local/bin:$PATH
+ENV HOME=/home/snpiouser
+ENV MPLCONFIGDIR=$HOME/.config/matplotlib
+RUN chmod -R u+w $HOME/.config/matplotlib
 
-# Install into the env
-RUN conda run -n $CONDA_ENV pip install --upgrade pip snpio pytest jupyterlab
-
-# Run tests
-RUN conda run -n $CONDA_ENV pytest tests/ \
-    || echo 'Tests failed during build; continuing…'
+# Run tests (non-blocking; allows image to build even if tests fail)
+RUN conda run -n $CONDA_ENV pytest tests/ || echo "Tests failed during build; continuing..."
 
 # Default container command
-CMD ["/bin/bash"]
+CMD ["bash"]
