@@ -14,32 +14,42 @@ Usage:
     python run_snpio.py \
         --input /app/data/0_original_alignments/example.vcf \
         --popmap /app/data/1_popmaps/example_popmap.txt \
-        --prefix /app/results/snpio
+        --prefix /app/results/snpio \
+        --verbose \
+        --debug \
+        --plot-format <png|pdf|svg>
 """
+
+
+def version():
+    from snpio import __version__
+
+    return str(__version__)
 
 
 def validate_file(path: str, name: str) -> None:
     pth = Path(path)
     if not pth.exists() or not pth.is_file():
-        print(f"ERROR: {name} file not found at: {path}", file=sys.stderr)
+        print(f"ERROR: {name} file not found at: {path}")
         raise FileNotFoundError(f"{name} file not found: {path}")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run SNPio with specified input, popmap, and output prefix."
+        prog="SNPio",
+        description="Run SNPio with specified input, popmap, and output prefix.",
     )
     parser.add_argument(
         "--input",
         type=str,
         required=True,
-        help="Path to input file (VCF, PHYLIP, or STRUCTURE format)",
+        help="Path to input file (VCF, PHYLIP, or STRUCTURE format).",
     )
     parser.add_argument(
         "--popmap",
         type=str,
         required=True,
-        help="Path to popmap file mapping samples to populations",
+        help="Path to popmap file mapping samples to populations. Format: <sample>\t<population>",
     )
     parser.add_argument(
         "--prefix",
@@ -47,16 +57,39 @@ def parse_args():
         required=True,
         help="Output prefix for results (output files will be saved as <prefix>_output/*)",
     )
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging. Includes additional logging information during processing.",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug mode. Includes additional logging and checks. This may slow down processing.",
+    )
     parser.add_argument(
         "--plot-format",
         type=str,
         default="png",
         choices=["png", "pdf", "svg"],
-        help="Format for output plots",
+        help="Format for output plots. Options: png, pdf, svg (default: png)",
     )
-    return parser.parse_args()
+
+    parser.add_argument(
+        "--version",
+        default=False,
+        required=False,
+        action="store_true",
+        help="Show the version of SNPio and exit.",
+    )
+
+    args = parser.parse_args()
+
+    if args.version:
+        print(f"SNPio version {version()}")
+        exit(0)
+
+    return args
 
 
 def main():
@@ -66,7 +99,7 @@ def main():
     validate_file(args.input, "Input")
     validate_file(args.popmap, "Popmap")
 
-    print(f"🧬 Running SNPio with:")
+    print(f"🧬 Running SNPio version {version()} with the following arguments:")
     print(f"  📥 Input file:     {args.input}")
     print(f"  🧾 Popmap file:    {args.popmap}")
     print(f"  📁 Output prefix:  {args.prefix}")
@@ -80,7 +113,7 @@ def main():
         popmapfile=args.popmap,
         force_popmap=True,
         chunk_size=5000,
-        include_pops=["EA", "GU", "TT", "ON"],
+        include_pops=["EA", "GU", "TT", "ON", "OG"],
         prefix=args.prefix,
         plot_format=args.plot_format,
         verbose=args.verbose,
@@ -95,17 +128,17 @@ def main():
 
     nrm.search_thresholds(
         thresholds=[0.25, 0.5, 0.75],
-        maf_thresholds=[0.01, 0.03],
+        maf_thresholds=[0.01, 0.05],
         mac_thresholds=[2, 3],
         filter_order=[
-            "filter_biallelic",
+            "filter_missing_sample",
             "filter_missing",
             "filter_missing_pop",
-            "filter_singletons",
             "filter_monomorphic",
-            "filter_maf",
+            "filter_singletons",
+            "filter_biallelic",
             "filter_mac",
-            "filter_missing_sample",
+            "filter_maf",
         ],
     )
 
@@ -123,7 +156,7 @@ def main():
 
     pgs = PopGenStatistics(gd_filt, verbose=args.verbose, debug=args.debug)
 
-    summary_stats = pgs.summary_statistics(
+    allele_summary_stats, summary_stats = pgs.summary_statistics(
         n_permutations=100, n_jobs=8, use_pvalues=True
     )
 
@@ -147,32 +180,17 @@ def main():
         min_samples=5,
     )
 
-    inds_dict_patterson = {
-        "EA": gd_filt.popmap_inverse["EA"],
-        "GU": gd_filt.popmap_inverse["GU"],
-        "TT": gd_filt.popmap_inverse["TT"],
-        "ON": gd_filt.popmap_inverse["ON"],
-    }
-
     dstats = pgs.calculate_d_statistics(
         method="patterson",
         population1="EA",
         population2="GU",
         population3="TT",
         outgroup="ON",
-        n_jobs=1,
         num_bootstraps=1000,
-        individual_selection=inds_dict_patterson,
-        max_individuals_per_pop=5,
+        individual_selection="random",
+        max_individuals_per_pop=3,
+        seed=42,
     )
-
-    inds_dict_5tax = {
-        "EA": gd_filt.popmap_inverse["EA"],
-        "GU": gd_filt.popmap_inverse["GU"],
-        "TT": gd_filt.popmap_inverse["TT"],
-        "ON": gd_filt.popmap_inverse["ON"],
-        "OG": gd_filt.popmap_inverse["OG"],
-    }
 
     dstats_partitioned = pgs.calculate_d_statistics(
         method="partitioned",
@@ -181,10 +199,10 @@ def main():
         population3="TT",
         population4="ON",
         outgroup="OG",
-        n_jobs=1,
         num_bootstraps=1000,
-        individual_selection=inds_dict_5tax,
-        max_individuals_per_pop=5,
+        individual_selection="random",
+        max_individuals_per_pop=3,
+        seed=42,
     )
 
     dstats_dfoil = pgs.calculate_d_statistics(
@@ -194,10 +212,10 @@ def main():
         population3="TT",
         population4="ON",
         outgroup="OG",
-        n_jobs=1,
         num_bootstraps=1000,
-        individual_selection=inds_dict_5tax,
-        max_individuals_per_pop=5,
+        individual_selection="random",
+        max_individuals_per_pop=3,
+        seed=42,
     )
 
     # Run PCA
