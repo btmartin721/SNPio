@@ -586,6 +586,7 @@ Calculates:
 - Expected heterozygosity (He)
 - Nucleotide diversity (π)
 - Pairwise Fst (Weir & Cockerham, 1984)
+- Allele-frequency based summary statistics
 
 Includes per-population tables and visualizations.
 
@@ -594,6 +595,91 @@ Includes per-population tables and visualizations.
   :figclass: img-responsive
 
   Figure: Ho, He, and π per-locus and overall means across populations.
+
+Allele Summary Statistics
+=========================
+
+SNPio provides a comprehensive allele-level diagnostic summary via the `PopGenStatistics` class. This module quantifies missingness, heterozygosity, allelic richness, minor allele frequencies (MAFs), and more — providing an overview of SNP dataset quality and diversity.
+
+This is automatically called within the `PopGenStatistics(...).summary_statistics()` method.
+
+Example
+-------
+
+.. code-block:: python
+
+  from snpio import VCFReader, PopGenStatistics
+
+  gd = VCFReader(
+      filename="example.vcf.gz",
+      popmapfile="popmap.txt",
+      force_popmap=True,
+      prefix="allele_stats"
+  )
+
+  pgs = PopGenStatistics(gd)
+
+  # pandas Series, Dictionary of DataFrame/ Series objects
+  allele_stats, summary_stats_dict = pgs.summary_statistics(
+      n_permutations=100,
+      use_pvalues=True,
+      save_plot=True
+  )
+
+Overview of Calculated Metrics
+------------------------------
+
+**Missing Data Statistics**
+
+- Overall missing genotype rate
+- Median and IQR of sample/locus missingness
+- Percent of samples/loci with any missing data
+
+**Heterozygosity**
+
+- Observed heterozygosity (Ho), per-locus and per-sample
+- Quartile summaries of Ho across individuals/loci
+
+**Allele Frequency Spectrum**
+
+- Proportions of monomorphic, biallelic, triallelic, and quadallelic loci
+- Mean number of alleles per locus
+- Effective number of alleles per locus
+- Expected heterozygosity (He)
+- Inbreeding coefficient \( F_{IS} = 1 - \frac{H_O}{H_E} \)
+
+**Minor Allele Frequency (MAF) Summary**
+
+- Mean and median MAF
+- Proportion of singleton loci (MAF = 1 count)
+- Proportion of rare variants (MAF < 0.05)
+- Spectrum bins:
+  - MAF < 0.01
+  - 0.01 ≤ MAF < 0.05
+  - 0.05 ≤ MAF < 0.10
+  - 0.10 ≤ MAF < 0.20
+  - MAF ≥ 0.20
+
+**Pairside Weir and Cockerham (1984) Fst**
+
+- Mean pairwise Fst across populations
+- P-values for pairwise Fst significance
+- Fst heatmap visualization
+
+Output
+------
+
+Returns:
+
+- A `pd.Series` with over 30 proportional metrics
+- A facet grid of barplots automatically saved to the output directory
+- A summary table with key statistics
+- A dictionary of DataFrames containing detailed statistics per population
+- A MultiQC-compatible summary for integration into reports
+
+.. note::
+
+  All proportions range from 0.0 to 1.0. This object is also internally used by the `PopGenStatistics.summary_statistics()` method to combine allele-level metrics with nucleotide diversity and Fst statistics.
 
 Pairwise Fst Heatmap
 --------------------
@@ -618,48 +704,153 @@ Nei's (1972) Genetic Distance
   )
 
 .. figure:: ../../../snpio/img/nei_between_populations_heatmap.png
-  :alt: Nei's Genetic Distance Heatmap
+  :alt: Nei's Genetic Distance Heatmap between Pairwise Populations
   :figclass: img-responsive
 
-  Figure: Heatmap showing Nei's (1972) genetic distance between populations.
+  Figure: Heatmap showing Nei's (1972) genetic distance between pairwise populations.
 
-D-Statistics
-------------
+D-Statistics (Patterson, Partitioned, DFOIL)
+--------------------------------------------
 
-Supports 3 D-statistic types:
+SNPio provides a robust and unified interface for calculating D-statistics to detect introgression and admixture events in 4- and 5-taxon population trees. Supported methods include:
 
-- Patterson's D
-- Partitioned D
-- D-FOIL D
+- **Patterson's D** :cite:p:`PattersonPriceReich2006,GreenEtAl2010`
+- **Partitioned D** :cite:p:`EatonRee2013`
+- **D-FOIL** :cite:p:`PeaseHahn2015`
+
+The D-statistics outputs and infrastructure are based on the Comp-D software package :cite:p:`Mussmann2020COMPD`
+
+These methods are implemented via a common framework (`DStatistics` class) and support:
+
+- Bootstrap resampling for statistical inference
+- Block jackknifing alternative to reduce linkage disequilibrium (LD) effects
+- Z-score and chi-squared test output, including P-values
+- Per-sample-combination and overall D-statistics
+- Multiple testing adjustments (Bonferroni and FDR-BH)
+- Custom individual selection per population
+- Automated sample subsetting, either randomly or deterministically
+- Exportable tables and figures for downstream reporting
+- Results visualization in the MultiQC report
+
+Basic Example
+^^^^^^^^^^^^^
 
 .. code-block:: python
 
-  dstats_df, summary = pgs.calculate_d_statistics(
-      method="patterson",
-      population1="EA",
-      population2="GU",
-      population3="TT",
-      outgroup="ON",
-      num_bootstraps=1000,
-      max_individuals_per_pop=5
+  from snpio import VCFReader, PopGenStatistics
+
+  gd = VCFReader(
+      filename="example.vcf.gz",
+      popmapfile="popmap.txt",
+      prefix="dstat_analysis",
+      force_popmap=True,
   )
 
-.. figure:: ../../../snpio/img/d_statistics_distribution.png
-  :alt: D-statistics histogram
-  :figclass: img-responsive
+  pgs = PopGenStatistics(gd)
 
-  Figure: Histogram of D-statistics values across bootstrap replicates.
+  df, summary = pgs.calculate_d_statistics(
+      method="partitioned",
+      population1="P1",
+      population2="P2",
+      population3="P3a",
+      population4="P3b",
+      outgroup="Out",
+      num_bootstraps=1000,
+      max_individuals_per_pop=5, # Max individuals to subset for D-tests
+      individual_selection="random"
+      per_combination=True, # On by default
+      calc_overall=True, # On by default
+      save_plot=True,
+      use_jackknife=False,
+      block_size=500,
+      seed=42, # For reproduciblity
+  )
 
-.. figure:: ../../../snpio/img/d_statistics_significance_counts.png
-  :alt: Significance bar plot
-  :figclass: img-responsive
+Result Columns
+^^^^^^^^^^^^^^
 
-  Figure: Bar plot showing counts of significant D-statistics across bootstrap replicates.
+- **Patterson's D**: `D`, `Z`, `P`, `X2`, `P_X2`
+- **Partitioned D**: `D1`, `D2`, `D12`, and their Z/P/X2 values (e.g., `Z_D1`, `Z_D2`, `Z_D12`, `P_D1`, `P_D2`, `P_D12`, `X2_D1`, `X2_D2 `, `X2_D12`, `P_X2_D1`, `P_X2_D2`, `P_X2_D12`)
+- **D-FOIL**: `DFO`, `DFI`, `DOL`, `DIL`, and their Z/P/X2 values (e.g., `Z_DFO`, `P_DFO`, `X2_DFO`, `P_X2_DFO`, etc.)
+
+Significance columns (added automatically):
+- Raw (uncorrected) significance
+- Bonferroni- and FDR-BH-corrected P-values
+- Binary flags for significance after correction
 
 .. tip::
 
-  Use `max_individuals_per_pop` to control the number of individuals sampled per population when calculating D-statistics. This ensures performance scaling and avoids bias due to uneven sample sizes.
+  The Bonferroni and FDR-BH-corrected P-values have been adjusted to an alpha threshold of 0.05.
 
+Visualization Output
+^^^^^^^^^^^^^^^^^^^^
+
+SNPio produces violin plots, heatmaps, and bar plots for visualizing:
+
+- Distribution of D-statistics
+- Chi-squared values
+- Significance proportions across quartets
+- Annotated significance flags in heatmap format
+- Distribution of -log10(P-values)
+
+.. figure:: ../../../snpio/img/dfoil_violin_plot.png
+  :alt: Violin plot of DFOIL D-statistics
+  :figclass: img-responsive
+
+  Figure: Violin plot of DFOIL D-statistics (DFO, DFI, DOL, DIL) across population sample combinations. Each combination was run with 1,000 bootstrap replicates to estimate Z-scores, Chi-square, and P-values.
+
+.. figure:: ../../../snpio/img/dfoil_significance_counts.png
+  :alt: Bar plot of significant DFOIL tests among all possible sample combinations.
+  :figclass: img-responsive
+
+  Figure: Bar chart showing number of significant DFOIL tests across all possible sample combinations for populations 1, 2, 3, 4, and the outgroup. Significance was assessed with 1,000 bootstrap replicates to estimate Z-scores, Chi-square, and P-values.
+
+.. figure:: ../../../snpio/img/dfoil_heatmap.png
+  :alt: Heatmap of DFOIL statistics (columns) per sample combination (rows). Deeper red cell colors indicate stronger significance.
+  :figclass: img-responsive
+
+  Figure: Heatmap depicting DFO, DFI, DOL, DIL statistics (columns) for all possible per-population sample combinations (rows). Heatmap cells are colored by -log10(P-value), with darker reds and greater -log10(P-value) values indicating stronger significance. P-values were estimated by estimating Z-scores from 1,000 bootstrap replicates. '*' symbols indicate statistical significance for uncorrected (raw) P-values. '**' symbols indicate significance after Bonferroni adjustment. '✝' symbols indicate significance after FDR-BH adjustment. The P-value adjustments represent multiple test corrections and make significance determination more stringent.
+
+.. figure:: ../../../snpio/img/dfoil_pvalue_histogram.png
+  :alt: Stacked histogram of -log10(P-values) for all DFOIL tests.
+  :figclass: img-responsive
+
+  Figure: Stacked histogram showing distribution of -log10(P-values) for all DFOIL tests across all possible sample combinations for populations 1, 2, 3, 4, and the outgroup. The stacked bar groups correspond to each of the estimated D-statistics (DFO, DFI, DOL, DIL). Significance was assessed with 1,000 bootstrap replicates to estimate Z-scores, Chi-square, and P-values.
+
+Advanced Options
+^^^^^^^^^^^^^^^^
+
+- `individual_selection`: Specify `"random"` or a dictionary of predefined sampleIDs per population. Only used if `max_individuals_per_pop` is set.
+- `max_individuals_per_pop`: Limit to a fixed number of individuals per population.
+- `use_jackknife`: Use jackknife instead of bootstrapping to account for linkage disequilibrium (LD)
+- `block_size`: Size of blocks when jackknifing (default: 500 SNPs).
+- `seed`: Ensures reproducibility of random sampling for the bootstrap indices as well as `individual_selection` (if set to ``random``)
+
+.. tip::
+
+  Use `calc_overall=True` to obtain a single D value across all SNPs. Use `per_combination=True` to compute D-statistics per all possible sample combinations. Both options can be used together to get both overall and per-combination results. They are both on by default.
+
+.. tip::
+
+  Use `max_individuals_per_pop` with `individual_selection='random'` or provide a dictionary of sampleIDs per population to subset the individuals used in the D-statistic calculations. This can be useful if there are many samples to reduce the number of sample combinations and thus overall execution time.
+
+Output Files
+^^^^^^^^^^^^
+
+- JSON and CSV summaries of quartet-level and overall statistics
+- Annotated significance flags
+- MultiQC-compatible figures for integration into SNPio reports
+
+.. tip::
+
+  Results are saved to:
+
+  ``{prefix}_output/nremover/analysis/d_stats/`` if filtering was applied with `NRemover2`, or ``{prefix}_output/analysis/d_stats/`` if no filtering was applied before D-statistics calculations.
+
+Next Steps
+^^^^^^^^^^
+
+After computing D-statistics, results can be visualized, exported, or included in **MultiQC** reports automatically using `SNPioMultiQC`.
 
 Fst Outlier Detection
 ---------------------
@@ -692,7 +883,6 @@ Supports two methods:
 .. tip::
 
   DBSCAN is sensitive to parameter tuning. If the default values return too few or too many outliers, experiment with `eps` and `min_samples`.
-
 
 Principal Component Analysis (PCA)
 ----------------------------------
@@ -732,7 +922,7 @@ PopGenStatistics Method Summary
     - Description
     - Algorithm(s)
   * - ``summary_statistics()``
-    - Calculates He, Ho, π, and Fst.
+    - Calculates He, Ho, π, and Fst, and various allele-level statistics.
     - Standard formulas + bootstrapping
   * - ``neis_genetic_distance()``
     - Computes Nei’s pairwise distances.
@@ -858,6 +1048,10 @@ You can integrate report generation as a final step in your SNPio pipeline:
         output_dir="results/multiqc",
         overwrite=True,
     )
+
+This ensures all results are captured in a single, interactive report for easy sharing and review.
+
+`Click Here <./_static/multiqc_report.html>`_ to view an example MultiQC report generated by SNPio, showcasing the various analyses and visualizations available.
 
 Next Steps
 ----------
