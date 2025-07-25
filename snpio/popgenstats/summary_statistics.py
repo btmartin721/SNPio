@@ -126,7 +126,13 @@ class SummaryStatistics:
             use_pvalues (bool): If True, compute p-values for pairwise Fst comparisons. Defaults to False.
 
         Returns:
-            dict: A dictionary containing summary statistics per population and overall.
+            dict: A dictionary containing summary statistics per population and overall. The keys are:
+                - "overall": DataFrame with overall Ho, He, and Pi.
+                - "per_population": Dictionary with population IDs as keys and DataFrames with Ho, He, and Pi for each population.
+                - "Fst_between_populations_obs": DataFrame with observed Fst values between populations.
+                - "Fst_between_populations_lower": DataFrame with lower bounds of Fst confidence intervals.
+                - "Fst_between_populations_upper": DataFrame with upper bounds of Fst confidence intervals.
+                - "Fst_between_populations_pvalues": DataFrame with p-values for Fst comparisons (if use_pvalues is True).
         """
         self.logger.info("Calculating summary statistics...")
 
