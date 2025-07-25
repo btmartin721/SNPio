@@ -5,8 +5,6 @@ SNPio is a Python package designed for efficient input/ output, filtering, encod
 
 This documentation provides an overview of the package's modules, classes, and functions, along with examples and usage guidelines.
 
-`Click Here <./_static/multiqc_report.html>`_ to view an example MultiQC report generated from SNPio that showcases all the features and functionalities of the package.
-
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
