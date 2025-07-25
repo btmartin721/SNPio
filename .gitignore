@@ -277,3 +277,8 @@ test.vcf.gz
 test.vcf.gz.tbi
 dtest_validation/
 snpio_dtests_output/
+dstat_mqc_test_output/
+allele_summary_test_output/
+full_test_output/
+allele_sumstats_test_output/
+full_test*_output/
