@@ -4,11 +4,69 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
-Version 1.5.4 (2025-07-07)
+Version 1.6.0 (2025-07-24)
 --------------------------
 
-Bug Fixes
-~~~~~~~~~
+Big update!
+
+Highlights - v1.6.0
+~~~~~~~~~~~~~~~~~~~
+
+- New ``AlleleSummaryStats`` class to add new tables and visualizations.
+- Fully functional and validated D-statistics (Patterson, Partitioned, and DFOIL).
+- ``NRemover2`` class has been overhauled for efficiency and speed.
+- New visualizations in the MultiQC report.
+- Bug fixes (General)
+- Documentation updates
+
+Features - v1.6.0
+~~~~~~~~~~~~~~~~~
+
+- Added a new ``AlleleSummaryStats`` class to generate allele frequency summary statistics across populations. This class provides methods to calculate allele frequencies, visualize allele distributions, and export results in various formats.
+    - The new class is called when ``PopGenStatistics(...).summary_statistics()`` is called, allowing for automatic generation of allele frequency statistics as part of the population genetics analysis workflow.
+    - The ``AlleleSummaryStats`` class includes methods for:
+        - Calculating allele frequencies per population
+        - Visualizing allele frequency distributions
+        - Exporting allele frequency data to CSV and JSON formats
+        - Generating MultiQC reports with summary statistics and visualizations
+- New visualizations have been added to the MultiQC report generator, including:
+    -  allele frequency distributions
+    -  D-tests
+    -  `NRemover2` threshold searches
+- New filtering method: ``filter_allele_depth()``. This method filters loci based on allele depth, allowing removal of low-quality or low-coverage loci.
+
+Enhancements - v1.6.0
+~~~~~~~~~~~~~~~~~~~~~
+
+- Validated the D-statistics calculations against simulated datasets with known parameters to ensure accuracy and reliability of results.
+    - D-statistics calculations now include:
+        - Patterson's D
+        - Partitioned-D
+        - D-FOIL
+    - These calculations are integrated into the MultiQC report generator, providing a comprehensive view of introgression.
+- Improved performance of the D-statistics calculations by using ``numba`` and its ``njit`` decorator for JIT compilation in parallel, significantly speeding up the computation of large datasets.
+
+Performance Improvements - v1.6.0
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- The D-statistics calculations have been optimized for performance, particularly for large datasets. The use of `numba.njit` has significantly reduced computation time, making it feasible to analyze larger genomic datasets efficiently.
+- The `NRemover2` class has been enhanced to handle larger datasets more efficiently, with improved memory management and reduced execution time for filtering operations. This was achieved by vectorizing operations and minimizing unnecessary data copies.
+
+Bug Fixes - v1.6.0
+~~~~~~~~~~~~~~~~~~
+
+- Fixed a minor edge case in the `VCFReader` class that resulted in incorrect shapes when filtering with `NRemover2`. The shape of the ``loci_indices`` and ``sample_indices`` attributes is now correctly maintained after filtering operations.
+
+Documentation Updates - v1.6.0
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use autosummary to generate documentation, and also limit the user-facing documentation to the public methods and attributes of the classes. This ensures that only relevant information is presented to users, making the documentation cleaner and more focused.
+
+Version 1.5.5 (2025-07-07)
+--------------------------
+
+Bug Fixes - Docker Image
+~~~~~~~~~~~~~~~~~~~~~~~~
 
 - Docker image now correctly installs the latest version of SNPio from PyPI. Before, it was installing an older version due to a caching issue in the Docker build process. The Dockerfile has been updated to ensure that the latest version is always installed.
 
