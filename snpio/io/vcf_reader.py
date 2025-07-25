@@ -326,8 +326,17 @@ class VCFReader(GenotypeData):
         @lru_cache(maxsize=None)
         def cached_convert(gt_pair: Tuple[int, int], alleles: Tuple[str, ...]) -> str:
             """Convert genotype pair to IUPAC code using cached function."""
+            # build base calls, using "N" for any missing allele
             bases = tuple(alleles[i] if i is not None else "N" for i in gt_pair)
-            return iupac_map[tuple(set(bases))] if bases else "N"
+
+            if not bases:
+                return "N"
+
+            # build a *sorted* key so ('A','C') and ('C','A') collapse to the same tuple
+            key = tuple(sorted(set(bases)))
+
+            # look it up, default to 'N' if it truly isn't in the map
+            return iupac_map.get(key, "N")
 
         with h5py.File(h5_path, "w") as h5:
             # core fields: POS as integer, others as utf-8 strings
@@ -650,18 +659,23 @@ class VCFReader(GenotypeData):
                 chunk_indices = global_indices[start_idx:end_idx]
                 mask = loci_indices[chunk_indices]
 
-                filtered_chunk = (
-                    chunk[mask]
-                    if sample_size is None
-                    else chunk[mask][self.sample_indices]
-                )
+                if sample_size is None:
+                    filtered_chunk = chunk[mask]
+                else:
+                    filtered_chunk = chunk[mask, :][:, self.sample_indices]
 
                 # Cast to proper dtype to avoid HDF5 conversion errors
                 filtered_chunk = np.array(filtered_chunk, dtype=dtype)
 
-                fw[dataset_name][
-                    write_idx : write_idx + filtered_chunk.size
-                ] = filtered_chunk
+                if sample_size is None:
+                    fw[dataset_name][
+                        write_idx : write_idx + filtered_chunk.shape[0]
+                    ] = filtered_chunk
+                else:
+                    fw[dataset_name][
+                        write_idx : write_idx + filtered_chunk.shape[0], :
+                    ] = filtered_chunk
+
                 write_idx += filtered_chunk.size
                 start_idx = end_idx
 
