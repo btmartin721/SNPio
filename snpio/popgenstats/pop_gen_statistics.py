@@ -9,11 +9,10 @@ import plotly.express as px
 from sklearn.decomposition import PCA
 from sklearn.impute import KNNImputer
 from sklearn.preprocessing import StandardScaler
-from statsmodels.stats.multitest import multipletests
-from tqdm.contrib.itertools import product
 
 import snpio.utils.custom_exceptions as exceptions
 from snpio import GenotypeEncoder, Plotting
+from snpio.analysis.allele_summary_stats import AlleleSummaryStats
 from snpio.popgenstats.amova import AMOVA
 from snpio.popgenstats.d_statistics import DStatistics
 from snpio.popgenstats.fst_outliers import FstOutliers
@@ -67,7 +66,12 @@ class PopGenStatistics:
         self.logger.verbose = verbose
 
         self.d_stats = DStatistics(
-            self.alignment, self.genotype_data.samples, self.logger
+            self.genotype_data,
+            self.alignment,
+            self.genotype_data.samples,
+            self.logger,
+            self.verbose,
+            self.debug,
         )
 
         self.encoder = GenotypeEncoder(self.genotype_data)
@@ -85,51 +89,6 @@ class PopGenStatistics:
 
         self.snpio_mqc = SNPioMultiQC
 
-    def _get_population_indices(
-        self,
-        pop,
-        max_individuals_per_pop: int | None,
-        individual_selection: Literal["random"] | Dict[str, List[str]],
-        seed: int | None,
-    ):
-        # Establish a random seed for reproducibility
-        rng = np.random.default_rng(seed)
-
-        pops = [pop] if isinstance(pop, str) else pop
-        selected = []
-        for p in pops:
-            if p not in self.genotype_data.popmap_inverse:
-                msg = f"Population '{p}' not found in popmap"
-                self.logger.error(msg)
-                raise KeyError(msg)
-            samples = self.genotype_data.popmap_inverse[p]
-            if (
-                max_individuals_per_pop is not None
-                and len(samples) > max_individuals_per_pop
-            ):
-                if individual_selection == "random":
-                    chosen = rng.choice(samples, max_individuals_per_pop, replace=False)
-                elif isinstance(individual_selection, dict):
-                    if max_individuals_per_pop is not None:
-                        chosen = individual_selection[p][:max_individuals_per_pop]
-                    else:
-                        chosen = individual_selection[p]
-                else:
-                    msg = f"Invalid individual_selection argument supplied: {individual_selection}. Must be 'random' or a dictionary mapping population IDs to lists of individual IDs. But got: {individual_selection} of type {type(individual_selection)}"
-                    self.logger.error(msg)
-                    raise ValueError(msg)
-                selected.extend(chosen)
-            else:
-                selected.extend(samples)
-
-        if not selected:
-            msg = f"No individuals selected for population(s): {pops}. Check your population definitions and individual selection criteria."
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        # Map selected sample IDs to their indices in the genotype data
-        return [self.genotype_data.samples.index(s) for s in selected]
-
     def calculate_d_statistics(
         self,
         method: Literal["patterson", "partitioned", "dfoil"],
@@ -138,17 +97,20 @@ class PopGenStatistics:
         population3: str | List[str],
         *,
         population4: str | List[str] | None = None,
-        outgroup: str | List[str],
-        snp_indices: np.ndarray | List[int] | None = None,
+        outgroup: str | List[str] | None = None,
         num_bootstraps: int = 1000,
-        n_jobs: int = 1,
-        max_individuals_per_pop: int = None,
+        max_individuals_per_pop: int | None = None,
         individual_selection: str | Dict[str, List[str]] = "random",
-        output_file: str | Path | None = None,
         save_plot: bool = True,
-        seed: int = None,
+        seed: int | None = None,
+        per_combination: bool = True,
+        calc_overall: bool = True,
+        use_jackknife: bool = False,
+        block_size: int = 500,
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
         """Calculate D-statistics with bootstrap support and return a summary DataFrame and overall stats.
+
+        This method calculates D-statistics using the specified method (patterson, partitioned, or dfoil) for the given populations and outgroup. It supports bootstrapping for statistical significance and can save results to a file.
 
         Args:
             method (Literal["patterson", "partitioned", "dfoil"]): The method to use for D-statistics calculation.
@@ -159,257 +121,52 @@ class PopGenStatistics:
             outgroup (str | List[str]): The outgroup population.
             snp_indices (np.ndarray | List[int] | None): Specific SNP indices to include in the analysis.
             num_bootstraps (int): Number of bootstrap replicates to perform.
-            n_jobs (int): Number of parallel jobs to run.
             max_individuals_per_pop (int | None): Maximum individuals to sample per population.
             individual_selection (str | Dict[str, List[str]]): Method for individual selection.
-            output_file (str | Path | None): File to save the output.
             save_plot (bool): Whether to save the plot.
             seed (int | None): Random seed for reproducibility.
+            per_combination (bool): Whether to calculate D-statistics for each combination of populations.
+            calc_overall (bool): Whether to calculate overall D-statistics.
+            use_jackknife (bool): Whether to use jackknife resampling instead of bootstrap. Use this if you want to estimate the variance of the D-statistics and there is the possibility of linkage disequilibrium in the data. Defaults to False, which uses bootstrap resampling instead.
+            block_size (int): Block size for jackknife resampling. Defaults to 500.
+
 
         Returns:
             Tuple[pd.DataFrame, Dict[str, Any]]: A tuple containing a DataFrame with D-statistics results and a dictionary with overall statistics.
         """
-        if method not in {"patterson", "partitioned", "dfoil"}:
-            msg = f"Invalid method '{method}' specified. Must be one of 'patterson', 'partitioned', or 'dfoil'."
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        if not isinstance(population1, (str, list)):
-            msg = f"population1 must be a string or a list of strings, but got {type(population1)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
-        if not isinstance(population2, (str, list)):
-            msg = f"population2 must be a string or a list of strings, but got {type(population2)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
-        if not isinstance(population3, (str, list)):
-            msg = f"population3 must be a string or a list of strings, but got {type(population3)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
-        if population4 is not None and not isinstance(population4, (str, list)):
-            msg = f"population4 must be a string or a list of strings, but got {type(population4)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
         self.logger.info("Calculating D-statistics...")
-        self.logger.info(f"Method: {method}")
+        self.logger.info(f"Using D-statistics method: {method}")
         self.logger.info(f"Number of bootstraps: {num_bootstraps}")
         self.logger.info(f"Max individuals per population: {max_individuals_per_pop}")
+        self.logger.info(f"Seed: {seed if seed is not None else 'None'}")
+        self.logger.info(f"Individual selection: {individual_selection}")
+        self.logger.info(f"Save plot: {save_plot}")
 
-        # 1) select individuals
-        d1 = self._get_population_indices(
-            population1, max_individuals_per_pop, individual_selection, seed
+        # Validate method
+        if method not in {"patterson", "partitioned", "dfoil"}:
+            msg = f"Invalid method: {method}. Supported methods: 'patterson', 'partitioned', 'dfoil'."
+            self.logger.error(msg)
+            raise NotImplementedError(msg)
+
+        df, overall = self.d_stats.run(
+            method=method,
+            population1=population1,
+            population2=population2,
+            population3=population3,
+            population4=population4,
+            outgroup=outgroup,
+            num_bootstraps=num_bootstraps,
+            max_individuals_per_pop=max_individuals_per_pop,
+            individual_selection=individual_selection,
+            seed=seed,  # For reproducibility
+            per_combination=per_combination,
+            calc_overall=calc_overall,
+            use_jackknife=use_jackknife,
+            block_size=block_size,
         )
-        d2 = self._get_population_indices(
-            population2, max_individuals_per_pop, individual_selection, seed
-        )
-        d3 = self._get_population_indices(
-            population3, max_individuals_per_pop, individual_selection, seed
-        )
 
-        d4 = None
-        if method in {"partitioned", "dfoil"}:
-            d4 = self._get_population_indices(
-                population4, max_individuals_per_pop, individual_selection, seed
-            )
-        out = self._get_population_indices(
-            outgroup, max_individuals_per_pop, individual_selection, seed
-        )
+        save_plot = False
 
-        # 2. encode alleles and prepare snp_idx
-        geno_enc = self.d_stats._encode_alleles(
-            self.d_stats.alignment
-            if snp_indices is None
-            else self.d_stats.alignment[:, snp_indices]
-        )
-        n_snps = geno_enc.shape[1]
-        rng = np.random.default_rng(seed)
-        snp_idx = rng.choice(n_snps, size=(num_bootstraps, n_snps), replace=True)
-
-        rows: List[Dict[str, Any]] = []
-        overall: Dict[str, Any] = {}
-
-        # 3. loop over all combinations
-        if method == "patterson":
-            for i1, i2, i3, o in product(
-                d1, d2, d3, out, desc="Sample Combinations", unit="combos", leave=True
-            ):
-                boots = self.d_stats._patterson_d_bootstrap(
-                    geno_enc,
-                    np.array([i1]),
-                    np.array([i2]),
-                    np.array([i3]),
-                    np.array([o]),
-                    snp_idx,
-                )
-                mean, z, p = self.d_stats._dstat_z_and_p(boots)
-                rows.append(
-                    {
-                        "P1": self.d_stats.sample_ids[i1],
-                        "P2": self.d_stats.sample_ids[i2],
-                        "P3": self.d_stats.sample_ids[i3],
-                        "Outgroup": self.d_stats.sample_ids[o],
-                        "D_obs": mean,
-                        "Z-Score": z,
-                        "P-Value": p,
-                    }
-                )
-        elif method == "partitioned":
-            for i1, i2, i3, i4, o in product(
-                d1,
-                d2,
-                d3,
-                d4,
-                out,
-                desc="Sample Combinations",
-                unit="combos",
-                leave=True,
-            ):
-                boots = self.d_stats._partitioned_d_bootstrap(
-                    geno_enc,
-                    np.array([i1]),
-                    np.array([i2]),
-                    np.array([i3]),
-                    np.array([i4]),
-                    np.array([o]),
-                    snp_idx,
-                )
-                mean, z, p = self.d_stats._dstat_z_and_p(boots)
-                rows.append(
-                    {
-                        "P1": self.d_stats.sample_ids[i1],
-                        "P2": self.d_stats.sample_ids[i2],
-                        "P3": self.d_stats.sample_ids[i3],
-                        "P4": self.d_stats.sample_ids[i4],
-                        "Outgroup": self.d_stats.sample_ids[o],
-                        "D_obs": mean,
-                        "Z-Score": z,
-                        "P-Value": p,
-                    }
-                )
-        else:  # dfoil
-            for i1, i2, i3, i4, o in product(
-                d1,
-                d2,
-                d3,
-                d4,
-                out,
-                desc="Sample Combinations",
-                unit="combos",
-                leave=True,
-            ):
-                boots = self.d_stats._dfoil_bootstrap(
-                    geno_enc,
-                    np.array([i1]),
-                    np.array([i2]),
-                    np.array([i3]),
-                    np.array([i4]),
-                    np.array([o]),
-                    snp_idx,
-                )
-                stats = self.d_stats._dfoil_z_and_p(boots)
-                means, zs, ps = zip(*stats)
-                row = {
-                    "P1": self.d_stats.sample_ids[i1],
-                    "P2": self.d_stats.sample_ids[i2],
-                    "P3": self.d_stats.sample_ids[i3],
-                    "P4": self.d_stats.sample_ids[i4],
-                    "Outgroup": self.d_stats.sample_ids[o],
-                    "DFO": means[0],
-                    "DFI": means[1],
-                    "DOL": means[2],
-                    "DIL": means[3],
-                    "Z_DFO": zs[0],
-                    "Z_DFI": zs[1],
-                    "Z_DOL": zs[2],
-                    "Z_DIL": zs[3],
-                    "P_DFO": ps[0],
-                    "P_DFI": ps[1],
-                    "P_DOL": ps[2],
-                    "P_DIL": ps[3],
-                }
-                rows.append(row)
-
-        # 4. build DataFrame
-        df = pd.DataFrame(rows)
-
-        if df.empty:
-            self.logger.warning(
-                "No valid D-statistics were calculated. Returning empty DataFrame."
-            )
-            return df, {}
-
-        # 5. multiple-test correction
-        if method in {"patterson", "partitioned"}:
-            df = df[df["P-Value"].notna()]
-            df["Bonferroni"] = multipletests(
-                df["P-Value"].to_numpy(), method="bonferroni"
-            )[1]
-            df["FDR-BH"] = multipletests(df["P-Value"].to_numpy(), method="fdr_bh")[1]
-            df["Significant (Raw)"] = df["P-Value"] < 0.05
-            df["Significant (Bonferroni)"] = df["Bonferroni"] < 0.05
-            df["Significant (FDR-BH)"] = df["FDR-BH"] < 0.05
-            overall = {
-                "Observed D": df["D_obs"].mean(),
-                "Z": df["Z-Score"].mean(),
-                "P": df["P-Value"].mean(),
-            }
-        else:
-            if method == "dfoil":
-                # 5. multiple-test correction for D-FOIL
-                for stat in ["DFO", "DFI", "DOL", "DIL"]:
-                    mask = df[f"P_{stat}"].notna()
-                    # Bonferroni-corrected p-values
-                    df.loc[mask, f"P_{stat}_bonf"] = multipletests(
-                        df.loc[mask, f"P_{stat}"].to_numpy(), method="bonferroni"
-                    )[1]
-                    # FDR-BH–corrected p-values
-                    df.loc[mask, f"P_{stat}_fdr"] = multipletests(
-                        df.loc[mask, f"P_{stat}"].to_numpy(), method="fdr_bh"
-                    )[1]
-
-                    # Significance flags
-                    df[f"Sig Raw {stat}"] = df[f"P_{stat}"] < 0.05
-                    df[f"Sig Bonf {stat}"] = df[f"P_{stat}_bonf"] < 0.05
-                    df[f"Sig FDR {stat}"] = df[f"P_{stat}_fdr"] < 0.05
-
-                overall = {
-                    "Observed D": [
-                        df["DFO"].mean(),
-                        df["DFI"].mean(),
-                        df["DOL"].mean(),
-                        df["DIL"].mean(),
-                    ],
-                    "Z": [
-                        df["Z_DFO"].mean(),
-                        df["Z_DFI"].mean(),
-                        df["Z_DOL"].mean(),
-                        df["Z_DIL"].mean(),
-                    ],
-                    "P": [
-                        df["P_DFO"].mean(),
-                        df["P_DFI"].mean(),
-                        df["P_DOL"].mean(),
-                        df["P_DIL"].mean(),
-                    ],
-                }
-
-        # 6. save & plot
-        if output_file is None:
-            base = Path(self.genotype_data.prefix + "_output")
-            if self.genotype_data.was_filtered:
-                base = base / "nremover"
-            base = base / "analysis" / "d_stats"
-            base.mkdir(parents=True, exist_ok=True)
-            output_file = base / f"{method}_dstats.json"
-        else:
-            output_file = Path(output_file)
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-
-        df.to_json(output_file, orient="records", indent=2)
         if save_plot:
             self.plotter.plot_d_statistics(df, method=method)
 
@@ -566,7 +323,7 @@ class PopGenStatistics:
         n_jobs: int = 1,
         save_plots: bool = True,
         use_pvalues: bool = False,
-    ) -> dict:
+    ) -> Tuple[pd.Series, Dict[str, dict | pd.DataFrame]]:
         """Calculate a suite of summary statistics for SNP data.
 
         This method calculates a suite of summary statistics for SNP data, including observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and Fst between populations. Summary statistics are calculated both overall and per population.
@@ -578,8 +335,20 @@ class PopGenStatistics:
             use_pvalues (bool): Whether to calculate p-values for Fst. Otherwise calculates 95% confidence intervals. Defaults to False.
 
         Returns:
-            dict: A dictionary containing summary statistics per population and overall.
+            Tuple[pd.Series, dict]: A tuple containing a pandas Series with the allele-based summary statistics and a dictionary containing summary statistics per population and overall. The dictionary keys and values are:
+                - "overall": DataFrame with overall Ho, He, and Pi.
+                - "per_population": Dictionary with population IDs as keys and DataFrames with Ho, He, and Pi for each population.
+                - "Fst_between_populations_obs": DataFrame with observed Fst values between populations.
+                - "Fst_between_populations_lower": DataFrame with lower bounds of Fst confidence intervals.
+                - "Fst_between_populations_upper": DataFrame with upper bounds of Fst confidence intervals.
+                - "Fst_between_populations_pvalues": DataFrame with p-values for Fst comparisons (if use_pvalues is True).
         """
+
+        allele_sumstats = AlleleSummaryStats(
+            self.genotype_data, verbose=self.verbose, debug=self.debug
+        )
+        allele_sumstats_df = allele_sumstats.summarize()
+
         summary_stats = SummaryStatistics(
             self.genotype_data,
             self.alignment_012,
@@ -588,12 +357,14 @@ class PopGenStatistics:
             debug=self.debug,
         )
 
-        return summary_stats.calculate_summary_statistics(
+        sumstats = summary_stats.calculate_summary_statistics(
             n_permutations=n_permutations,
             n_jobs=n_jobs,
             save_plots=save_plots,
             use_pvalues=use_pvalues,
         )
+
+        return sumstats, allele_sumstats_df
 
     def amova(
         self,
@@ -750,7 +521,7 @@ class PopGenStatistics:
 
         The workflow is:
 
-        1. **Encode genotypes** to 0/1/2 integers (-9 → NaN).
+        1. **Encode genotypes** to 0/1/2 integers (-9 → missing, NaN → missing).
         2. **Impute missing values** with K-nearest neighbours (per sample).
         3. **Remove or neutral-ise constant loci** (zero variance after imputation).
         4. Optional **centering / scaling** (``StandardScaler``).
