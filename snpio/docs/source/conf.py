@@ -48,7 +48,10 @@ extensions = [
     "sphinx.ext.todo",  # To-do directives in documentation
     "sphinx.ext.viewcode",  # Add links to highlighted source code
     "sphinxcontrib.bibtex",  # For bibliography management
+    "sphinx.ext.autosummary",  # Automatically generate summaries for modules, classes, and functions
 ]
+
+autosummary_generate = True  # Generate autosummary files automatically
 
 # Point to BibTeX files
 bibtex_bibfiles = ["./refs.bib"]
