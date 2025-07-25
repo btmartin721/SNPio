@@ -1,23 +1,23 @@
-snpio package
+.. _api-reference:
+
+API Reference
 =============
 
-Subpackages
------------
-
-.. toctree::
-   :maxdepth: 2
-
-   snpio.io
-   snpio.read_input
-   snpio.filtering
-   snpio.analysis
-   snpio.popgenstats
-   snpio.plotting
-   snpio.utils
-
-Module contents
----------------
+This is the main public API for the ``snpio`` package.
 
 .. automodule:: snpio
-   :members:
-   :undoc-members:
+
+.. autosummary::
+   :toctree: generated/
+   :nosignatures:
+
+   VCFReader
+   PhylipReader
+   StructureReader
+   GenePopReader
+   NRemover2
+   PopGenStatistics
+   GenotypeEncoder
+   Plotting
+   TreeParser
+   SNPioMultiQC
