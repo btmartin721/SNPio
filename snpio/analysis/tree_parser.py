@@ -6,13 +6,13 @@ import numpy as np
 import pandas as pd
 import toytree as tt
 
-from snpio.read_input.genotype_data import GenotypeData
+from snpio.utils.misc import IUPAC
 
 
-class TreeParser(GenotypeData):
+class TreeParser:
     """TreeParser class for reading and manipulating phylogenetic trees.
 
-    This class provides methods for reading, writing, and manipulating phylogenetic trees. The TreeParser class inherits from the GenotypeData class and provides additional functionality for working with phylogenetic trees. The TreeParser class can read phylogenetic trees from Newick or NEXUS format files, calculate basic statistics for the tree, extract subtrees, prune the tree, reroot the tree, and calculate pairwise distance matrices.
+    This class provides methods for reading, writing, and manipulating phylogenetic trees. The TreeParser class provides functionality for working with phylogenetic trees. The TreeParser class can read phylogenetic trees from Newick or NEXUS format files, calculate basic statistics for the tree, extract subtrees, prune the tree, reroot the tree, and calculate pairwise distance matrices.
 
     Example:
         >>> tp = TreeParser(
@@ -48,15 +48,15 @@ class TreeParser(GenotypeData):
     def __init__(
         self,
         genotype_data: Any,
-        treefile: str,
-        qmatrix: str | None = None,
-        siterates: str | None = None,
+        treefile: str | Path,
+        qmatrix: str | Path | None = None,
+        siterates: str | Path | None = None,
         verbose: bool = False,
         debug: bool = False,
     ) -> None:
         """Initialize the TreeParser object.
 
-        This class provides methods for reading, writing, and manipulating phylogenetic trees. The TreeParser class inherits from the GenotypeData class and provides additional functionality for working with phylogenetic trees. The TreeParser class can read phylogenetic trees from Newick or NEXUS format files, calculate basic statistics for the tree, extract subtrees, prune the tree, reroot the tree, and calculate pairwise distance matrices.
+        This class provides methods for reading, writing, and manipulating phylogenetic trees. The TreeParser class provides functionality for working with phylogenetic trees. The TreeParser class can read phylogenetic trees from Newick or NEXUS format files, calculate basic statistics for the tree, extract subtrees, prune the tree, reroot the tree, and calculate pairwise distance matrices.
 
         Args:
             genotype_data (Any): GenotypeData object containing the SNP data.
@@ -67,37 +67,21 @@ class TreeParser(GenotypeData):
             debug (bool, optional): Whether to display debug output. Defaults to False.
         """
 
-        # Initialize the parent class GenotypeData
-        super().__init__(
-            filename=genotype_data.filename,
-            filetype="tree",
-            popmapfile=genotype_data.popmapfile,
-            force_popmap=genotype_data.force_popmap,
-            exclude_pops=genotype_data.exclude_pops,
-            include_pops=genotype_data.include_pops,
-            plot_format=genotype_data.plot_format,
-            prefix=genotype_data.prefix,
-            verbose=genotype_data.verbose,
-            debug=genotype_data.debug,
-            plot_fontsize=genotype_data.plot_fontsize,
-            plot_dpi=genotype_data.plot_dpi,
-            loci_indices=genotype_data.loci_indices,
-            sample_indices=genotype_data.sample_indices,
-        )
-
         self.logger = genotype_data.logger
+        self.iupac = IUPAC(logger=self.logger)
 
         self.genotype_data = genotype_data
         self.treefile = treefile
-        self.qmatrix = qmatrix
-        self.siterates = siterates
-        self.qmatrix
         self.verbose = verbose
         self.debug = debug
 
+        self._qmatrix = qmatrix
+        self._siterates = siterates
         self._tree = None
         self._qmat = None
         self._site_rates = None
+
+        self.loci_indices = genotype_data.loci_indices
 
     def read_tree(self) -> tt.ToyTree:
         """Read Newick or NEXUS-style phylogenetic tree into toytree object.
@@ -144,13 +128,6 @@ class TreeParser(GenotypeData):
             self.logger.error(msg)
             raise TypeError(msg)
 
-        if save_path is not None:
-            save_path = Path(save_path)
-            if not save_path.stem.endswith("_mqc"):
-                save_path = save_path.with_name(
-                    f"{save_path.stem}_mqc{save_path.suffix}"
-                )
-
         tree_str = tree.write(path=save_path)
 
         if tree_str is not None:
@@ -185,7 +162,7 @@ class TreeParser(GenotypeData):
         This method extracts a subtree from the phylogenetic tree rooted at the specified node or tip. The subtree is returned as a toytree object. The regex argument can be a regular expression to match the node or tip name. Regular expressions can be prefixed with '~' to indicate taxa to keep.
 
         Args:
-            regex (int): Regular expression to match the node or tip name. Regular expressions can be prefixed with '~' to indicate taxa to keep.
+            regex (str): Regular expression to match the node or tip name. Regular expressions can be prefixed with '~' to indicate taxa to keep.
 
         Returns:
             toytree.tree: The subtree rooted at the specified node.
@@ -236,23 +213,16 @@ class TreeParser(GenotypeData):
     def reroot_tree(self, node: int | str | List[str]) -> tt.ToyTree:
         """Reroot the tree at a specific node or tip.
 
-        This method reroots the tree at a specific node or tip, changing the root of the tree to the specified node. The rerooted tree is returned as a toytree object.
-
         Args:
-            node (int | str | List[str]): Index of the node or tip where the tree should be rerooted, a regex string to match the node or tip name prefixed by "~", or a list of node or tip names.
-
-        Returns:
-            toytree.tree: The rerooted tree.
+            node (int | str | List[str]): Node or tip name to reroot the tree at. Can be a single node/tip name or a list of names.
         """
         if self._tree is None:
             self._tree = self.read_tree()
 
-        is_list = isinstance(node, list)
-
-        tree = self._tree
-        mrca = tree.get_mrca_node(*node) if is_list else tree.get_mrca_node(node)
-
-        rerooted_tree = self._tree.root(mrca)
+        # Toytree's root method can handle all these cases directly and more efficiently.
+        rerooted_tree = self._tree.root(
+            node, on_edge=True
+        )  # Using on_edge=True is often desired
         self.logger.info(f"Tree rerooted at node {node}.")
         return rerooted_tree
 
@@ -282,10 +252,10 @@ class TreeParser(GenotypeData):
         Raises:
             FileNotFoundError: If the Q matrix file is not found.
         """
-        if not Path(self.qmatrix).is_file():
-            raise FileNotFoundError(f"File {self.qmatrix} not found!")
+        if not Path(self._qmatrix).is_file():
+            raise FileNotFoundError(f"File {self._qmatrix} not found!")
 
-        with open(self.qmatrix, "r") as fin:
+        with open(self._qmatrix, "r") as fin:
             lines = fin.readlines()
 
             header = True if "A" in lines[0].upper() else False
@@ -297,7 +267,7 @@ class TreeParser(GenotypeData):
 
         # Read the Q matrix file using pandas.
         dfq = pd.read_csv(
-            self.qmatrix, sep=sep, header=header_idx, names=["A", "C", "G", "T"]
+            self._qmatrix, sep=sep, header=header_idx, names=["A", "C", "G", "T"]
         )
 
         if header:
@@ -339,37 +309,32 @@ class TreeParser(GenotypeData):
             FileNotFoundError: If the IQ-TREE file could not be found.
             IOError: If the IQ-TREE file could not be read.
         """
-        qlines = []
-        with open(self.qmatrix, "r") as fin:
-            foundLine = False
-            matlinecount = 0
-            for line in fin:
-                line = line.strip()
-                if not line:
-                    continue
+        header_line_idx = -1
+        with open(self._qmatrix, "r") as fin:
+            for i, line in enumerate(fin):
                 if "rate matrix q" in line.lower():
-                    foundLine = True
-                    continue
-                if foundLine:
-                    matlinecount += 1
-                    if matlinecount > 4:
-                        break
-                    qlines.append(line)
+                    header_line_idx = i
+                    break
 
-        # Check that the Q matrix was found and read
-        if not qlines:
-            raise IOError(f"Rate matrix Q not found in IQ-TREE file {self.qmatrix}")
+        if header_line_idx == -1:
+            msg = f"Rate matrix Q not found in IQ-TREE file {self._qmatrix}"
+            self.logger.error(msg)
+            raise IOError(msg)
 
-        # Populate q matrix with values from the IQ-TREE file
-        qlines = [line.split(",") if "," in line else line.split() for line in qlines]
-
-        dfq = pd.DataFrame(qlines, columns=["nuc", "A", "C", "G", "T"])
-        dfq = dfq.set_index("nuc")
-        dfq = dfq.astype(float)
+        # Use pandas to read the 4x4 matrix starting after the header
+        dfq = pd.read_csv(
+            self._qmatrix,
+            sep=r"\s+",
+            skiprows=header_line_idx + 2,  # Skip header and column names line
+            nrows=4,
+            header=None,
+            index_col=0,
+        )
+        dfq.columns = ["A", "C", "G", "T"]
+        dfq.index.name = None  # Remove index name 'A'
 
         self.logger.debug(f"{dfq=}")
-
-        return dfq
+        return dfq.astype(float)
 
     def _siterates_from_iqtree(self) -> pd.DataFrame:
         """Read site-specific substitution rates from .rates file.
@@ -394,14 +359,14 @@ class TreeParser(GenotypeData):
         Raises:
             FileNotFoundError: If the rates file could not be found.
         """
-        if not Path(self.siterates).is_file():
-            self.logger.error(f"File {self.siterates} not found.")
-            raise FileNotFoundError(f"File {self.siterates} not found.")
+        if not Path(self._siterates).is_file():
+            self.logger.error(f"File {self._siterates} not found.")
+            raise FileNotFoundError(f"File {self._siterates} not found.")
 
         try:
-            dfs = pd.read_csv(self.siterates, sep=r"\s+", comment="#")
+            dfs = pd.read_csv(self._siterates, sep=r"\s+", comment="#")
         except IOError as e:
-            msg = f"Could not read rates file {self.siterates}: {e}"
+            msg = f"Could not read rates file {self._siterates}: {e}"
             self.logger.error(msg)
             raise
 
@@ -418,9 +383,6 @@ class TreeParser(GenotypeData):
         Raises:
             ValueError: If the number of site rates does not match the number of SNPs.
         """
-        if self.genotype_data.snp_data is None:
-            _ = self.genotype_data.snp_data
-
         if len(rates) != self.genotype_data.num_snps:
             msg = f"Number of site rates != number of snps in the alignment: {len(rates)} != {self.genotype_data.num_snps}"
             self.logger.error(msg)
@@ -442,33 +404,27 @@ class TreeParser(GenotypeData):
         Returns:
             List[float]: List of site-specific substitution rates.
         """
-        with open(self.siterates, "r") as fin:
-            lines = fin.readlines()
-            sep = "," if "," in lines else r"\s+"
-            header = lines[0] if lines[0].isalpha() else None
+        try:
+            # Let pandas infer the separator for a single column
+            df = pd.read_csv(
+                self._siterates, header=None, sep=r"\s*,\s*|\s+", engine="python"
+            )
+        except Exception as e:
+            msg = f"Failed to read site rates file {self._siterates}: {e}"
+            self.logger.error(msg)
+            raise IOError(msg) from e
 
-            line = lines[1].strip()
-            if not line:
-                msg = "Site rates file is empty."
-                self.logger.error(msg)
-                raise ValueError()
+        if df.shape[1] > 1:
+            msg = f"Site rates file {self._siterates} must have only one column, but found {df.shape[1]}."
+            self.logger.error(msg)
+            raise ValueError(msg)
 
-            ncol = len(line.split(sep))
-
-            if ncol > 1:
-                msg = "Site rates file must have only one column."
-                self.logger.error(msg)
-                raise ValueError(msg)
-
-        header = 0 if header else None
-
-        dfs = pd.read_csv(self.siterates, sep=sep, header=header, names=["Rate"])
-        return dfs["Rate"].to_list()
+        return df[0].to_list()
 
     def _validate_qmat(self, qmat: pd.DataFrame) -> None:
         """Validate the Q matrix.
 
-        This method validates the Q matrix to ensure it is a square matrix with the correct columns and index. The Q matrix should be a square matrix with columns and index in the order A, C, G, T.
+        This method validates the Q matrix to ensure it is a square matrix with the correct columns and index. The Q matrix should be a square matrix with columns and index in the order (A, C, G, T). If the Q matrix is not valid, an exception is raised.
 
         Args:
             qmat (pd.DataFrame): Q matrix as a pandas DataFrame.
@@ -481,7 +437,7 @@ class TreeParser(GenotypeData):
             ValueError: If the Q matrix columns are not in the order A, C, G, T.
         """
         if not isinstance(qmat, pd.DataFrame):
-            msg = "Q matrix must be a pandas DataFrame, but got: {type(qmat)}"
+            msg = f"Q matrix must be a pandas DataFrame, but got: {type(qmat)}"
             self.logger.error(msg)
             raise TypeError(msg)
 
@@ -491,19 +447,19 @@ class TreeParser(GenotypeData):
             raise ValueError(msg)
 
         if qmat.shape[0] != qmat.shape[1]:
-            msg = "Q matrix is not square: {qmat.shape}"
+            msg = f"Q matrix is not square: {qmat.shape}"
             self.logger.error(msg)
             raise ValueError(msg)
 
         if not all(qmat.columns == qmat.index):
             msg = (
-                "Q matrix columns must equal the index: {qmat.columns} != {qmat.index}"
+                f"Q matrix columns must equal the index: {qmat.columns} != {qmat.index}"
             )
             self.logger.error(msg)
             raise ValueError(msg)
 
         if not all(qmat.columns == ["A", "C", "G", "T"]):
-            msg = "Q matrix columns must be in the order A, C, G, T: {qmat.columns}"
+            msg = f"Q matrix columns must be in the order A, C, G, T, but got: {qmat.columns}"
             self.logger.error(msg)
             raise ValueError(msg)
 
@@ -520,16 +476,15 @@ class TreeParser(GenotypeData):
             self._validate_qmat(self._qmat)
             return self._qmat
 
-        if self.qmatrix is None:
+        if self._qmatrix is None:
             msg = "Q matrix file path not provided."
             self.logger.error(msg)
             raise TypeError(msg)
 
         is_iqtree = False
-        with open(self.qmatrix, "r") as fin:
+        with open(self._qmatrix, "r") as fin:
             lines = fin.readlines()
-            lines = [line.strip() for line in lines]
-            lines = [line for line in lines if line]
+            lines = [line.strip() for line in lines if line.strip()]
 
             if (
                 lines
@@ -556,7 +511,7 @@ class TreeParser(GenotypeData):
         self._qmat = value
 
     @property
-    def site_rates(self) -> pd.DataFrame:
+    def site_rates(self) -> pd.Series:
         """Get site rate data for phylogenetic tree.
 
         This method reads the site-specific substitution rates from a file and returns them as a list of float values. The site rates file should either contain the site rates in a single column, with each rate on a separate line, or in a table format with the rates in the 'Rate' column, as output by IQ-TREE. For example:
@@ -588,13 +543,13 @@ class TreeParser(GenotypeData):
             self._validate_rates(self._site_rates)
             return self._site_rates
 
-        if self.siterates is None:
+        if self._siterates is None:
             msg = "Site rates file path not provided."
             self.logger.error(msg)
             raise TypeError(msg)
 
         is_iqtree = False
-        with open(self.siterates, "r") as fin:
+        with open(self._siterates, "r") as fin:
             lines = fin.readlines()
             lines = [line.strip() for line in lines]
             lines = [line for line in lines if line]
@@ -612,14 +567,18 @@ class TreeParser(GenotypeData):
 
         # Filter site rates to only include rates for remaining loci after
         # alignment filtering.
-        if self._loci_indices is None:
-            self.loci_indices = np.ones(len(self.snp_data), dtype=bool)
+        if self.loci_indices is None:
+            self.loci_indices = np.ones(self.genotype_data.num_snps, dtype=bool)
 
         if np.count_nonzero(self.loci_indices) < len(self._site_rates):
             sr = np.array(self._site_rates)
             self._site_rates = sr[self.loci_indices].tolist()
 
         self._validate_rates(self._site_rates)
+
+        if isinstance(self._site_rates, list):
+            self._site_rates = pd.Series(self._site_rates, name="Rate")
+
         return self._site_rates
 
     @site_rates.setter
@@ -663,4 +622,9 @@ class TreeParser(GenotypeData):
         Args:
             value (toytree.tree): The tree object to set.
         """
+        if not isinstance(value, tt.ToyTree):
+            msg = f"Tree must be a toytree object, but got: {type(value)}."
+            self.logger.error(msg)
+            raise TypeError(msg)
+
         self._tree = value
