@@ -281,7 +281,7 @@ class NRemover2:
         return self._filtering_methods.filter_missing_sample(threshold)
 
     @wraps(FilteringMethods.filter_missing)
-    def filter_hetg(self, threshold: float) -> "NRemover2":
+    def filter_het(self, threshold: float) -> "NRemover2":
         """Filters out loci (columns) with heterozygosity greater than the specified threshold.
 
         Args:
@@ -1161,4 +1161,5 @@ class NRemover2:
             str: A string representation of the NRemover2 instance.
         """
         return f"NRemover2(genotype_data={self.genotype_data})"
+
 
