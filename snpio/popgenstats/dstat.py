@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
-from snpio import GenotypeEncoder
 from snpio.popgenstats.dstats_base import DStatsBase, DStatsConfig, DStatsResults
 from snpio.popgenstats.numba_helpers import _compute_d, _execute_bootstrap_d
 from snpio.utils.logging import LoggerManager
@@ -17,11 +16,18 @@ class PattersonDStats(DStatsBase):
     This class computes the D-statistic for a 4-taxon model, which is used to detect introgression between populations.
     """
 
-    def __init__(self, genotype_data: "GenotypeData", *, verbose=False, debug=False):
+    def __init__(
+        self,
+        genotype_data: "GenotypeData",
+        geno012: np.ndarray,
+        verbose: bool = False,
+        debug: bool = False,
+    ):
         """Initialize the PattersonDStats class.
 
         Args:
             genotype_data (GenotypeData): The genotype data to analyze.
+            geno012 (np.ndarray): Genotype matrix in 0/1/2 format.
             verbose (bool): If True, enables verbose logging.
             debug (bool): If True, enables debug logging.
         """
@@ -29,6 +35,8 @@ class PattersonDStats(DStatsBase):
         self.logger = LoggerManager(
             __name__, prefix=genotype_data.prefix, verbose=verbose, debug=debug
         ).get_logger()
+
+        self.geno012 = geno012
 
     def calculate(
         self,
@@ -58,13 +66,9 @@ class PattersonDStats(DStatsBase):
         Returns:
             Tuple[dict, np.ndarray]: A tuple containing the results of the D-statistic calculation and the bootstrap results.
         """
-        # 1. Get genotype matrix
-        ge = GenotypeEncoder(self.genotype_data)
-        geno012 = ge.genotypes_012  # shape: (N_samples, N_loci)
-
-        # 3. Create config
+        # 1. Create config
         config = DStatsConfig(
-            geno012=geno012,
+            geno012=self.geno012,
             pop1=population1,
             pop2=population2,
             pop3=population3,
@@ -79,7 +83,7 @@ class PattersonDStats(DStatsBase):
         self.logger.debug(f"Config: {config.to_dict()}")
 
         # Subset the genotypes to only relevant populations.
-        geno_sub, pops_mapped = self._map_geno_to_pops(geno012, config)
+        geno_sub, pops_mapped = self._map_geno_to_pops(self.geno012, config)
 
         # Get derived and ancestral population frequencies.
         arr = self._extract_pop_freqs(config, geno_sub, pops_mapped)
@@ -100,19 +104,19 @@ class PattersonDStats(DStatsBase):
             boots.shape[0], arr, boots, n_dstats=config.n_dstats
         )
 
-        dobs_tup = (dobs,)
-        z, p = self.zscore(dobs_tup, boot_res)
-        x2, p_x2 = self.chisq(dobs_tup, boot_res)
+        observed_sequence = (dobs,)
+        z_scores, p_values = self.zscore(observed_sequence, boot_res)
+        chi_squares, p_chi_squares = self.chisq(observed_sequence, boot_res)
 
         # 12. Wrap results
         self.results = DStatsResults(
             n_boot=config.n_boot,
             seed=config.seed,
-            D=dobs_tup,
-            Z=z,
-            P=p,
-            X2=x2,
-            P_X2=p_x2,
+            D=dobs,
+            Z=z_scores[0],
+            P=p_values[0],
+            X2=chi_squares[0],
+            P_X2=p_chi_squares[0],
             method="patterson",
         )
 
