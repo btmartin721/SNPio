@@ -51,8 +51,7 @@ The script produces:
 * **Filtered genotype data** (HDF5 + flat files)  
 * **Population-genetic statistics** (CSV / JSON)  
 * **Plots** (summary, PCA, distances, outliers, D-stats)  
-* **Interactive MultiQC report** in  
-  ``<prefix>_output/multiqc/``
+* **Interactive MultiQC report** in ``<prefix>_output/multiqc/``
 
 Source code
 -----------
@@ -63,175 +62,243 @@ adapt, or mine individual steps for your own pipelines.
 .. code-block:: python
    :linenos:
 
+   #!/usr/bin/env python3
+
    import argparse
-   import sys
    from pathlib import Path
 
-   from snpio import (
-      NRemover2,
-      PopGenStatistics,
-      SNPioMultiQC,
-      VCFReader,
-   )
+   from snpio import NRemover2, PopGenStatistics, SNPioMultiQC, VCFReader
+
+   """
+   run_snpio.py
+
+   A helper script to run SNPio programmatically from within Docker or CLI.
+
+   Usage:
+      python run_snpio.py \
+         --input /app/data/0_original_alignments/example.vcf \
+         --popmap /app/data/1_popmaps/example_popmap.txt \
+         --prefix /app/results/snpio \
+         --verbose \
+         --debug \
+         --plot-format <png|pdf|svg>
+   """
 
 
-   # ---------------------------------------------------------------------
-   # Helpers
-   # ---------------------------------------------------------------------
-   def _validate(path: str, label: str) -> None:
-      p = Path(path)
-      if not (p.is_file() and p.exists()):
-         print(f"[ERROR] {label} file not found: {path}", file=sys.stderr)
-         raise FileNotFoundError(path)
+   def version():
+      from snpio import __version__
+
+      return str(__version__)
 
 
-   def _parse_args():
-      p = argparse.ArgumentParser(
-         description="Run an end-to-end SNPio example analysis."
+   def validate_file(path: str, name: str) -> None:
+      pth = Path(path)
+      if not pth.exists() or not pth.is_file():
+         print(f"ERROR: {name} file not found at: {path}")
+         raise FileNotFoundError(f"{name} file not found: {path}")
+
+
+   def parse_args():
+      parser = argparse.ArgumentParser(
+         prog="SNPio",
+         description="Run SNPio with specified input, popmap, and output prefix.",
       )
-      p.add_argument("--input",   required=True,
-                     help="VCF / PHYLIP / STRUCTURE file")
-      p.add_argument("--popmap",  required=True,
-                     help="Two-column sample→population file")
-      p.add_argument("--prefix",  required=True,
-                     help="Output prefix (results in <prefix>_output/)")
-      p.add_argument("--plot-format", default="png",
-                     choices=["png", "pdf", "svg"],
-                     help="Plot format (default: png)")
-      p.add_argument("--verbose", action="store_true",
-                     help="Verbose logging")
-      p.add_argument("--debug",   action="store_true",
-                     help="Debug mode")
-      return p.parse_args()
+      parser.add_argument(
+         "--input",
+         type=str,
+         required=True,
+         help="Path to input file (VCF, PHYLIP, or STRUCTURE format).",
+      )
+      parser.add_argument(
+         "--popmap",
+         type=str,
+         required=True,
+         help="Path to popmap file mapping samples to populations. Format: <sample>\t<population>",
+      )
+      parser.add_argument(
+         "--prefix",
+         type=str,
+         required=True,
+         help="Output prefix for results (output files will be saved as <prefix>_output/*)",
+      )
+      parser.add_argument(
+         "--verbose",
+         action="store_true",
+         help="Enable verbose logging. Includes additional logging information during processing.",
+      )
+      parser.add_argument(
+         "--debug",
+         action="store_true",
+         help="Enable debug mode. Includes additional logging and checks. This may slow down processing.",
+      )
+      parser.add_argument(
+         "--plot-format",
+         type=str,
+         default="png",
+         choices=["png", "pdf", "svg"],
+         help="Format for output plots. Options: png, pdf, svg (default: png)",
+      )
+
+      parser.add_argument(
+         "--version",
+         default=False,
+         required=False,
+         action="store_true",
+         help="Show the version of SNPio and exit.",
+      )
+
+      args = parser.parse_args()
+
+      if args.version:
+         print(f"SNPio version {version()}")
+         exit(0)
+
+      return args
 
 
-   # ---------------------------------------------------------------------
-   # Main workflow
-   # ---------------------------------------------------------------------
    def main():
-      args = _parse_args()
+      args = parse_args()
 
-      # Validate input paths
-      _validate(args.input,  "Input")
-      _validate(args.popmap, "Popmap")
+      # Validate paths
+      validate_file(args.input, "Input")
+      validate_file(args.popmap, "Popmap")
 
-      # -----------------------------------------------------------------
-      # Load data
-      # -----------------------------------------------------------------
-      gd = VCFReader(
+      print(f"🧬 Running SNPio version {version()} with the following arguments:")
+      print(f"  📥 Input file:     {args.input}")
+      print(f"  🧾 Popmap file:    {args.popmap}")
+      print(f"  📁 Output prefix:  {args.prefix}")
+      print(f"  🖼️ Plot format:     {args.plot_format}")
+      print(f"  🔍 Verbose:         {args.verbose}")
+      print(f"  🐛 Debug:           {args.debug}")
+      print()
+
+      genotype_data = VCFReader(
          filename=args.input,
          popmapfile=args.popmap,
          force_popmap=True,
+         chunk_size=5000,
+         include_pops=["EA", "GU", "TT", "ON", "OG"],
          prefix=args.prefix,
          plot_format=args.plot_format,
          verbose=args.verbose,
          debug=args.debug,
-         chunk_size=5_000,
-         include_pops=["EA", "GU", "TT", "ON"],
+         # allele_encoding={"0": "A", "1": "C", "2": "G", "3": "T", "-9": "N"},
       )
 
-      gd.missingness_reports(prefix=args.prefix)
+      # Generate missingness reports before filtering
+      genotype_data.missingness_reports(prefix=args.prefix)
 
-      # -----------------------------------------------------------------
-      # Filtering
-      # -----------------------------------------------------------------
-      nrm = NRemover2(gd)
+      nrm = NRemover2(genotype_data)
+
       nrm.search_thresholds(
          thresholds=[0.25, 0.5, 0.75],
-         maf_thresholds=[0.01, 0.03],
+         maf_thresholds=[0.01, 0.05],
          mac_thresholds=[2, 3],
          filter_order=[
-            "filter_biallelic",
-            "filter_missing",
-            "filter_missing_pop",
-            "filter_singletons",
-            "filter_monomorphic",
-            "filter_maf",
-            "filter_mac",
-            "filter_missing_sample",
+               "filter_missing_sample",
+               "filter_missing",
+               "filter_missing_pop",
+               "filter_monomorphic",
+               "filter_singletons",
+               "filter_biallelic",
+               "filter_mac",
+               "filter_maf",
          ],
       )
 
       gd_filt = (
          nrm.filter_biallelic(exclude_heterozygous=True)
-            .filter_missing(0.75)
-            .filter_missing_pop(0.75)
-            .filter_singletons(exclude_heterozygous=True)
-            .filter_missing_sample(0.80)
-            .resolve()
+         .filter_missing(0.75)
+         .filter_missing_pop(0.75)
+         .filter_singletons(exclude_heterozygous=True)
+         .filter_missing_sample(0.8)
+         .resolve()
       )
 
       nrm.plot_sankey_filtering_report()
       gd_filt.missingness_reports(gd_filt.prefix)
 
-      # -----------------------------------------------------------------
-      # Population-genetic analyses
-      # -----------------------------------------------------------------
-      pgs = PopGenStatistics(gd_filt,
-                           verbose=args.verbose,
-                           debug=args.debug)
+      pgs = PopGenStatistics(gd_filt, verbose=args.verbose, debug=args.debug)
 
-      pgs.summary_statistics(n_permutations=100,
-                           n_jobs=8,
-                           use_pvalues=True)
+      allele_summary_stats, summary_stats = pgs.summary_statistics(
+         fst_method="observed", n_reps=1000, n_jobs=8
+      )
+      fst_dist = pgs.fst_distance(
+         method="permutation", n_reps=1000, n_jobs=8, palette="magma"
+      )
+      fst_dist = pgs.fst_distance(
+         method="bootstrap", n_reps=1000, n_jobs=8, palette="magma"
+      )
 
-      pgs.neis_genetic_distance(n_permutations=1_000,
-                              n_jobs=8,
-                              use_pvalues=True)
+      neis_dist_boot = pgs.neis_genetic_distance(
+         method="bootstrap", n_reps=1000, n_jobs=8
+      )
 
-      pgs.detect_fst_outliers(n_permutations=100,
-                              correction_method="fdr_bh",
-                              use_dbscan=False,
-                              n_jobs=8,
-                              min_samples=5)
+      neis_dist_perm = pgs.neis_genetic_distance(
+         method="permutation", n_reps=1000, n_jobs=8
+      )
 
-      pgs.detect_fst_outliers(n_permutations=1_000,
-                              correction_method="fdr_bh",
-                              use_dbscan=True,
-                              n_jobs=8,
-                              min_samples=5)
+      fst_perm = pgs.detect_fst_outliers(
+         n_permutations=100,
+         correction_method="fdr_bh",
+         use_dbscan=False,
+         n_jobs=8,
+         min_samples=5,
+         seed=42,
+      )
 
-      # D-statistics (Patterson, Partitioned, D-FOIL)
-      inds = gd_filt.popmap_inverse
-      pgs.calculate_d_statistics(
+      fst_dbscan = pgs.detect_fst_outliers(
+         n_permutations=1000,
+         correction_method="fdr_bh",
+         use_dbscan=True,
+         n_jobs=8,
+         min_samples=5,
+         seed=42,
+      )
+
+      dstats = pgs.calculate_d_statistics(
          method="patterson",
-         population1="EA", population2="GU",
-         population3="TT", outgroup="ON",
-         individual_selection={k: inds[k] for k in ["EA", "GU", "TT", "ON"]},
-         max_individuals_per_pop=5,
-         n_jobs=1,
-         num_bootstraps=1_000,
+         population1="EA",
+         population2="GU",
+         population3="TT",
+         outgroup="ON",
+         num_bootstraps=1000,
+         individual_selection="random",
+         max_individuals_per_pop=3,
+         seed=42,
       )
 
-      pgs.calculate_d_statistics(
+      dstats_partitioned = pgs.calculate_d_statistics(
          method="partitioned",
-         population1="EA", population2="GU",
-         population3="TT", population4="ON",
+         population1="EA",
+         population2="GU",
+         population3="TT",
+         population4="ON",
          outgroup="OG",
-         individual_selection=inds,
-         max_individuals_per_pop=5,
-         n_jobs=1,
-         num_bootstraps=1_000,
+         num_bootstraps=1000,
+         individual_selection="random",
+         max_individuals_per_pop=3,
+         seed=42,
       )
 
-      pgs.calculate_d_statistics(
+      dstats_dfoil = pgs.calculate_d_statistics(
          method="dfoil",
-         population1="EA", population2="GU",
-         population3="TT", population4="ON",
+         population1="EA",
+         population2="GU",
+         population3="TT",
+         population4="ON",
          outgroup="OG",
-         individual_selection=inds,
-         max_individuals_per_pop=5,
-         n_jobs=1,
-         num_bootstraps=1_000,
+         num_bootstraps=1000,
+         individual_selection="random",
+         max_individuals_per_pop=3,
+         seed=42,
       )
 
-      # PCA
+      # Run PCA
       pgs.pca()
 
-      # -----------------------------------------------------------------
       # Build MultiQC report
-      # -----------------------------------------------------------------
-      print("📊 Building MultiQC report …")
+      print("📊 Building MultiQC report...")
       SNPioMultiQC.build(
          prefix="Example Report",
          output_dir=f"{args.prefix}_output/multiqc",
@@ -240,7 +307,8 @@ adapt, or mine individual steps for your own pipelines.
 
 
    if __name__ == "__main__":
-         main()
+      main()
+
 
 .. tip::
 
