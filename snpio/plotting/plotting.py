@@ -479,6 +479,18 @@ class Plotting:
             title (str): Title for the heatmap.
             dist_type (str): Type of distance metric used (default: "fst"). Other option: "nei".
         """
+        if isinstance(df_fst_mean, pd.DataFrame):
+            df_fst_mean = df_fst_mean.copy()
+
+        if df_fst_lower is not None and isinstance(df_fst_lower, pd.DataFrame):
+            df_fst_lower = df_fst_lower.copy()
+
+        if df_fst_upper is not None and isinstance(df_fst_upper, pd.DataFrame):
+            df_fst_upper = df_fst_upper.copy()
+
+        if df_fst_pvals is not None and isinstance(df_fst_pvals, pd.DataFrame):
+            df_fst_pvals = df_fst_pvals.copy()
+
         fig_size = (48, 48)
         title_fontsize = 72
         tick_fontsize = 72
@@ -518,6 +530,7 @@ class Plotting:
             df_fst_lower = df_fst_lower.mask(mask)  # Mask upper triangle
             df_fst_upper = df_fst_upper.mask(mask)  # Mask upper triangle
             mode = "bootstrap"
+
         if df_fst_pvals is not None:
             # Set the diagonal to NaN to avoid displaying self-comparisons
             np.fill_diagonal(df_fst_pvals.values, np.nan)
@@ -583,287 +596,532 @@ class Plotting:
             plt.show()
         plt.close()
 
+    def _prepare_d_stats_plotting_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Prepares the D-stats DataFrame for plotting: ensure 'Sample Combo' exists, drop non-finite values in key columns, and de-duplicate by (Method, Sample Combo)."""
+        # Normalize index -> column if needed
+        if df.index.name is not None and df.index.name.lower() in [
+            "quartet",
+            "quintet",
+            "sample combo",
+        ]:
+            df = df.reset_index().rename(columns={df.index.name: "Sample Combo"})
+
+        # Key stat columns (present ones only)
+        key_stat_cols = [c for c in df.columns if c.startswith(("Z_", "P_", "D", "X2"))]
+
+        # Remove infs/nans from key columns
+        df_clean = df.replace([np.inf, -np.inf], np.nan).dropna(subset=key_stat_cols)
+        if len(df_clean) < len(df):
+            self.logger.warning(
+                f"Removed {len(df) - len(df_clean)} rows with NaN/Inf values before plotting."
+            )
+
+        # De-duplicate (common source of "plotted twice" symptoms)
+        if "Method" in df_clean.columns:
+            sample_key = (
+                "Sample Combo"
+                if "Sample Combo" in df_clean.columns
+                else ("Quartet" if "Quartet" in df_clean.columns else None)
+            )
+            if sample_key is not None:
+                before = len(df_clean)
+                df_clean = df_clean.drop_duplicates(subset=["Method", sample_key])
+                if len(df_clean) < before:
+                    self.logger.warning(
+                        f"Removed {before - len(df_clean)} duplicate rows."
+                    )
+
+        return df_clean
+
+    def _get_significance_counts_df(
+        self,
+        df: pd.DataFrame,
+        d_stats: list[str],
+        method_name: Literal["patterson", "partitioned", "dfoil"],
+    ) -> pd.DataFrame:
+        """Calculates significance counts for different correction levels."""
+        rows = []
+        for stat in d_stats:
+            stat_key = {"D-statistic": "D"}.get(stat, stat)
+            sig_col_raw = f"Significant (Raw){'' if method_name == 'patterson' else f' {stat_key}'}"
+            sig_col_bonf = f"Significant (Bonferroni){'' if method_name == 'patterson' else f' {stat_key}'}"
+            sig_col_fdr = f"Significant (FDR-BH){'' if method_name == 'patterson' else f' {stat_key}'}"
+
+            for corr_name, sig_col_name in [
+                ("Uncorrected", sig_col_raw),
+                ("Bonferroni", sig_col_bonf),
+                ("FDR-BH", sig_col_fdr),
+            ]:
+                if sig_col_name in df.columns:
+                    sig = df[sig_col_name].sum()
+                    ns = len(df) - sig
+                    rows.append(
+                        {
+                            "Statistic": stat,
+                            "Correction": corr_name,
+                            "Significant": sig,
+                            "Not Significant": ns,
+                        }
+                    )
+
+        return pd.DataFrame(rows).melt(
+            id_vars=["Statistic", "Correction"],
+            value_vars=["Significant", "Not Significant"],
+            var_name="Significance",
+            value_name="Count",
+        )
+
     def plot_d_statistics(
         self, df: pd.DataFrame, method: Literal["patterson", "partitioned", "dfoil"]
     ) -> None:
-        """Create plots for D-statistics with multiple-test corrections.
-
-        This method generates plots for D-statistics based on the specified method. It creates a bar plot of significance counts and a distribution plot of Z-scores.
-
-        Args:
-            df (pd.DataFrame): DataFrame containing D-statistics results with columns for significance and Z-scores. Expected columns include: "Significant (Raw)", "Significant (Bonferroni)", "Significant (FDR-BH)", "Z_<stat>" (or just "Z" if method == "patterson"), and sample combo columns starting with "P_<stat>".
         """
-        method = method.lower()
-        if method not in {"patterson", "partitioned", "dfoil"}:
-            raise ValueError(f"Unsupported method: {method}")
-
-        # Ensure we have a “Sample Combo” column
-        combo_cols = [c for c in df.columns if c.startswith("P")]
-        df["Sample Combo"] = df[combo_cols].astype(str).agg("-".join, axis=1)
-
-        sns.set_theme(style="white")
-        mpl.rcParams.update(self.mpl_params)
-
-        # 1) Bar Plot of Significance Counts
-        fig, ax = plt.subplots(figsize=(14, 6))
-        if method == "patterson":
-            # Single-vector: raw, bonf, fdr
-            sig = df["Significant (Raw)"].sum()
-            ns = (~df["Significant (Raw)"]).sum()
-            bsig = df["Significant (Bonferroni)"].sum()
-            bns = (~df["Significant (Bonferroni)"]).sum()
-            fsig = df["Significant (FDR-BH)"].sum()
-            fns = (~df["Significant (FDR-BH)"]).sum()
-            counts = pd.DataFrame(
-                {
-                    "Correction": [
-                        "Raw",
-                        "Raw",
-                        "Bonferroni",
-                        "Bonferroni",
-                        "FDR-BH",
-                        "FDR-BH",
-                    ],
-                    "Significance": ["Significant", "Not Significant"] * 3,
-                    "Count": [sig, ns, bsig, bns, fsig, fns],
-                }
+        Main controller for creating and saving a suite of plots and reports for D-statistics results.
+        """
+        if df.empty:
+            self.logger.warning(
+                "Input DataFrame for plotting is empty. Skipping all D-statistic plots."
             )
+            return
+
+        # 1. Clean data ONCE at the beginning.
+        df_clean = self._prepare_d_stats_plotting_df(df)
+
+        if df_clean.empty:
+            self.logger.warning(
+                "No finite data remains after cleaning. Skipping all D-statistic plots."
+            )
+            return
+
+        # 2. Call individual plotting and reporting methods with the CLEAN data
+        self.plot_d_statistics_heatmap(df_clean, method_name=method)
+        self.plot_dstat_significance_counts(df_clean, method_name=method)
+        self.plot_dstat_chi_square_distribution(df_clean, method_name=method)
+        self.plot_dstat_pvalue_distribution(df_clean, method_name=method)
+        self.plot_stacked_significance_barplot(df_clean, method_name=method)
+        self._queue_d_stats_multiqc_reports(df_clean, method)
+
+    def plot_d_statistics_heatmap(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"] = "patterson",
+    ):
+        """Plots a heatmap of D-statistics colored by -log10(P-value)."""
+        df = df.copy()
+        df = df[df["Method"] == method_name]
+        if df.empty:
+            return
+
+        map_info = {
+            "patterson": {"d_cols": ["D-statistic"], "pval_map": {"D-statistic": "P"}},
+            "partitioned": {
+                "d_cols": ["D1", "D2", "D12"],
+                "pval_map": {d: f"P_{d}" for d in ["D1", "D2", "D12"]},
+            },
+            "dfoil": {
+                "d_cols": ["DFO", "DFI", "DOL", "DIL"],
+                "pval_map": {d: f"P_{d}" for d in ["DFO", "DFI", "DOL", "DIL"]},
+            },
+        }
+        all_d = map_info[method_name]["d_cols"]
+        pmap = map_info[method_name]["pval_map"]
+
+        # Robust alignment
+        present_d = [d for d in all_d if pmap.get(d) in df.columns]
+        if not present_d:
+            self.logger.warning(
+                f"No P-value columns found for {method_name}; skipping heatmap."
+            )
+            return
+        d_cols = present_d
+        pval_cols = [pmap[d] for d in d_cols]
+
+        # Get labels (index or column)
+        if "Sample Combo" in df.columns:
+            combo_source = df["Sample Combo"]
+        elif "Quartet" in df.columns:
+            combo_source = df["Quartet"]
+        elif df.index.name in ["Quartet", "Sample Combo"]:
+            combo_source = df.index.to_series()
+        else:
+            raise KeyError(
+                "Could not find sample-combo labels ('Sample Combo'/'Quartet')."
+            )
+
+        def format_quartet_label(label: str) -> str:
+            parts = str(label).split("-")
+            if len(parts) == 4:
+                return f"P1:{parts[0]}, P2:{parts[1]}, P3:{parts[2]}, Out:{parts[3]}"
+            if len(parts) == 5:
+                return f"P1:{parts[0]}, P2:{parts[1]}, P3:{parts[2]}, P4:{parts[3]}, Out:{parts[4]}"
+            return label
+
+        quartet_labels = combo_source.apply(format_quartet_label).values
+
+        # Build Z matrix
+        pval_matrix = df[pval_cols].to_numpy(dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_pval_matrix = -np.log10(pval_matrix)
+
+        finite_max = (
+            np.nanmax(log_pval_matrix[np.isfinite(log_pval_matrix)])
+            if np.isfinite(log_pval_matrix).any()
+            else -np.log10(0.001)
+        )
+        log_pval_matrix[np.isinf(log_pval_matrix)] = finite_max + 1
+        log_pval_matrix = np.nan_to_num(log_pval_matrix, nan=0.0)
+
+        # Annotations
+        annotations = np.full((len(df), len(d_cols)), "", dtype=object)
+        for j, stat in enumerate(d_cols):
+            stat_key = {"D-statistic": "D"}.get(stat, stat)
+            col_raw = f"Significant (Raw){'' if method_name == 'patterson' else f' {stat_key}'}"
+            col_bonf = f"Significant (Bonferroni){'' if method_name == 'patterson' else f' {stat_key}'}"
+            col_fdr = f"Significant (FDR-BH){'' if method_name == 'patterson' else f' {stat_key}'}"
+            for i in range(len(df)):
+                if col_bonf in df and df[col_bonf].iloc[i]:
+                    annotations[i, j] = "**"
+                elif col_fdr in df and df[col_fdr].iloc[i]:
+                    annotations[i, j] = "†"
+                elif col_raw in df and df[col_raw].iloc[i]:
+                    annotations[i, j] = "*"
+
+        fig = px.imshow(
+            log_pval_matrix,
+            x=d_cols,
+            y=quartet_labels,
+            color_continuous_scale="Reds",
+            aspect="auto",
+            labels={"color": "-log10(P-value)"},
+            zmin=0,
+            zmax=finite_max,
+        )
+        for i, j in np.ndindex(annotations.shape):
+            if annotations[i, j]:
+                fig.add_annotation(
+                    text=annotations[i, j],
+                    x=j,
+                    y=i,
+                    showarrow=False,
+                    font=dict(color="black", size=14),
+                    xanchor="center",
+                    yanchor="middle",
+                )
+
+        title = f"{method_name.title()} D-statistics Heatmap"
+        fig.update_layout(
+            title=title,
+            xaxis_title=f"{method_name.title()} D-statistic(s)",
+            yaxis_title="Sample Combination",
+            xaxis_side="top",
+            template="plotly_white",
+            height=min(max(len(df) * 30, 300), 1200),
+        )
+        fig.update_yaxes(showticklabels=False)
+
+        output_path = (
+            self.output_dir_analysis / f"d_statistics_heatmap_{method_name}.html"
+        )
+        fig.write_html(output_path, full_html=False, include_plotlyjs="cdn")
+
+        method_name_pretty = {
+            "patterson": "Patterson's 4-taxon D-statistic",
+            "partitioned": "Partitioned D-statistic",
+            "dfoil": "DFOIL D-statistic",
+        }[method_name]
+
+        # De-dupe queueing
+        panel_id = f"d_statistics_heatmap_{method_name}"
+        if not hasattr(self, "_queued_panels"):
+            self._queued_panels = set()
+        if panel_id not in self._queued_panels:
+            self.snpio_mqc.queue_html(
+                output_path,
+                panel_id=panel_id,
+                section="introgression",
+                title=f"SNPio: D-statistics Heatmap ({method_name_pretty})",
+                index_label="Quartet",
+                description=(
+                    f"This is a heatmap of {method_name_pretty}, with cells colored by the -log10(P-value). "
+                    "Significance is marked with '\\*', '\\*\\*', and '†' for uncorrected, Bonferroni, and FDR-BH, respectively."
+                ),
+            )
+            self._queued_panels.add(panel_id)
+
+    def plot_dstat_significance_counts(self, df: pd.DataFrame, method_name: str):
+        """Plots the number of significant results per D-statistic."""
+        d_stats = {
+            "patterson": ["D-statistic"],
+            "partitioned": ["D1", "D2", "D12"],
+            "dfoil": ["DFO", "DFI", "DOL", "DIL"],
+        }[method_name]
+        counts_df = self._get_significance_counts_df(df, d_stats, method_name)
+
+        method_title = method_name.title()
+        if method_name == "patterson":
+            fig, ax = plt.subplots(figsize=(10, 6))
             sns.barplot(
-                data=counts, x="Correction", y="Count", hue="Significance", ax=ax
+                data=counts_df, x="Correction", y="Count", hue="Significance", ax=ax
             )
-            ax.set_title("Patterson's D-Statistics Significance Counts")
-
-        elif method == "partitioned":
-            # Partitioned: 3 stats × 3 corrections
-            dnames = ["D1", "D2", "D12"]
-            rows = []
-
-            for stat in dnames:
-                for corr, col in [
-                    ("Raw", f"P_{stat}"),
-                    ("Bonferroni", f"P_{stat}_bonf"),
-                    ("FDR-BH", f"P_{stat}_fdr"),
-                ]:
-                    sig = (df[col] < 0.05).sum()
-                    ns = (df[col] >= 0.05).sum()
-                    rows.append(
-                        {
-                            "Stat": stat,
-                            "Correction": corr,
-                            "Significant": sig,
-                            "Not Significant": ns,
-                        }
-                    )
-
-            counts = pd.DataFrame(rows).melt(
-                id_vars=["Stat", "Correction"],
-                value_vars=["Significant", "Not Significant"],
-                var_name="Sig",
-                value_name="Count",
-            )
-            sns.catplot(
-                data=counts,
-                x="Stat",
+            ax.set_title(f"{method_title} D-Statistics Significance Counts")
+            ax.legend(loc="best")
+            plt.tight_layout()
+        else:
+            g = sns.catplot(
+                data=counts_df,
+                x="Statistic",
                 y="Count",
-                hue="Sig",
+                hue="Significance",
                 col="Correction",
                 kind="bar",
                 height=6,
-                aspect=1,
+                aspect=0.8,
                 sharey=False,
             )
-            ax = plt.gca()
-            ax.set_title("Partitioned D-Statistics Significance Counts")
+            g.fig.suptitle(f"{method_title} D-Statistics Significance Counts", y=1.03)
+            g.set_axis_labels("Statistic", "Count").tight_layout(rect=[0, 0, 1, 0.97])
+            fig = g.fig  # unify handle
 
-        elif method == "dfoil":
-            # DFOIL: 4 stats × 3 corrections
-            dnames = ["DFO", "DFI", "DOL", "DIL"]
-            rows = []
-            for stat in dnames:
-                for corr, col in [
-                    ("Raw", f"P_{stat}"),
-                    ("Bonf", f"P_{stat}_bonf"),
-                    ("FDR", f"P_{stat}_fdr"),
-                ]:
-                    sig = (df[col] < 0.05).sum()
-                    ns = (df[col] >= 0.05).sum()
-                    rows.append(
-                        {
-                            "Stat": stat,
-                            "Correction": corr,
-                            "Significant": sig,
-                            "Not Significant": ns,
-                        }
-                    )
-            counts = pd.DataFrame(rows).melt(
-                id_vars=["Stat", "Correction"],
-                value_vars=["Significant", "Not Significant"],
-                var_name="Sig",
-                value_name="Count",
-            )
-            sns.catplot(
-                data=counts,
-                x="Stat",
-                y="Count",
-                hue="Sig",
-                col="Correction",
-                kind="bar",
-                height=6,
-                aspect=1,
-                sharey=False,
-            )
-            ax = plt.gca()
-            ax.set_title("D-FOIL Significance Counts")
-        ax.legend(loc="best", bbox_to_anchor=(1.05, 1))
-        out = f"{method}_significance_counts.{self.plot_format}"
-        plt.tight_layout()
-        plt.savefig(self.output_dir_analysis / out)
+        output_path = (
+            self.output_dir_analysis
+            / f"d_statistics_significance_counts_{method_name}.html"
+        )
+        img_path = Path(str(output_path).replace(".html", f".{self.plot_format}"))
+        fig.savefig(str(img_path), dpi=150, bbox_inches="tight")  # save static image
         if self.show:
             plt.show()
-        plt.close()
+        plt.close(fig)
 
-        # 2) Distribution of Z-Scores
-        fig, ax = plt.subplots(figsize=(10, 6))
-        if method == "patterson":
-            sns.histplot(df["Z"], kde=True, ax=ax)
-            ax.axvline(df["Z"].mean(), linestyle="--")
-            ax.set_title(f"{method.capitalize()} Z-Score Distribution")
-            ax.set_xlabel("Z-Score")
+        # queue to MultiQC
+        panel_id = f"d_statistics_significance_counts_plot_{method_name}"
+        title = f"SNPio: {method_title} D-Statistics Significance Counts"
+        desc = "Counts across Uncorrected, Bonferroni, and FDR-BH corrections."
+        try:
+            if hasattr(self, "snpio_mqc") and hasattr(self.snpio_mqc, "queue_html"):
+                # create a tiny wrapper html alongside the image
+                self.snpio_mqc.queue_html(
+                    output_path,
+                    panel_id=panel_id,
+                    section="introgression",
+                    title=title,
+                    index_label=None,
+                    description=desc,
+                )
+            else:
+                self.logger.warning("MultiQC interface not available; skipping queue.")
+        except Exception as e:
+            self.logger.warning(f"Could not queue significance-counts plot: {e}")
 
-        elif method == "partitioned":
-            # melt D1, D2, D12
-            dnames = ["D1", "D2", "D12"]
-            melt = df[[f"Z_{s}" for s in dnames]].melt(
-                var_name="Statistic", value_name="Z-score"
-            )
-            sns.histplot(
-                data=melt,
-                x="Z-score",
-                hue="Statistic",
-                multiple="stack",
-                kde=True,
-                ax=ax,
-            )
-            ax.set_title("Partitioned D-Statistics Z-Score Distribution")
-        else:
-            # melt Z_DFO, Z_DFI, etc.
-            dnames = ["DFO", "DFI", "DOL", "DIL"]
-            melt = df[[f"Z_{s}" for s in dnames]].melt(
-                var_name="Statistic", value_name="Z-score"
-            )
-            sns.histplot(
-                data=melt,
-                x="Z-score",
-                hue="Statistic",
-                multiple="stack",
-                kde=True,
-                ax=ax,
-            )
-            ax.set_title("D-FOIL Z-Score Distribution")
-            ax.set_xlabel("Z-Score")
-        out = f"{method}_z_distribution.{self.plot_format}"
-        plt.tight_layout()
-        fig.savefig(self.output_dir_analysis / out)
+    def plot_dstat_chi_square_distribution(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"],
+    ):
+        """Plots the distribution of Chi-square values for D-statistics."""
+        df = df.copy()
+
+        if df.index.name in ["Quartet", "Sample Combo"]:
+            df = df.reset_index().rename(columns={df.index.name: "Sample Combo"})
+
+        d_cols = {
+            "patterson": ["D"],
+            "partitioned": ["D1", "D2", "D12"],
+            "dfoil": ["DFO", "DFI", "DOL", "DIL"],
+        }[method_name]
+
+        chi_cols = [f"X2_{d}" if method_name != "patterson" else "X2" for d in d_cols]
+        hover_data = ["Sample Combo"] + [
+            f"P_X2_{d}" if method_name != "patterson" else "P_X2" for d in d_cols
+        ]
+
+        long_df = df.melt(
+            id_vars=hover_data,
+            value_vars=chi_cols,
+            var_name="D-statistic",
+            value_name="Chi2",
+        )
+
+        fig = px.violin(
+            long_df,
+            x="D-statistic",
+            y="Chi2",
+            box=True,
+            points="all",
+            title="Chi-square Value Distributions by D-statistic",
+            template="plotly_white",
+            hover_data=hover_data,
+        )
+
+        output_path = (
+            self.output_dir_analysis
+            / f"dstat_chi_square_distribution_{method_name}.html"
+        )
+        fig.write_html(output_path)
         if self.show:
-            plt.show()
-        plt.close()
+            fig.show()
 
-        # 3) Barplot of Z-Score by Sample
-        # dynamic sizing
-        n = df["Sample Combo"].nunique()
-        fig_height = max(8, n * 0.4)
-        fig, ax = plt.subplots(figsize=(14, fig_height))
-        if method == "patterson":
-            sns.barplot(
-                data=df,
-                x="Z",
-                y="Sample Combo",
-                hue="Significant (FDR-BH)",
-                ax=ax,
+        # queue to MultiQC
+        try:
+            if hasattr(self, "snpio_mqc") and hasattr(self.snpio_mqc, "queue_html"):
+                self.snpio_mqc.queue_html(
+                    output_path,
+                    panel_id=f"dstat_chi_square_distribution_{method_name}",
+                    section="introgression",
+                    title=f"SNPio: {method_name.title()} Chi-square Value Distributions",
+                    index_label=None,
+                    description="Violin/box distribution of X² across combinations.",
+                )
+            else:
+                self.logger.warning("MultiQC interface not available; skipping queue.")
+        except Exception as e:
+            self.logger.warning(f"Could not queue chi-square distribution plot: {e}")
+
+    def plot_dstat_pvalue_distribution(self, df: pd.DataFrame, method_name: str):
+        """Plots the distribution of -log10(P-values) for D-statistics."""
+        pval_cols = {
+            "patterson": ["P"],
+            "partitioned": ["P_D1", "P_D2", "P_D12"],
+            "dfoil": ["P_DFO", "P_DFI", "P_DOL", "P_DIL"],
+        }[method_name]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            long_df = (
+                df[pval_cols]
+                .apply(lambda col: -np.log10(pd.to_numeric(col, errors="coerce")))
+                .melt(var_name="P-value", value_name="-log10(P)")
+                .dropna()
             )
-            ax.set_title("Patterson's D Z-Score per Sample Combo")
 
-        elif method == "partitioned":
-            dfnames = ["D1", "D2", "D12"]
+        fig = px.histogram(
+            long_df,
+            x="-log10(P)",
+            color="P-value",
+            nbins=50,
+            title="-log10(P-values) Distribution",
+            template="plotly_white",
+        )
 
-            melt = df.melt(
-                id_vars=["Sample Combo"],
-                value_vars=[f"Z_{s}" for s in dfnames],
-                var_name="Statistic",
-                value_name="Z-Score",
-            )
-            sns.barplot(
-                data=melt,
-                x="Z-Score",
-                y="Sample Combo",
-                hue="Statistic",
-                ax=ax,
-            )
-            ax.set_title("Partitioned-D Z-Score per Sample Combo")
-
-        else:
-            # for DFOIL we stack 4 bars per combo
-            dnames = ["DFO", "DFI", "DOL", "DIL"]
-            melt = df.melt(
-                id_vars=["Sample Combo"],
-                value_vars=[f"Z_{s}" for s in dnames],
-                var_name="Statistic",
-                value_name="Z-score",
-            )
-            sns.barplot(
-                data=melt,
-                x="Z-score",
-                y="Sample Combo",
-                hue="Statistic",
-                orient="h",
-                ax=ax,
-            )
-            ax.set_title("D-FOIL Z-Score per Sample Combo")
-        out = f"{method}_z_by_combo.{self.plot_format}"
-
-        fig.savefig(self.output_dir_analysis / out)
-
+        output_path = (
+            self.output_dir_analysis / f"dstat_pvalue_distribution_{method_name}.html"
+        )
+        fig.write_html(output_path)
         if self.show:
-            plt.show()
-        plt.close()
+            fig.show()
 
+        # NEW: queue to MultiQC
+        try:
+            if hasattr(self, "snpio_mqc") and hasattr(self.snpio_mqc, "queue_html"):
+                self.snpio_mqc.queue_html(
+                    output_path,
+                    panel_id=f"dstat_pvalue_distribution_{method_name}",
+                    section="introgression",
+                    title=f"SNPio: {method_name.title()} -log10(P) Distribution",
+                    index_label=None,
+                    description="Histogram of -log10(P) across D-statistics.",
+                )
+            else:
+                self.logger.warning("MultiQC interface not available; skipping queue.")
+        except Exception as e:
+            self.logger.warning(f"Could not queue p-value distribution plot: {e}")
+
+    def plot_stacked_significance_barplot(self, df: pd.DataFrame, method_name: str):
+        """Creates a stacked bar plot of significance categories."""
+        d_stats = {
+            "patterson": ["D"],
+            "partitioned": ["D1", "D2", "D12"],
+            "dfoil": ["DFO", "DFI", "DOL", "DIL"],
+        }[method_name]
+
+        records = []
+        for stat in d_stats:
+
+            def sig_category(row):
+                if row.get(
+                    f"Significant (Bonferroni){'' if method_name == 'patterson' else f' {stat}'}",
+                    False,
+                ):
+                    return "Bonferroni"
+                elif row.get(
+                    f"Significant (FDR-BH){'' if method_name == 'patterson' else f' {stat}'}",
+                    False,
+                ):
+                    return "FDR-BH"
+                elif row.get(
+                    f"Significant (Raw){'' if method_name == 'patterson' else f' {stat}'}",
+                    False,
+                ):
+                    return "Raw"
+                return "Not significant"
+
+            counts = df.apply(sig_category, axis=1).value_counts()
+            for cat, count in counts.items():
+                records.append({"D-statistic": stat, "Category": cat, "Count": count})
+
+        stacked_df = pd.DataFrame(records)
+        fig = px.bar(
+            stacked_df,
+            x="D-statistic",
+            y="Count",
+            color="Category",
+            title="Significance Category Distribution",
+            category_orders={
+                "Category": ["Bonferroni", "FDR-BH", "Raw", "Not significant"]
+            },
+            template="plotly_white",
+            barmode="stack",
+        )
+
+        output_path = (
+            self.output_dir_analysis
+            / f"dstat_stacked_significance_barplot_{method_name}.html"
+        )
+        fig.write_html(output_path)
+        if self.show:
+            fig.show()
+
+        # NEW: queue to MultiQC
+        try:
+            if hasattr(self, "snpio_mqc") and hasattr(self.snpio_mqc, "queue_html"):
+                self.snpio_mqc.queue_html(
+                    output_path,
+                    panel_id=f"dstat_stacked_significance_barplot_{method_name}",
+                    section="introgression",
+                    title="SNPio: Significance Category Distribution",
+                    index_label=None,
+                    description="Stacked counts: Bonferroni, FDR-BH, Raw, Not significant.",
+                )
+            else:
+                self.logger.warning("MultiQC interface not available; skipping queue.")
+        except Exception as e:
+            self.logger.warning(f"Could not queue stacked significance barplot: {e}")
+
+    def _format_significance_labels(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Helper to format labels for MultiQC tables."""
+        df["Significance (Correction)"] = (
+            df["Significance"] + " (" + df["Correction"] + ")"
+        )
+        df = df.drop(columns=["Significance", "Correction"])
+        df["Significance (Correction)"] = df["Significance (Correction)"].str.replace(
+            "(Raw)", "(Uncorrected)", regex=False
+        )
+        return df.set_index("Significance (Correction)")
+
+    def _queue_d_stats_multiqc_reports(self, df: pd.DataFrame, method: str):
+        """Queues all D-statistics reports for MultiQC using a clean DataFrame."""
         if method == "patterson":
-            # Patterson or Partitioned
-            # Format significance counts into a two‐column table
-            significance_df = pd.DataFrame(
-                {
-                    "Correction": ["Uncorrected", "Bonferroni", "FDR-BH"],
-                    "Significant": [
-                        df["Significant (Raw)"].sum(),
-                        df["Significant (Bonferroni)"].sum(),
-                        df["Significant (FDR-BH)"].sum(),
-                    ],
-                    "Not Significant": [
-                        (~df["Significant (Raw)"]).sum(),
-                        (~df["Significant (Bonferroni)"]).sum(),
-                        (~df["Significant (FDR-BH)"]).sum(),
-                    ],
-                }
-            ).melt(id_vars="Correction", var_name="Significance", value_name="Count")
-
+            method_name_pretty = "Patterson's 4-taxon D-statistic"
+            significance_df = self._get_significance_counts_df(
+                df, ["D-statistic"], method
+            )
             significance_df = self._format_significance_labels(significance_df)
-
-            if method == "patterson":
-                method_name_pretty = "Patterson's 4-taxon D-statistic"
-            elif method == "partitioned":
-                method_name_pretty = "Partitioned D-statistic"
-            elif method == "dfoil":
-                method_name_pretty = "DFOIL D-statistic"
 
             self.snpio_mqc.queue_table(
                 df=significance_df,
-                panel_id=f"{method}_d_statistics_significance_counts",
+                panel_id=f"d_statistics_significance_counts_table_{method}",
                 section="introgression",
                 title=f"SNPio: {method_name_pretty} D-Statistics Significance Counts",
                 index_label="Significance (Correction)",
                 description=f"This table summarizes the number of significant and non-significant {method_name_pretty} results. It provides counts for uncorrected p-values, as well as for values adjusted using Bonferroni and FDR-BH multiple-test corrections.",
                 pconfig={
-                    "id": f"{method}_d_statistics_significance_counts",
+                    "id": f"d_statistics_significance_counts_table_{method}",
                     "title": f"SNPio: {method_name_pretty} D-Statistics Significance Counts",
                     "col1_header": "Significance (Correction)",
                     "scale": "YlOrBr",
@@ -881,16 +1139,15 @@ class Plotting:
                     },
                 },
             )
-
             self.snpio_mqc.queue_custom_lineplot(
                 df=df["Z"],
-                panel_id=f"{method}_d_statistics_distribution",
+                panel_id=f"d_statistics_distribution_{method}_d",
                 section="introgression",
                 title=f"SNPio: {method_name_pretty} D-Statistics Z-Score Distribution",
                 description="This plot illustrates the distribution of Z-scores for all sample combinations, providing a visual assessment of the overall trend and variance in the D-statistic results.",
                 index_label="Z-Score Bins",
                 pconfig={
-                    "id": f"{method}_d_statistics_distribution",
+                    "id": f"d_statistics_distribution_{method}",
                     "title": f"SNPio: {method_name_pretty} Z-Score Distribution",
                     "xlab": "Z-Score",
                     "ylab": "Estimated Density",
@@ -901,48 +1158,28 @@ class Plotting:
             )
 
         elif method in {"partitioned", "dfoil"}:
-            # NOTE: DFOIL is different — build 4×3 table of significance counts
-
-            dfnames = (
+            method_name_pretty = (
+                "Partitioned D-statistic"
+                if method == "partitioned"
+                else "DFOIL D-statistic"
+            )
+            d_stats = (
                 ["D1", "D2", "D12"]
                 if method == "partitioned"
                 else ["DFO", "DFI", "DOL", "DIL"]
             )
 
-            rows = []
-            for stat in dnames:
-                for corr, col in [
-                    ("Uncorrected", f"P_{stat}"),
-                    ("Bonferroni", f"P_{stat}_bonf"),
-                    ("FDR-BH", f"P_{stat}_fdr"),
-                ]:
-                    sig = (df[col] < 0.05).sum()
-                    ns = (df[col] >= 0.05).sum()
-                    rows.append(
-                        {
-                            "Statistic": stat,
-                            "Correction": corr,
-                            "Significant": sig,
-                            "Not Significant": ns,
-                        }
-                    )
-
-            significance_df = pd.DataFrame(rows).melt(
-                id_vars=["Statistic", "Correction"],
-                value_vars=["Significant", "Not Significant"],
-                var_name="Significance",
-                value_name="Count",
-            )
+            significance_df = self._get_significance_counts_df(df, d_stats, method)
 
             self.snpio_mqc.queue_table(
                 df=significance_df,
-                panel_id=f"{method}_d_statistics_significance_counts",
+                panel_id=f"d_statistics_significance_counts_table_{method}",
                 section="introgression",
-                title=f"SNPio: {method_name_pretty} D-Statistics Significance Counts",
+                title=f"SNPio: {method_name_pretty} Significance Counts",
                 index_label="Statistic / Correction",
-                description=f"This table breaks down the counts of significant versus non-significant tests for each {method_name_pretty} D-statistic ({', '.join(dfnames)}), categorized by the type of multiple-test correction applied (Uncorrected, Bonferroni, FDR-BH).",
+                description=f"This table breaks down the counts of significant versus non-significant tests for each {method_name_pretty} D-statistic ({', '.join(d_stats)}), categorized by the type of multiple-test correction applied (Uncorrected, Bonferroni, FDR-BH).",
                 pconfig={
-                    "id": f"{method}_d_statistics_significance_counts",
+                    "id": f"d_statistics_significance_counts_table_{method}",
                     "title": f"SNPio: {method_name_pretty} Significance Counts",
                     "col1_header": "Statistic, Correction",
                     "scale": "YlOrBr",
@@ -951,7 +1188,7 @@ class Plotting:
                 headers={
                     "Statistic": {
                         "title": f"{method.capitalize()} Statistic",
-                        "description": f"Which sub-statistic ({', '.join(dfnames)}).",
+                        "description": f"Which sub-statistic ({', '.join(d_stats)}).",
                     },
                     "Correction": {
                         "title": "P-Value Correction",
@@ -965,18 +1202,17 @@ class Plotting:
                 },
             )
 
-            # For Z‐score distribution: queue one lineplot per sub‐statistic
-            for stat in dnames:
+            for stat in d_stats:
                 self.snpio_mqc.queue_custom_lineplot(
                     df=df[f"Z_{stat}"],
-                    panel_id=f"{method}_{stat}_z_distribution",
+                    panel_id=f"d_statistics_z_distribution_{method}_{stat}",
                     section="introgression",
                     title=f"SNPio: {method_name_pretty} {stat} Z-Score Distribution",
                     description=f"This plot shows the distribution of Z-scores specifically for the {stat} component of the {method_name_pretty} D-statistic, allowing for a detailed look at its behavior across all sample combinations.",
                     index_label="Z-Score Bins",
                     pconfig={
-                        "id": f"{method}_{stat}_z_distribution",
-                        "title": f"{method_name_pretty} {stat} Z-Score Distribution",
+                        "id": f"d_statistics_z_distribution_{method}_{stat}",
+                        "title": f"SNPio: {method_name_pretty} {stat} Z-Score Distribution",
                         "xlab": "Z-Score",
                         "ylab": "Estimated Density",
                         "ymin": 0,
@@ -984,27 +1220,6 @@ class Plotting:
                         "xmax": 4.5,
                     },
                 )
-        else:
-            msg = f"Unsupported method for D-statistics plotting: {method}. Supported methods are 'patterson', 'partitioned', and 'dfoil'."
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-    def _format_significance_labels(self, df: pd.DataFrame) -> pd.DataFrame:
-        df["Significance (Correction)"] = (
-            df["Significance"] + " (" + df["Correction"] + ")"
-        )
-
-        df = df.drop(columns=["Significance", "Correction"])
-
-        df["Significance (Correction)"] = df["Significance (Correction)"].str.replace(
-            "Significant (Raw)", "Significant (Uncorrected)"
-        )
-
-        df["Significance (Correction)"] = df["Significance (Correction)"].str.replace(
-            "Not Significant (Raw)", "Not Significant (Uncorrected)"
-        )
-
-        return df.set_index("Significance (Correction)")
 
     def plot_fst_outliers(
         self,
@@ -1248,7 +1463,10 @@ class Plotting:
             },
         )
 
-        if hasattr(self.genotype_data, "marker_names"):
+        if (
+            hasattr(self.genotype_data, "marker_names")
+            and self.genotype_data.marker_names is not None
+        ):
             marker_names = self.genotype_data.marker_names
         else:
             marker_names = [f"locus_{i}" for i in range(self.genotype_data.num_snps)]
@@ -2964,470 +3182,4 @@ class Plotting:
                 "series_label": "Statistic",
                 "data_labels": data_labels,
             },
-        )
-
-    def plot_d_statistics_heatmap(
-        self,
-        df: pd.DataFrame,
-        method_name: Literal["patterson", "partitioned", "dfoil"] = "patterson",
-    ):
-        """Plot a heatmap of D-statistics using Plotly, colored by -log10(P-value), with '*' depicting significance with P < 0.05 for uncorrected D-statistics and '**' (Bonferroni) and '†' (FDR-BH) overlaid for significance from multiple testing corrections.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame with per sample combination D-statistics and P-values.
-            method_name (Literal["patterson", "partitioned", "dfoil"]): D-statistics method used ('patterson', 'partitioned', 'dfoil'). Defaults to 'patterson'.
-        """
-        df = df.copy()
-
-        # Replace empty strings with NaN and coerce numerics
-        df = df.replace(r"^\s*$", np.nan, regex=True)
-
-        df = df[df["Method"] == method_name]
-
-        # Identify relevant D-statistic and P-value columns
-        if method_name == "patterson":
-            d_cols = ["D-statistic"]
-            pval_map = {"D-statistic": "P-value"}
-        elif method_name == "partitioned":
-            d_cols = ["D1", "D2", "D12"]
-            pval_map = {d: f"P_{d}" for d in d_cols}
-        elif method_name == "dfoil":
-            d_cols = ["DFO", "DFI", "DOL", "DIL"]
-            pval_map = {d: f"P_{d}" for d in d_cols}
-        else:
-            msg = f"Unsupported method: {method_name}"
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        # Ensure D-statistic columns are numeric
-        df[d_cols] = df[d_cols].apply(pd.to_numeric)
-
-        # Filter valid columns
-        d_cols = [
-            col
-            for col in d_cols
-            if col in df.columns and pd.api.types.is_numeric_dtype(df[col])
-        ]
-        pval_cols = [pval_map[d] for d in d_cols if pval_map[d] in df.columns]
-
-        if not d_cols or not pval_cols:
-            msg = f"No valid D-statistic or P-value columns found for method: {method_name}"
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        def format_quartet_label(label: str) -> str:
-            parts = label.split("-")
-            if len(parts) == 4:
-                # Patterson D
-                return (
-                    f"P1: {parts[0]}, P2: {parts[1]}, P3: {parts[2]}, Out: {parts[3]}"
-                )
-            elif len(parts) == 5:
-                # Partitioned-D or DFOIL
-                return f"P1: {parts[0]}, P2: {parts[1]}, P3: {parts[2]}, P4: {parts[3]}, Out: {parts[4]}"
-            else:
-                # Unexpected format
-                return label  # fallback
-
-        # Assemble matrices
-        # Apply to index
-        df.index = df.index.to_series().apply(format_quartet_label)
-        quartet_labels = df.index.values
-        stat_matrix = df[d_cols].to_numpy(dtype=float)
-        pval_matrix = df[pval_cols].to_numpy(dtype=float)
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            log_pval_matrix = -np.log10(pval_matrix)  # Handle log10(0)
-        log_pval_matrix[np.isinf(log_pval_matrix)] = np.nan
-
-        # Initialize empty annotation matrix
-        annotations = np.full_like(stat_matrix, "", dtype=str)
-
-        # Iterate over each cell and apply precedence
-        for j, stat in enumerate(d_cols):
-            # Build column names for each correction type
-            col_raw = "Significant (Raw)"
-            col_bonf = "Significant (Bonferroni)"
-            col_fdr = "Significant (FDR-BH)"
-
-            if method_name != "patterson":
-                col_raw = f"{col_raw} {stat}"
-                col_bonf = f"{col_bonf} {stat}"
-                col_fdr = f"{col_fdr} {stat}"
-
-            # Sanity check
-            for col in [col_raw, col_bonf, col_fdr]:
-                if col not in df.columns:
-                    msg = f"Column '{col}' not found in DataFrame for method '{method_name}'."
-                    self.logger.error(msg)
-                    raise ValueError(msg)
-
-            raw_flags = df[col_raw].astype(bool).values
-            bonf_flags = df[col_bonf].astype(bool).values
-            fdr_flags = df[col_fdr].astype(bool).values
-
-            # Priority: Bonferroni > FDR > Raw
-            for i in range(len(df)):
-                if bonf_flags[i]:
-                    annotations[i, j] = "**"
-                elif fdr_flags[i]:
-                    annotations[i, j] = "†"
-                elif raw_flags[i]:
-                    annotations[i, j] = "*"
-                else:
-                    annotations[i, j] = ""
-
-        # Create figure with annotations
-        fig = px.imshow(
-            log_pval_matrix,
-            x=d_cols,
-            y=quartet_labels,
-            color_continuous_scale="Reds",
-            aspect="auto",
-            labels={"color": "-log10(P-value)"},
-            zmin=0,
-            zmax=-np.log10(0.001),  # Adjust as needed
-        )
-
-        for i in range(len(quartet_labels)):
-            for j in range(len(d_cols)):
-                if annotations[i, j]:
-                    fig.add_annotation(
-                        text=annotations[i, j],
-                        x=j,
-                        y=i,
-                        showarrow=False,
-                        font=dict(color="black", size=14),
-                        xanchor="center",
-                        yanchor="middle",
-                    )
-
-        # Update layout
-        if method_name == "patterson":
-            title = "Patterson's D-statistics Heatmap"
-            xaxis_title = "Patterson's D-statistic"
-        elif method_name == "partitioned":
-            title = "Partitioned D-statistics Heatmap"
-            xaxis_title = "Partitioned D-statistics"
-        elif method_name == "dfoil":
-            title = "DFOIL D-statistics Heatmap"
-            xaxis_title = "DFOIL D-statistics"
-
-        n_rows = len(df)
-        row_height = 30  # pixels per row
-        min_height = 300  # Minimum height for the figure
-        max_height = 1200  # Prevent excessively tall plots
-        fig_height = min(max(n_rows * row_height, min_height), max_height)
-
-        fig.update_layout(
-            title=title,
-            xaxis_title=xaxis_title,
-            yaxis_title="Sample Combination",
-            xaxis_side="top",
-            template="plotly_white",
-            height=fig_height,
-        )
-
-        fig.update_yaxes(showticklabels=False)
-
-        fn = f"d_statistics_heatmap_{method_name}.html"
-        output_path = self.output_dir_analysis / fn
-        fig.write_html(output_path)
-
-        if method_name == "patterson":
-            method_name_pretty = "Patterson's 4-taxon D-statistic"
-        elif method_name == "partitioned":
-            method_name_pretty = "Partitioned D-statistic"
-        elif method_name == "dfoil":
-            method_name_pretty = "DFOIL D-statistic"
-
-        self.snpio_mqc.queue_html(
-            output_path,
-            panel_id=f"d_statistics_heatmap_{method_name}",
-            section="introgression",
-            title=f"SNPio: D-statistics Heatmap ({method_name_pretty})",
-            index_label="Quartet",
-            description=f"This is a heatmap of {method_name_pretty}, with cells colored by the -log10(P-value). Significance is marked with annotations: '*' for uncorrected p-value < 0.05, '**' for Bonferroni-adjusted significance, and '†' for FDR-BH-adjusted significance. The p-values are derived from Z-scores computed over all bootstrap replicates. Each row represents a sample combination (quartet or quintet), and each column corresponds to a specific D-statistic. Deeper red indicates stronger statistical significance.",
-        )
-
-    def plot_dstat_significance_counts(
-        self,
-        df: pd.DataFrame,
-        method_name: Literal["patterson", "partitioned", "dfoil"],
-    ) -> None:
-        """Plot number of significant results per D-statistic
-
-        Plots the number of significant results for each D-statistic type, grouped by correction method (Raw, Bonferroni, FDR-BH). The plot is generated using Plotly Express and displayed in a bar chart format.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame containing D-statistics and significance counts.
-            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
-        """
-        # Define D-stat columns based on method
-        if method_name == "patterson":
-            d_cols = ["D-statistic"]
-        elif method_name == "partitioned":
-            d_cols = ["D1", "D2", "D12"]
-        elif method_name == "dfoil":
-            d_cols = ["DFO", "DFI", "DOL", "DIL"]
-        else:
-            raise ValueError(f"Unknown method: {method_name}")
-
-        # Collect significance counts
-        records = []
-        for d in d_cols:
-            for label in ["Raw", "Bonferroni", "FDR-BH"]:
-                colname = f"Significant ({label})"
-                if method_name != "patterson":
-                    colname += f" {d}"
-                if colname in df.columns:
-                    count = df[colname].sum()
-                    records.append(
-                        {"D-statistic": d, "Correction": label, "Count": count}
-                    )
-
-        df = pd.DataFrame(records)
-
-        # Plot
-        fig = px.bar(
-            df,
-            x="D-statistic",
-            y="Count",
-            color="Correction",
-            barmode="group",
-            title=f"Significant Test Counts for {method_name.title()}",
-            template="plotly_white",
-        )
-
-        if self.show:
-            fig.show()
-
-        fn = f"d_statistics_significance_counts_{method_name}.html"
-        output_path = self.output_dir_analysis / fn
-        fig.write_html(output_path)
-
-        if method_name == "patterson":
-            method_name_pretty = "Patterson's 4-taxon D-statistic"
-        elif method_name == "partitioned":
-            method_name_pretty = "Partitioned D-statistic"
-        elif method_name == "dfoil":
-            method_name_pretty = "DFOIL D-statistic"
-
-        self.snpio_mqc.queue_html(
-            output_path,
-            panel_id=f"d_statistics_significance_counts_{method_name}",
-            section="introgression",
-            title=f"SNPio: D-statistics Significance Counts ({method_name_pretty})",
-            index_label="D-statistic",
-            description=f"This bar plot quantifies the number of significant {method_name_pretty} results for each D-statistic, grouped by the multiple-test correction method applied (Raw, Bonferroni, FDR-BH). It provides a quick comparison of how many tests were significant under different levels of statistical stringency.",
-        )
-
-    def plot_dstat_chi_square_distribution(
-        self,
-        df: pd.DataFrame,
-        method_name: Literal["patterson", "partitioned", "dfoil"],
-    ):
-        """Plot the distribution of Chi-square values for D-statistics.
-
-        This method generates a violin plot of Chi-square values for the specified D-statistics method. It handles different D-statistics methods and applies appropriate transformations to the Chi-square values.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame containing D-statistics and Chi-square values.
-            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
-        """
-        if method_name == "patterson":
-            d_cols = ["D"]
-        elif method_name == "partitioned":
-            d_cols = ["D1", "D2", "D12"]
-        elif method_name == "dfoil":
-            d_cols = ["DFO", "DFI", "DOL", "DIL"]
-
-        chi_cols = [f"X2_{d}" if method_name != "patterson" else "X2" for d in d_cols]
-
-        # Reset index to make sample combinations a column
-        df = df.reset_index().rename(columns={"Quartet": "Sample Combination"})
-
-        hover_data = ["Sample Combination"] + [
-            f"P_X2_{d}" if method_name != "patterson" else "P_X2" for d in d_cols
-        ]
-
-        # Melt the dataframe while retaining sample combinations
-        long_df = df[hover_data + chi_cols].melt(
-            id_vars=hover_data, var_name="D-statistic", value_name="Chi2"
-        )
-
-        fig = px.violin(
-            long_df,
-            x="D-statistic",
-            y="Chi2",
-            box=True,
-            points="all",
-            title="Chi-square Value Distributions by D-statistic",
-            template="plotly_white",
-            hover_data=hover_data,
-        )
-
-        if self.show:
-            fig.show()
-
-        fn = f"dstat_chi_square_distribution_{method_name}.html"
-        output_path = self.output_dir_analysis / fn
-        fig.write_html(output_path)
-
-        if method_name == "patterson":
-            method_name_pretty = "Patterson's 4-taxon D-statistic"
-        elif method_name == "partitioned":
-            method_name_pretty = "Partitioned D-statistic"
-        elif method_name == "dfoil":
-            method_name_pretty = "DFOIL D-statistic"
-
-        self.snpio_mqc.queue_html(
-            output_path,
-            panel_id=f"dstat_chi_square_distribution_{method_name}",
-            section="introgression",
-            title=f"SNPio: D-statistics Chi-square Distribution ({method_name_pretty})",
-            index_label="D-statistic",
-            description=f"This violin plot displays the distribution of Chi-square values for each {method_name_pretty}. The inner boxplot shows the interquartile range, and individual points represent specific Chi-square values. This visualization helps in assessing the variability and spread of Chi-square values across the different D-statistics.",
-        )
-
-    def plot_dstat_pvalue_distribution(
-        self,
-        df: pd.DataFrame,
-        method_name: Literal["patterson", "partitioned", "dfoil"],
-    ):
-        """Plot the distribution of -log10(P-values) for D-statistics.
-
-        This method generates a histogram of -log10(P-values) for the specified D-statistics method. It handles different D-statistics methods and applies appropriate transformations to the P-values.
-
-        Args:
-            df (pd.DataFrame): Input DataFrame containing D-statistics and P-values.
-            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
-        """
-        if method_name == "patterson":
-            d_cols = ["D-statistic"]
-            pval_cols = ["P-value"]
-        elif method_name == "partitioned":
-            d_cols = ["D1", "D2", "D12"]
-            pval_cols = [f"P_{d}" for d in d_cols]
-        elif method_name == "dfoil":
-            d_cols = ["DFO", "DFI", "DOL", "DIL"]
-            pval_cols = [f"P_{d}" for d in d_cols]
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            long_df = (
-                df[pval_cols]
-                .apply(lambda col: -np.log10(pd.to_numeric(col, errors="coerce")))
-                .melt(var_name="P-value", value_name="-log10(P)")
-                .dropna()
-            )
-
-        fig = px.histogram(
-            long_df,
-            x="-log10(P)",
-            color="P-value",
-            nbins=50,
-            title="-log10(P-values) Distribution",
-            template="plotly_white",
-        )
-
-        if self.show:
-            fig.show()
-
-        fn = f"dstat_pvalue_distribution_{method_name}.html"
-        output_path = self.output_dir_analysis / fn
-        fig.write_html(output_path)
-
-        if method_name == "patterson":
-            method_name_pretty = "Patterson's 4-taxon D-statistic"
-        elif method_name == "partitioned":
-            method_name_pretty = "Partitioned D-statistic"
-        elif method_name == "dfoil":
-            method_name_pretty = "DFOIL D-statistic"
-
-        self.snpio_mqc.queue_html(
-            output_path,
-            panel_id=f"dstat_pvalue_distribution_{method_name}",
-            section="introgression",
-            title=f"SNPio: D-statistics -log10(P-value) Distribution ({method_name_pretty})",
-            index_label="P-value",
-            description=f"This histogram shows the distribution of -log10 transformed P-values for each {method_name_pretty}. This plot allows for easy visualization of the significance landscape, highlighting the frequency of highly significant results.",
-        )
-
-    def plot_stacked_significance_barplot(
-        self,
-        df: pd.DataFrame,
-        method_name: Literal["patterson", "partitioned", "dfoil"],
-    ) -> None:
-        """Create a stacked bar plot showing the count of mutually exclusive significance categories (Bonferroni, FDR-BH, Raw, Not significant) for each D-statistic.
-
-        Args:
-            df (pd.DataFrame): DataFrame containing D-statistic significance flags.
-            method_name (Literal["patterson", "partitioned", "dfoil"]): The method used for D-statistics.
-        """
-        records = []
-
-        if method_name == "patterson":
-            d_stats = ["D"]
-        elif method_name == "partitioned":
-            d_stats = ["D1", "D2", "D12"]
-        elif method_name == "dfoil":
-            d_stats = ["DFO", "DFI", "DOL", "DIL"]
-        else:
-            msg = f"Unknown method: {method_name}"
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        for stat in d_stats:
-
-            def sig_category(row):
-                if row.get(f"Significant (Bonferroni) {stat}", False):
-                    return "Bonferroni"
-                elif row.get(f"Significant (FDR-BH) {stat}", False):
-                    return "FDR-BH"
-                elif row.get(f"Significant (Raw) {stat}", False):
-                    return "Raw"
-                else:
-                    return "Not significant"
-
-            df[f"SigCategory_{stat}"] = df.apply(sig_category, axis=1)
-            counts = df[f"SigCategory_{stat}"].value_counts()
-            for cat, count in counts.items():
-                records.append({"D-statistic": stat, "Category": cat, "Count": count})
-
-        stacked_df = pd.DataFrame(records)
-
-        fig = px.bar(
-            stacked_df,
-            x="D-statistic",
-            y="Count",
-            color="Category",
-            title="Significance Category Distribution for All D-statistics",
-            category_orders={
-                "Category": ["Bonferroni", "FDR-BH", "Raw", "Not significant"]
-            },
-            template="plotly_white",
-            barmode="stack",
-        )
-
-        if self.show:
-            fig.show()
-
-        fn = f"dstat_stacked_significance_barplot_{method_name}.html"
-        output_path = self.output_dir_analysis / fn
-        fig.write_html(output_path)
-
-        if method_name == "patterson":
-            method_name_pretty = "Patterson's 4-taxon D-statistic"
-        elif method_name == "partitioned":
-            method_name_pretty = "Partitioned D-statistic"
-        elif method_name == "dfoil":
-            method_name_pretty = "DFOIL D-statistic"
-
-        self.snpio_mqc.queue_html(
-            output_path,
-            panel_id=f"dstat_stacked_significance_barplot_{method_name}",
-            section="introgression",
-            title=f"SNPio: Stacked Significance Barplot for {method_name_pretty}",
-            index_label="D-statistic",
-            description=f"This stacked bar plot shows the breakdown of significance categories (Bonferroni, FDR-BH, Raw, and Not significant) for each {method_name_pretty}. Each bar represents the total count of results for a statistic, segmented by the highest level of significance achieved. This provides a clear, comparative view of the evidence for introgression across different statistical tests.",
         )
