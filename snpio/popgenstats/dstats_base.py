@@ -457,38 +457,42 @@ class DStatsBase:
         return corrected_pvals
 
     def zscore(
-        self, observed: Sequence[float], boots: np.ndarray
+        self, observed: Sequence[float], boots: np.ndarray, *, eps: float = 1e-12
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Compute Z-scores and two-sided P-values from bootstrap replicates,
-        downgrading results where D is near 0 despite high Z.
+        """Compute Z-scores and two-sided P-values from bootstrap/jackknife replicates.
+
+        Guards against zero/near-zero SD so divisions do not explode to inf.
 
         Args:
-            observed (Sequence[float]): Observed D-statistics.
-            boots (np.ndarray): Bootstrap replicates (n_boots x n_stats).
+            observed (Sequence[float]): Observed statistics, length = n_stats.
+            boots (np.ndarray): Replicate statistics, shape (n_reps, n_stats).
+            eps (float): Minimum SD treated as nonzero.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray]: Z-scores and two-sided P-values.
+            Tuple[np.ndarray, np.ndarray]: (z_scores, p_values), each shape (n_stats,).
         """
         observed = np.array(observed, dtype=float)
-        stds = np.nanstd(boots, axis=0, ddof=1)
-        # Guard against division by near-zero standard deviation
-        stds = np.where(~np.isnan(stds) | (stds > 0), stds, np.nan)
-
-        if np.any(np.isnan(stds)):
-            self.logger.warning(
-                "Bootstrap standard deviation contains NaN values. "
-                "This may indicate unstable estimates."
+        if boots.ndim != 2 or boots.shape[1] != observed.size:
+            raise ValueError(
+                f"`boots` must be (n_reps, {observed.size}); got {boots.shape}."
             )
 
-        # Downgrade results where D is near 0 despite high Z
-        valid_indices = np.where(~np.isnan(stds))[0]
+        stds = np.nanstd(boots, axis=0, ddof=1)
+        # keep only finite, > eps
+        good = (~np.isnan(stds)) & (stds > eps)
 
-        z_scores = np.zeros_like(observed, dtype=float)
-        p_vals = np.ones_like(observed, dtype=float)
+        if np.any(~good):
+            bad_ix = np.where(~good)[0].tolist()
+            self.logger.warning(
+                f"Unreliable variance for stats at indices {bad_ix}; Z and P set to NaN."
+            )
+
+        z_scores = np.full_like(observed, np.nan, dtype=float)
+        p_vals = np.full_like(observed, np.nan, dtype=float)
 
         with np.errstate(divide="ignore", invalid="ignore"):
-            z_scores[valid_indices] = observed[valid_indices] / stds[valid_indices]
-            p_vals[valid_indices] = 2 * (1 - norm.cdf(np.abs(z_scores[valid_indices])))
+            z_scores[good] = observed[good] / stds[good]
+            p_vals[good] = 2.0 * (1.0 - norm.cdf(np.abs(z_scores[good])))
 
         return z_scores, p_vals
 
@@ -589,30 +593,60 @@ class DStatsBase:
         return df
 
     def jackknife_indices(self, n_snps: int, block_size: int = 500) -> np.ndarray:
-        """Generate jackknife replicates with consistent size by truncating to full blocks.
+        """Generate leave-one-block-out jackknife index sets.
 
-        Each replicate leaves out a different contiguous block of `block_size` SNPs.
+        Truncates to full blocks. If n_snps < block_size, reduces block_size to
+        the largest valid value >= 1 that yields at least one block. Raises if
+        impossible.
 
         Args:
-            n_snps (int): Total number of SNPs.
-            block_size (int): Number of SNPs to remove per replicate. Defaults to 500.
+            n_snps (int): Total SNP count.
+            block_size (int): Block length to omit per replicate.
 
         Returns:
-            np.ndarray: (n_blocks, n_snps - block_size) array of jackknife indices.
+            np.ndarray: Shape (n_blocks, usable_snps - block_size) of kept indices.
+
+        Raises:
+            ValueError: If no valid jackknife blocks can be formed.
         """
-        # Truncate to keep only the SNPs that fit into full blocks
+        if n_snps <= 1:
+            raise ValueError("Jackknife requires at least 2 SNPs.")
+
+        # Downshift block_size if needed
+        if n_snps < block_size:
+            new_bs = max(1, n_snps // 2)
+            self.logger.warning(
+                f"jackknife block_size ({block_size}) > n_snps ({n_snps}); "
+                f"reducing block_size to {new_bs}."
+            )
+            block_size = new_bs
+
         n_blocks = n_snps // block_size
+        if n_blocks < 1:
+            # as a last resort, use leave-one-out by SNP
+            if n_snps >= 2:
+                self.logger.warning(
+                    "Could not form any full blocks; using leave-one-out jackknife."
+                )
+                block_size = 1
+                n_blocks = n_snps
+            else:
+                raise ValueError("Not enough SNPs for jackknife.")
+
         usable_snps = n_blocks * block_size
-        all_snps = np.arange(usable_snps)
+        if usable_snps - block_size < 1:
+            raise ValueError(
+                f"Jackknife would leave zero SNPs per replicate: "
+                f"n_snps={n_snps}, block_size={block_size}."
+            )
 
+        all_snps = np.arange(usable_snps, dtype=np.int32)
         out = np.empty((n_blocks, usable_snps - block_size), dtype=np.int32)
-
         for i in range(n_blocks):
             start = i * block_size
             end = start + block_size
             keep = np.concatenate([all_snps[:start], all_snps[end:]])
-            out[i] = keep  # this will now be shape (usable_snps - block_size,)
-
+            out[i] = keep
         return out
 
     def bootstrap_indices(
@@ -669,13 +703,21 @@ class DStatsBase:
             # Calculate mean frequency for the outgroup
             out_mean = np.nanmean(freq[out_idx, :], axis=0)
 
-        flip = out_mean >= 0.5
+        flip = out_mean > 0.5
+
+        # Drop sites where outgroup freq is exactly 0.5
+        tie_mask = ~(np.isfinite(out_mean) | np.isnan(out_mean))
+        tie_mask = np.abs(out_mean - 0.5) < 1e-12
+
         freq[:, flip] = 1.0 - freq[:, flip]
 
         freq1 = freq[:, mask_cov]
 
         if freq1.shape[1] == 0:
-            msg = "No sites survived the coverage filter. Consider filtering your dataset with SNPio's NRemover2 module first."
+            msg = (
+                "No sites survived the coverage/ tie filter. "
+                "Consider running NRemover2 or relaxing filters."
+            )
             self.logger.error(msg)
             raise RuntimeError(msg)
 
