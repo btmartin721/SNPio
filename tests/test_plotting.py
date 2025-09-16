@@ -1,13 +1,10 @@
-from math import exp
+import shutil
 import tempfile
 import textwrap
-import shutil
 import unittest
 from pathlib import Path
 
-import pandas as pd
-
-from snpio import NRemover2, Plotting, PhylipReader
+from snpio import NRemover2, PhylipReader, Plotting
 
 
 class TestPlotting(unittest.TestCase):
@@ -60,7 +57,7 @@ class TestPlotting(unittest.TestCase):
         self.genotype_data.missingness_reports()
 
         expected_file = Path(
-            f"{self.genotype_data.prefix}_output/plots/gtdata/missingness_report.png"
+            f"{self.genotype_data.prefix}_output/nremover/plots/gtdata/missingness_report.png"
         )
 
         self.assertTrue(expected_file.exists())
@@ -76,6 +73,7 @@ class TestPlotting(unittest.TestCase):
 
         expected_file = Path(
             Path(f"{self.genotype_data.prefix}_output")
+            / "nremover"
             / "plots"
             / "gtdata"
             / "sankey_plots"
