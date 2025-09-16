@@ -180,7 +180,7 @@ class GenotypeData(BaseGenotypeData):
             "genepop",
         }
         self._snp_data = None
-        self.from_vcf = False
+        self.from_vcf = getattr(self, "from_vcf", False)
 
         self.logger: logging.Logger | None = None if logger is None else logger
 
@@ -255,6 +255,14 @@ class GenotypeData(BaseGenotypeData):
         _ = self.snp_data
 
         self.snpio_mqc = SNPioMultiQC
+
+        self.set_alignment(
+            self.snp_data,
+            self.samples,
+            self.sample_indices,
+            self.loci_indices,
+            reset_attributes=False,
+        )
 
     def _iupac_from_gt_tuples(self) -> Dict[Tuple[str, str], str]:
         """Returns the IUPAC code mapping.
@@ -398,23 +406,26 @@ class GenotypeData(BaseGenotypeData):
             self.logger.error(msg)
             raise exceptions.EmptyIterableError(msg)
 
-        # Update the sample indices as a boolean array
-        self.sample_indices = np.isin(self.samples, new_samples)
+        # Create a boolean mask for filtering
+        sample_mask = np.isin(self.samples, new_samples)
 
         # Update samples and populations based on the subset
         self.samples = new_samples
         self._populations = new_populations
 
-        # Ensure the snp_data is filtered by the subset of samples
-        self.snp_data = self.snp_data[self.sample_indices, :]
+        # Filter the snp_data using the mask
+        self.snp_data = self.snp_data[sample_mask, :]
 
         # Update popmap and inverse popmap
         self._popmap = my_popmap.popmap
         self._popmap_inverse = my_popmap.popmap_flipped
 
+        # Reset sample_indices to reflect the new state (all current samples are kept)
+        self.sample_indices = np.ones(self.num_inds, dtype=bool)
+
         # Return indices if requested
         if return_indices:
-            return self.sample_indices
+            return sample_mask  # Return the original mask used for filtering
 
     def write_popmap(self, filename: str) -> None:
         """Write the population map to a file.
@@ -468,7 +479,8 @@ class GenotypeData(BaseGenotypeData):
         """
         self.logger.info(f"Writing VCF file to: {output_filename}")
 
-        from_vcf = getattr(self, "from_vcf", False)
+        from_vcf = self.from_vcf
+
         of = Path(output_filename)
 
         try:
@@ -589,7 +601,6 @@ class GenotypeData(BaseGenotypeData):
                                 f.write("\t".join(row) + "\n")
 
                             pbar.update(n)
-
             else:
                 # Raw fallback
                 n_loci = self.snp_data.shape[1]
@@ -704,8 +715,14 @@ class GenotypeData(BaseGenotypeData):
 
         try:
             with open(output_file, "w") as f:
-                n_samples, n_loci = len(samples), len(snp_data[0])
+                n_samples = len(samples)
+                if n_samples == 0:
+                    n_loci = 0
+                else:
+                    n_loci = len(snp_data[0])
+
                 f.write(f"{n_samples} {n_loci}\n")
+
                 for sample, sample_data in zip(samples, snp_data):
                     genotype_str = "".join(str(x) for x in sample_data)
                     f.write(f"{sample}\t{genotype_str}\n")
@@ -1255,20 +1272,33 @@ class GenotypeData(BaseGenotypeData):
             hdf = Path(self.vcf_attributes_fn)
             if hdf.is_file():
                 locus_names = []
-                # Read HDF5 attributes to get locus names
-                with h5py.File(hdf, "r") as h5:
-                    for x, y in zip(h5["chrom"][:], h5["pos"][:]):
-                        if isinstance(x, (str, bytes)):
-                            x = x.decode()
-                        if isinstance(y, (str, bytes)):
-                            y = y.decode()
 
-                        # Ensure x and y are strings
-                        locus_names.append(f"{x}:{y}")
-            else:
-                raise FileNotFoundError(f"HDF5 attribute file not found: {hdf}")
+                # Read HDF5 attributes to get locus names
+            with h5py.File(hdf, "r") as h5:
+                # Read all locus metadata from HDF5
+                all_chroms = h5["chrom"][:].astype(str)
+                all_pos = h5["pos"][:].astype(str)
+
+                # Check if a filter has been applied
+                loci_filter = self.loci_indices
+                if loci_filter is not None and loci_filter.size == all_chroms.size:
+                    # Apply the filter to the locus metadata
+                    filtered_chroms = all_chroms[loci_filter]
+                    filtered_pos = all_pos[loci_filter]
+                else:
+                    # No filter or mismatch, use all loci
+                    filtered_chroms = all_chroms
+                    filtered_pos = all_pos
+
+                # Combine to create final locus names
+                locus_names = [
+                    f"{c}:{p}" for c, p in zip(filtered_chroms, filtered_pos)
+                ]
+
+            df.columns = locus_names
+
         else:
-            locus_names = df.columns.tolist()
+            locus_names = [f"locus_{i+1}" for i in range(df.shape[1])]
 
         # 2. Attach names and compute core proportions
         if len(df.columns) != len(locus_names):
@@ -1696,16 +1726,20 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             List[str]: List of reference alleles of length num_snps.
         """
+        if isinstance(self._ref, np.ndarray):
+            return self._ref.astype(str).tolist()
         return self._ref
 
-    @ref.setter
-    def ref(self, value: List[str]) -> None:
-        """Setter for list of reference alleles of length num_snps.
+    # In the GenotypeData class
 
-        Args:
-            value (List[str]): List of reference alleles of length num_snps.
-        """
-        self._ref = value
+    @ref.setter
+    def ref(self, value: List[str] | np.ndarray) -> None:
+        """Setter for list of reference alleles of length num_snps."""
+        if isinstance(value, np.ndarray):
+            # .tolist() converts numpy string types to python strings
+            self._ref = value.tolist()
+        else:
+            self._ref = value
 
     @property
     def alt(self) -> List[str]:
@@ -1714,16 +1748,22 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             List[str]: List of alternate alleles of length num_snps.
         """
+        if isinstance(self._alt, np.ndarray):
+            return self._alt.astype(str).tolist()
         return self._alt
 
     @alt.setter
-    def alt(self, value: List[str]) -> None:
-        """Setter for list of alternate alleles of length num_snps.
-
-        Args:
-            value (List[str]): List of alternate alleles of length num_snps.
-        """
-        self._alt = value
+    def alt(self, value: List[List[str]]) -> None:
+        """Setter for list of alternate alleles of length num_snps."""
+        if isinstance(value, list) and value:
+            # Recursively convert any numpy strings to python strings
+            # This handles the nested list structure for multi-allelic sites
+            self._alt = [[str(allele) for allele in inner_list] for inner_list in value]
+        elif isinstance(value, np.ndarray):
+            # Fallback for a simple numpy array
+            self._alt = value.tolist()
+        else:
+            self._alt = value
 
     @property
     def snp_data(self) -> np.ndarray:
@@ -1840,16 +1880,12 @@ class GenotypeData(BaseGenotypeData):
             for s, p in self.popmap.items():
                 self.popmap_inverse.setdefault(p, []).append(s)
 
-        ref, alt, alt2 = self.get_ref_alt_alleles(self.snp_data)
-        self.ref = ref
-        self.alt = alt
-        self.alt = list(alt)
-        if alt2:
-            self.alt = [a if isinstance(a, list) else [a] for a in self.alt]
-            for i, extra in enumerate(alt2):
-                self.alt[i].extend(
-                    extra.tolist() if isinstance(extra, np.ndarray) else extra
-                )
+        # Determine REF and ALT from SNP data matrix if not loading from a VCF.
+        # If loading VCF, self._ref and self._alt are set in get_vcf_attributes.
+        if not self.from_vcf:
+            ref_alleles, alt_alleles = self.get_ref_alt_alleles(self.snp_data)
+            self.ref = ref_alleles
+            self.alt = alt_alleles
 
         if reset_attributes and self.filetype.startswith("vcf"):
             self.vcf_attributes_fn = self.update_vcf_attributes(
@@ -1891,7 +1927,7 @@ class GenotypeData(BaseGenotypeData):
 
     def __str__(self) -> str:
         """Return a string representation of the GenotypeData object."""
-        return f"GenotypeData: {self.num_snps} SNPs, {self.num_inds} individuals"
+        return f"GenotypeData: {self.num_snps} SNPs, {self.num_inds} individuals, from file: {self.filename} and popmapfile: {self.popmapfile}"
 
     def __repr__(self) -> str:
         """Return a detailed string representation of the GenotypeData object."""
