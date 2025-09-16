@@ -157,19 +157,30 @@ def main():
     pgs = PopGenStatistics(gd_filt, verbose=args.verbose, debug=args.debug)
 
     allele_summary_stats, summary_stats = pgs.summary_statistics(
-        n_permutations=100, n_jobs=8, use_pvalues=True
+        fst_method="observed", n_reps=1000, n_jobs=8
+    )
+    fst_dist = pgs.fst_distance(
+        method="permutation", n_reps=1000, n_jobs=8, palette="magma"
+    )
+    fst_dist = pgs.fst_distance(
+        method="bootstrap", n_reps=1000, n_jobs=8, palette="magma"
     )
 
-    neis_dist = pgs.neis_genetic_distance(
-        n_permutations=1000, n_jobs=8, use_pvalues=True
+    neis_dist_boot = pgs.neis_genetic_distance(
+        method="bootstrap", n_reps=1000, n_jobs=8
     )
 
-    fst_permutation = pgs.detect_fst_outliers(
+    neis_dist_perm = pgs.neis_genetic_distance(
+        method="permutation", n_reps=1000, n_jobs=8
+    )
+
+    fst_perm = pgs.detect_fst_outliers(
         n_permutations=100,
         correction_method="fdr_bh",
         use_dbscan=False,
         n_jobs=8,
         min_samples=5,
+        seed=42,
     )
 
     fst_dbscan = pgs.detect_fst_outliers(
@@ -178,6 +189,7 @@ def main():
         use_dbscan=True,
         n_jobs=8,
         min_samples=5,
+        seed=42,
     )
 
     dstats = pgs.calculate_d_statistics(
