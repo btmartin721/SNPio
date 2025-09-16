@@ -152,6 +152,14 @@ class VCFReader(GenotypeData):
         self.store_format_fields = store_format_fields
         self.disable_progress_bar = disable_progress_bar
 
+        self.from_vcf = True
+        self.filetype = "vcf"
+        self.marker_names = []
+
+        self.num_records = 0
+        self.vcf_header = None
+        self.info_fields = None
+
         kwargs = {"prefix": prefix, "verbose": verbose, "debug": debug}
         logman = LoggerManager(name=__name__, **kwargs)
         self.logger = logman.get_logger()
@@ -159,8 +167,6 @@ class VCFReader(GenotypeData):
         self.resource_data = {}
 
         self.iupac = IUPAC(logger=self.logger)
-
-        self.marker_names = []
 
         super().__init__(
             filename=filename,
@@ -182,12 +188,6 @@ class VCFReader(GenotypeData):
             logger=self.logger,
             debug=debug,
         )
-
-        self.num_records = 0
-        self.filetype = "vcf"
-        self.vcf_header = None
-        self.info_fields = None
-        self.from_vcf = True
 
         outdir.mkdir(exist_ok=True, parents=True)
 
@@ -308,14 +308,6 @@ class VCFReader(GenotypeData):
         info_buf = {k: np.empty((chunk_size,), dtype=object) for k in info_keys}
         snp_matrix = np.empty((n_vars, n_samples), dtype="<U1")
 
-        # Preallocated FORMAT buffers
-        if self.store_format_fields:
-            fmt_data_buf = {
-                k: np.empty((chunk_size, n_samples), dtype=object)
-                for k in fmt_keys
-                if k != "GT"
-            }
-
         # Overwrite existing file if present
         if h5_path.exists() and h5_path.is_file():
             self.logger.warning(f"File {h5_path} already exists. Overwriting.")
@@ -338,6 +330,8 @@ class VCFReader(GenotypeData):
             # look it up, default to 'N' if it truly isn't in the map
             return iupac_map.get(key, "N")
 
+        ref = []
+        alt = []
         with h5py.File(h5_path, "w") as h5:
             # core fields: POS as integer, others as utf-8 strings
             for name in ("chrom", "pos", "id", "ref", "alt", "qual", "filt", "fmt"):
@@ -375,6 +369,11 @@ class VCFReader(GenotypeData):
 
             # FORMAT datasets
             if self.store_format_fields:
+                fmt_data_buf = {
+                    k: np.empty((chunk_size, n_samples), dtype=object)
+                    for k in fmt_keys
+                    if k != "GT"
+                }
                 fmt_grp = h5.create_group("fmt_metadata")
                 for key in fmt_data_buf:
                     fmt_grp.create_dataset(
@@ -403,12 +402,27 @@ class VCFReader(GenotypeData):
 
                 self.marker_names.append(f"{chrom}:{str(pos)}")
 
-                # Core VCF fields (leave POS as an integer)
+                # Set REF allele for the Python attribute
+                ref.append(str(record.ref))
+
+                # --- New robust logic using record.alleles ---
+                all_alleles = record.alleles
+                if len(all_alleles) > 1:
+                    # Site has alternate alleles (bi- or multi-allelic)
+                    current_alts = all_alleles[1:]
+                    alt.append(list(current_alts))
+                    alt_for_hdf5 = ",".join(current_alts)
+                else:
+                    # Site is monomorphic (only has a REF allele)
+                    alt.append(["."])
+                    alt_for_hdf5 = "."
+
+                # --- Core VCF fields for HDF5 buffer ---
                 chrom_buf[row_in_chunk] = chrom
                 pos_buf[row_in_chunk] = pos
                 id_buf[row_in_chunk] = str(record.id) or "."
                 ref_buf[row_in_chunk] = str(record.ref)
-                alt_buf[row_in_chunk] = ",".join(str(record.alts) or ["."])
+                alt_buf[row_in_chunk] = alt_for_hdf5
                 qual_buf[row_in_chunk] = str(record.qual) or "."
                 filt_buf[row_in_chunk] = next(iter(record.filter.keys()), ".")
                 fmt_buf[row_in_chunk] = ":".join(record.format.keys())
@@ -423,11 +437,13 @@ class VCFReader(GenotypeData):
                     else:
                         info_buf[key][row_in_chunk] = str(val)
 
-                # FORMAT fields
                 if self.store_format_fields:
-                    self._store_format_fields(
+                    rows = self._store_format_fields(
                         fmt_data_buf, record, samples, row_in_chunk
                     )
+
+                    for fmt_key, row in rows.items():
+                        fmt_data_buf[fmt_key][row_in_chunk, :] = row
 
                 # Convert genotypes to IUPAC codes
                 alleles_tuple = tuple(record.alleles)
@@ -463,6 +479,7 @@ class VCFReader(GenotypeData):
                     if self.store_format_fields:
                         for fmt_key, buf in fmt_data_buf.items():
                             fmt_grp[fmt_key][start:end, :] = buf
+                            h5["fmt_metadata"][fmt_key][start:end, :] = fmt_grp[fmt_key]
 
                     # reset buffers
                     chrom_buf = np.empty((chunk_size,), dtype=object)
@@ -473,10 +490,11 @@ class VCFReader(GenotypeData):
                     alt_buf = np.empty((chunk_size,), dtype=object)
                     filt_buf = np.empty((chunk_size,), dtype=object)
                     fmt_buf = np.empty((chunk_size,), dtype=object)
+
                     if self.store_format_fields:
                         fmt_data_buf = {
-                            fmt_key: np.empty((chunk_size, n_samples), dtype=object)
-                            for fmt_key in fmt_data_buf
+                            k: np.empty((chunk_size, n_samples), dtype=object)
+                            for k in fmt_data_buf.keys()
                         }
 
             # Final partial chunk
@@ -500,6 +518,12 @@ class VCFReader(GenotypeData):
                 if self.store_format_fields:
                     for fmt_key, buf in fmt_data_buf.items():
                         fmt_grp[fmt_key][start:end, :] = buf[:remainder, :]
+                        h5["fmt_metadata"][fmt_key][start:end, :] = fmt_grp[fmt_key][
+                            :remainder, :
+                        ]
+
+        self.ref = ref
+        self.alt = alt
 
         return h5_path, snp_matrix, samples
 
@@ -526,6 +550,7 @@ class VCFReader(GenotypeData):
         # Extract sample values for the current record once (dict view → list of dicts)
         sample_data = [record.samples[sample] for sample in samples]
 
+        rows = {fmt_key: [] for fmt_key in fmt_data_buf.keys()}
         for fmt_key, fmt_buf in fmt_data_buf.items():
             row = fmt_buf[row_in_chunk]
 
@@ -544,6 +569,8 @@ class VCFReader(GenotypeData):
                     row[s_idx] = ",".join(map(str, val))
                 else:
                     row[s_idx] = str(val)
+            rows[fmt_key].append(row)
+        return {fmt_key: np.array(row) for fmt_key, row in rows.items()}
 
     def _is_bgzipped(self, filepath: Path) -> bool:
         """Checks if a file is bgzipped.
@@ -676,7 +703,7 @@ class VCFReader(GenotypeData):
                         write_idx : write_idx + filtered_chunk.shape[0], :
                     ] = filtered_chunk
 
-                write_idx += filtered_chunk.size
+                write_idx += filtered_chunk.shape[0]
                 start_idx = end_idx
 
                 del chunk, filtered_chunk, mask
