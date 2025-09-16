@@ -1,4 +1,5 @@
 from collections import deque
+from itertools import chain
 from pathlib import Path
 from typing import Any, Dict, List, Literal
 
@@ -298,7 +299,7 @@ class StructureReader(GenotypeData):
             self._onerow = first[0] != (second[0] if second else None)
 
             # Reinsert peeked lines back into the iterator
-            data_lines = iter(peek_lines + deque(lines))
+            data_lines = chain(peek_lines, lines)
 
             if self._onerow:
                 for i, line in enumerate(data_lines):
@@ -365,16 +366,36 @@ class StructureReader(GenotypeData):
                     merged = np.char.add(merged, arr2)
                     raw_snps.append(merged)
 
-        # Validate sample count and deduplicate
-        self.samples = np.unique(samples).tolist()
+        # For two-row format, `samples` contains duplicates.
+        # Create unique list of samples that preserves the order.
+        if not self._onerow:
+            unique_samples_in_order = list(dict.fromkeys(samples))
+
+            if self._has_popids:
+                # Rebuild the populations list to match the unique samples list
+                pop_map = dict(zip(samples, populations))
+                populations = [pop_map[s] for s in unique_samples_in_order]
+
+            samples = unique_samples_in_order
+
+        self.samples = samples
 
         if self._has_popids:
-            if len(self.samples) != len(populations):
-                msg = f"Mismatch between samples and populations: {len(self.samples)} vs {len(populations)}"
+            # This logic assumes unique samples if onerow=False.
+            # Handle the populations list to match the final sample list.
+            pop_map = dict(zip(samples, populations))
+            if len(self.samples) != len(set(samples)) and not self._onerow:
+                # Handle two-row format; samples has duplicates to remove
+                unique_samples_in_order = list(dict.fromkeys(samples))
+                self.samples = unique_samples_in_order
+                self.populations = [pop_map[s] for s in self.samples]
+            else:
+                self.populations = populations
+
+            if len(self.samples) != len(self.populations):
+                msg = f"Mismatch between unique samples and populations: {len(self.samples)} vs {len(self.populations)}"
                 self.logger.error(msg)
                 raise AlignmentFormatError(msg)
-
-            # Save popmap
 
             if self.was_filtered:
                 out_path = Path(
