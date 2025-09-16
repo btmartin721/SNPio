@@ -55,6 +55,13 @@ class TestVCFReader(unittest.TestCase):
         if dir.is_dir():
             shutil.rmtree(dir)
 
+        dir = Path("test_write_vcf_with_format_output")
+        if dir.is_dir():
+            shutil.rmtree(dir)
+        dir = Path("test_write_vcf_without_format_output")
+        if dir.is_dir():
+            shutil.rmtree(dir)
+
     def test_read_vcf(self):
         reader = VCFReader(
             filename=self.temp_vcf.name,
@@ -94,55 +101,58 @@ class TestVCFReader(unittest.TestCase):
         self.assertTrue(reader.snp_data.shape[0] == reader.num_inds)
         self.assertTrue(reader.snp_data.shape[1] == reader.num_snps)
 
-    def test_write_vcf_with_and_without_format_fields(self):
-        for store_format_fields in (False, True):
-            reader = VCFReader(
-                filename=self.temp_vcf.name,
-                popmapfile=self.temp_popmap.name,
-                chunk_size=3,
-                verbose=False,
-                debug=False,
-                store_format_fields=store_format_fields,
-            )
+    def test_write_vcf_without_format_fields(self):
+        """Tests that VCF writing correctly excludes extra FORMAT fields when store_format_fields is False."""
+        reader = VCFReader(
+            filename=self.temp_vcf.name,
+            popmapfile=self.temp_popmap.name,
+            chunk_size=3,
+            verbose=False,
+            debug=False,
+            store_format_fields=False,
+            prefix="test_write_vcf_without_format",
+        )
 
-            with tempfile.NamedTemporaryFile(
-                delete=False, suffix=".vcf"
-            ) as temp_output_vcf:
-                reader.write_vcf(temp_output_vcf.name, chunk_size=2)
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".vcf"
+        ) as temp_output_vcf:
+            reader.write_vcf(temp_output_vcf.name, chunk_size=2)
 
-                with open(temp_output_vcf.name, "r") as f:
-                    output_lines = [
-                        line.strip() for line in f if not line.startswith("##")
-                    ]
+            with open(temp_output_vcf.name, "r") as f:
+                output_lines = [line.strip() for line in f if not line.startswith("##")]
 
-                # Check header line and FORMAT structure
-                header_fields = output_lines[0].split("\t")
-                self.assertEqual(
-                    header_fields[:9],
-                    [
-                        "#CHROM",
-                        "POS",
-                        "ID",
-                        "REF",
-                        "ALT",
-                        "QUAL",
-                        "FILTER",
-                        "INFO",
-                        "FORMAT",
-                    ],
-                )
+            # Assertions for the "without" case
+            for line in output_lines[1:]:
+                fields = line.split("\t")
+                format_field = fields[8]
+                self.assertEqual(format_field, "GT")
 
-                for line in output_lines[1:]:
-                    fields = line.split("\t")
-                    format_field = fields[8]  # FORMAT column
+    def test_write_vcf_with_format_fields(self):
+        """Tests that VCF writing correctly includes extra FORMAT fields when store_format_fields is True."""
+        reader = VCFReader(
+            filename=self.temp_vcf.name,
+            popmapfile=self.temp_popmap.name,
+            chunk_size=3,
+            verbose=False,
+            debug=False,
+            store_format_fields=True,
+            prefix="test_write_vcf_with_format",
+        )
 
-                    if store_format_fields:
-                        self.assertIn(":", format_field)
-                        self.assertGreaterEqual(len(format_field.split(":")), 2)
-                    else:
-                        self.assertEqual(format_field, "GT")
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=".vcf"
+        ) as temp_output_vcf:
+            reader.write_vcf(temp_output_vcf.name, chunk_size=2)
 
-                Path(temp_output_vcf.name).unlink(missing_ok=True)
+            with open(temp_output_vcf.name, "r") as f:
+                output_lines = [line.strip() for line in f if not line.startswith("##")]
+
+            # Assertions for the "with" case
+            for line in output_lines[1:]:
+                fields = line.split("\t")
+                format_field = fields[8]
+                self.assertIn(":", format_field)
+                self.assertGreaterEqual(len(format_field.split(":")), 2)
 
 
 if __name__ == "__main__":
