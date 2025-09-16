@@ -1,6 +1,9 @@
 import unittest
+
 import numpy as np
+
 from snpio.popgenstats.dfoil import DfoilStats
+from snpio.analysis.genotype_encoder import GenotypeEncoder
 
 MISSING = -9
 
@@ -140,7 +143,8 @@ class TestDFOILStats(unittest.TestCase):
     def test_dfoil_strong_signal(self):
         arr = self._build_pristine_strong_dfo()
         gd = DummyGenotypeData(arr)
-        dfs = DfoilStats(gd)
+        enc = GenotypeEncoder(gd)
+        dfs = DfoilStats(gd, enc.genotypes_012)
         results, _ = dfs.calculate(*self.pops, n_boot=200, seed=1)
 
         self.assertAlmostEqual(results["DFO"], 1.0, places=1)
@@ -151,7 +155,8 @@ class TestDFOILStats(unittest.TestCase):
     def test_dfoil_balanced(self):
         arr = self._build_pristine_balanced()
         gd = DummyGenotypeData(arr)
-        dfs = DfoilStats(gd)
+        enc = GenotypeEncoder(gd)
+        dfs = DfoilStats(gd, enc.genotypes_012)
         results, _ = dfs.calculate(*self.pops, n_boot=200, seed=2)
         self.assertAlmostEqual(results["DFO"], 0.0, places=1)
         self.assertAlmostEqual(results["DFI"], 0.0, places=1)
@@ -161,14 +166,16 @@ class TestDFOILStats(unittest.TestCase):
     def test_dfoil_missing_data(self):
         arr = self._apply_missing(self._build_pristine_balanced(), frac=0.2)
         gd = DummyGenotypeData(arr)
-        dfs = DfoilStats(gd)
+        enc = GenotypeEncoder(gd)
+        dfs = DfoilStats(gd, enc.genotypes_012)
         results, _ = dfs.calculate(*self.pops, n_boot=200, seed=3)
         self.assertAlmostEqual(results["DFO"], 0.0, places=1)
 
     def test_dfoil_nonbiallelic(self):
         arr = self._apply_nonbiallelic(self._build_pristine_balanced(), n_non=10)
         gd = DummyGenotypeData(arr)
-        dfs = DfoilStats(gd)
+        enc = GenotypeEncoder(gd)
+        dfs = DfoilStats(gd, enc.genotypes_012)
         results, _ = dfs.calculate(*self.pops, n_boot=200, seed=4)
         self.assertAlmostEqual(results["DFO"], 0.0, places=1)
 
@@ -177,7 +184,8 @@ class TestDFOILStats(unittest.TestCase):
             self._apply_nonbiallelic(self._build_pristine_balanced()), frac=0.2
         )
         gd = DummyGenotypeData(arr)
-        dfs = DfoilStats(gd)
+        enc = GenotypeEncoder(gd)
+        dfs = DfoilStats(gd, enc.genotypes_012)
         results, _ = dfs.calculate(*self.pops, n_boot=200, seed=5)
         self.assertAlmostEqual(results["DFO"], 0.0, places=1)
 
