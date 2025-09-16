@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
-from snpio import GenotypeEncoder
 from snpio.popgenstats.dstats_base import DStatsBase, DStatsConfig, DStatsResults
 from snpio.popgenstats.numba_helpers import _compute_partd, _execute_bootstrap_partd
 from snpio.utils.logging import LoggerManager
@@ -17,11 +16,18 @@ class PartitionedDStats(DStatsBase):
     This class computes the Partitioned-D statistic for a 5-taxon model, which is used to detect introgression between populations.
     """
 
-    def __init__(self, genotype_data: "GenotypeData", *, verbose=False, debug=False):
+    def __init__(
+        self,
+        genotype_data: "GenotypeData",
+        geno012: np.ndarray,
+        verbose=False,
+        debug=False,
+    ):
         """Initialize the PartitionedDStats class.
 
         Args:
             genotype_data (GenotypeData): The genotype data to analyze.
+            geno012 (np.ndarray): Genotype matrix in 0/1/2 format.
             verbose (bool): If True, enables verbose logging.
             debug (bool): If True, enables debug logging.
         """
@@ -29,6 +35,8 @@ class PartitionedDStats(DStatsBase):
         self.logger = LoggerManager(
             __name__, prefix=genotype_data.prefix, verbose=verbose, debug=debug
         ).get_logger()
+
+        self.geno012 = geno012
 
     def calculate(
         self,
@@ -60,12 +68,8 @@ class PartitionedDStats(DStatsBase):
         Returns:
             Tuple[dict, np.ndarray]: A tuple containing the results of the Partitioned-D statistic calculation and the bootstrap results.
         """
-        # — 1) load & subset —
-        ge = GenotypeEncoder(self.genotype_data)
-        geno012 = ge.genotypes_012.astype(int, copy=False)  # (N, S)
-
         config = DStatsConfig(
-            geno012=geno012,
+            geno012=self.geno012,
             pop1=pop1,
             pop2=pop2,
             pop3=pop3a,
@@ -78,7 +82,7 @@ class PartitionedDStats(DStatsBase):
         )
 
         # Subset the genotypes to only relevant populations.
-        geno_sub, pops_mapped = self._map_geno_to_pops(geno012, config)
+        geno_sub, pops_mapped = self._map_geno_to_pops(self.geno012, config)
 
         # Get derived and ancestral population frequencies.
         arr = self._extract_pop_freqs(config, geno_sub, pops_mapped)
@@ -102,10 +106,7 @@ class PartitionedDStats(DStatsBase):
         zs, ps = self.zscore(dparts, boot_res)
         x2s, p_x2s = self.chisq(dparts, boot_res)
 
-        if self.verbose:
-            self.log_statistics((dparts[0], dparts[1], dparts[2]), boot_res)
-
-        # — return the results —
+        # — Contain the results —
         self.results = DStatsResults(
             D1=dparts[0],
             D2=dparts[1],
