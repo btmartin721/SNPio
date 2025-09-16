@@ -1,10 +1,8 @@
-from tqdm import tqdm
 from typing import Dict, Literal
 
 import numpy as np
 import pandas as pd
 from kneed import KneeLocator
-from polars import corr
 from scipy.stats import ks_2samp
 from sklearn.cluster import DBSCAN
 from sklearn.metrics import silhouette_score
@@ -16,6 +14,7 @@ from sklearn.preprocessing import (
     StandardScaler,
 )
 from statsmodels.stats.multitest import multipletests
+from tqdm import tqdm
 
 from snpio.utils.logging import LoggerManager
 
@@ -47,20 +46,19 @@ class DBSCANOutlierDetector:
         This constructor sets up the DBSCAN parameters, initializes the random number generators for Monte Carlo simulations, and configures the scaler for feature standardization if specified. It also sets up logging for the class.
 
         Args:
-            prefix (str): prefix for logging and output files.
-            eps (float | Literal["auto"]): radius for DBSCAN; 'auto' to estimate from data.
-            min_samples (int): minimum number of samples in a neighborhood for core points.
-            metric (str): distance metric for DBSCAN.
-            n_jobs (int): number of parallel jobs for DBSCAN; -1 for all available cores.
-            standardize (Literal["standardize", "robust", "power", "quantile"] | None): if not None, which transformer to apply feature-wise.
+            prefix (str): Prefix for logging and output files.
+            eps (float | Literal["auto"]): Radius for DBSCAN; 'auto' to estimate from data.
+            min_samples (int): Minimum number of samples in a neighborhood for core points.
+            metric (str): Distance metric for DBSCAN.
+            n_jobs (int): Number of parallel jobs for DBSCAN; -1 for all available cores.
+            standardize (Literal["standardize", "robust", "power", "quantile"] | None): If not None, which transformer to apply feature-wise.
             null_model (Literal["shuffle", "uniform"]): 'shuffle' or 'uniform'.
-            n_simulations (int): number of Monte Carlo replicates.
-            random_state (int | None): seed for reproducibility.
-            verbose (bool): whether to log info messages.
-            debug (bool): whether to log debug messages.
+            n_simulations (int): Number of Monte Carlo replicates.
+            random_state (int | None): Seed for reproducibility.
+            verbose (bool): Whether to log info messages.
+            debug (bool): Whether to log debug messages.
 
         """
-        # … [same validation of args as before] …
         logman = LoggerManager(__name__, prefix=prefix, verbose=verbose, debug=debug)
         self.logger = logman.get_logger()
 
@@ -286,11 +284,9 @@ class DBSCANOutlierDetector:
 
         Args:
             data: original data for silhouette.
+
         Returns:
-            validation (dict):
-                'silhouette_score': silhouette score for clusters (or np.nan)
-                'ks_statistic': KS statistic between neighbor-counts of inliers vs. outliers
-                'ks_pvalue': corresponding p-value
+            validation (dict): 'silhouette_score': silhouette score for clusters (or np.nan); 'ks_statistic': KS statistic between neighbor-counts of inliers vs. outliers; 'ks_pvalue': corresponding p-value.
         """
         if not isinstance(data, (pd.DataFrame, np.ndarray, list, dict)):
             msg = f"Input data must be a pandas DataFrame, numpy.ndarray, list, or dict, but got: {type(data)}"
@@ -381,9 +377,8 @@ class DBSCANOutlierDetector:
 
         # Check if distances are all zeros
         if np.all(distances_k == 0):
-            self.logger.warning(
-                "Distances all zeros. Setting eps to a small positive value (0.1)."
-            )
+            msg = "Distances all zeros. Setting eps to a small positive value."
+            self.logger.warning(msg)
             eps = fallbacks["eps"]
 
         else:
