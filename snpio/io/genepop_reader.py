@@ -152,27 +152,24 @@ class GenePopReader(GenotypeData):
                         self.logger.error(msg)
                         raise AlignmentFormatError(msg)
 
-                    if len(code) not in {2, 4, 6}:
+                    # Allow for haploid 3-digit codes (length 3)
+                    if len(code) not in {2, 3, 4, 6}:
                         msg = f"Unexpected allele length for sample {sid}: {code}"
                         self.logger.error(msg)
                         raise AlignmentFormatError(msg)
 
                     # Determine ploidy and convert to IUPAC
-                    if len(code) == 2:  # haploid 1 allele
-                        a1 = code
-                        a2 = code
-                    elif len(code) == 4:
+                    if len(code) == 2 or len(code) == 3:
+                        a1, a2 = code, code
+                    elif len(code) == 4:  # Diploid, 2-digit codes
                         a1, a2 = code[:2], code[2:]
-                    elif len(code) == 6:
+                    elif len(code) == 6:  # Diploid, 3-digit codes
                         a1, a2 = code[:3], code[3:]
-                    else:
-                        msg = f"Unrecognized allele length: {code}"
-                        self.logger.error(msg)
-                        raise AlignmentFormatError(msg)
 
                     gt_calls.append(self._convert_to_iupac(a1, a2))
 
                 genotypes.append(gt_calls)
+
             except ValueError:
                 msg = f"Malformed line in GenePop file: '{line}'"
                 self.logger.error(msg)
@@ -187,7 +184,7 @@ class GenePopReader(GenotypeData):
             self.logger.error(msg)
             raise SequenceLengthError(msg)
 
-        self._ref, self._alt, self._alt2 = self.get_ref_alt_alleles(self.snp_data)
+        self._ref, self._alt = self.get_ref_alt_alleles(self.snp_data)
 
         self.logger.info(
             f"Loaded {len(samples)} samples across {len(set(populations))} populations."
