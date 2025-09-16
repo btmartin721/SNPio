@@ -4,6 +4,40 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.6.2 (2025-09-15)
+--------------------------
+
+Bug Fixes
+~~~~~~~~~
+
+- Fixed bug where the `ref` and `alt` properties of the `VCFReader` class did not exist before `NRemover2` filtering was applied. This caused errors when trying to access these properties before filtering. The properties now exist and return the correct values before and after filtering.
+- Fixed bugs where the format metadata in the VCF file was not being stored in the HDF5 file when reading and writing VCF files with the `VCFReader` class. The `store_format_data` parameter now works as expected, and the format metadata is stored in the HDF5 file when set to `True`.
+- Fixed edge case where the `alt` property could inadvertently set some loci to heterozygous IUPAC ambiguity codes (e.g., "R") or missing data values ("N").
+- Fixed various minor bugs and edge cases that caused crashes with the example script.
+
+Enhancements
+~~~~~~~~~~~~
+
+- Improved efficiency of the D-statistics calculations by precomputing the encodings for all individuals in the dataset once, and then reusing these encodings for each D-statistic calculation. This reduces redundant computations and speeds up the overall process, especially when dealing with large datasets or multiple population combinations.
+- Cleaned up some of the MultiQC report plots for consistency. Particularly the Nei genetic distance heatmap and the Fst heatmap plots.
+- General efficiency improvements to every module.
+- Clarified the public-facing API of the Fst and Nei distance methods in the `PopGenStatistics` class. The methods now have clear and consistent parameter names, return types, and documentation. This makes it easier for users to understand how to use these methods and what to expect from them.
+- Added tqdm progress bars to the Fst and Nei distance methods in the `PopGenStatistics` class. This provides users with visual feedback on the progress of the calculations, especially for large datasets where the computations may take a significant amount of time.
+- The Fst and Nei distance methods now more clearly define how the permutation versus bootstrap methods work. The permutation method randomly shuffles individuals between populations to create a null distribution of Fst values, while the bootstrap method resamples loci with replacement to estimate the variability of Fst values. This distinction is now clearly documented in the method docstrings and user guides.
+
+Features
+~~~~~~~~
+
+- Added multiprocessing support to the Weir & Cockerham Fst and Nei genetic distance methods in the `PopGenStatistics` class. This allows for parallel computation of pairwise Fst values between populations, significantly speeding up the process for large datasets with many populations. The number of parallel jobs can be controlled with the `n_jobs` parameter.
+
+Version 1.6.1 (2025-09-01)
+--------------------------
+
+Bug Fixes
+~~~~~~~~~
+
+- Fixes to TreeParser class to ensure correct parsing and handling of Newick and NEXUS tree files. This includes better error handling and support for various tree formats.
+
 Version 1.6.0 (2025-07-24)
 --------------------------
 
