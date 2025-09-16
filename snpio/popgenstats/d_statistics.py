@@ -8,6 +8,7 @@ import pandas as pd
 from statsmodels.stats.multitest import multipletests
 from tqdm.contrib.itertools import product
 
+from snpio.analysis.genotype_encoder import GenotypeEncoder
 from snpio.plotting.plotting import Plotting
 from snpio.popgenstats.dfoil import DfoilStats
 from snpio.popgenstats.dstat import PattersonDStats
@@ -86,6 +87,9 @@ class DStatistics:
 
         self.valid_methods = {"patterson", "partitioned", "dfoil"}
 
+        encoder = GenotypeEncoder(self.genotype_data)
+        self.geno012 = encoder.genotypes_012.astype(int, copy=False)
+
     def run(
         self,
         method: Literal["patterson", "partitioned", "dfoil"],
@@ -148,7 +152,7 @@ class DStatistics:
             seed=seed,
         )
 
-        args = (method, *ds, num_bootstraps, seed)
+        args = (method, self.geno012, *ds, num_bootstraps, seed)
         kwargs = {"use_jackknife": use_jackknife, "block_size": block_size}
 
         if calc_overall:
@@ -173,97 +177,82 @@ class DStatistics:
             method, num_bootstraps, per_combination, calc_overall, df, overall_stats
         )
 
-        if per_combination:
-            # 3) --- Plotting ----------------------------------------
-            plotter = Plotting(self.genotype_data, **self.genotype_data.plot_kwargs)
-            plotter.plot_d_statistics_heatmap(df, method_name=method)
-            plotter.plot_dstat_chi_square_distribution(df, method_name=method)
-            plotter.plot_dstat_pvalue_distribution(df, method_name=method)
-            plotter.plot_dstat_significance_counts(df, method_name=method)
-
         return df, overall_stats
 
     def _d_stats_per_combination(
         self,
         method: Literal["patterson", "partitioned", "dfoil"],
-        population1: str | List[str],
-        population2: str | List[str],
-        population3: str | List[str],
-        population4: str | List[str] | None = None,
-        outgroup: str | List[str] | None = None,
+        geno012: np.ndarray,
+        population1: List[int],
+        population2: List[int],
+        population3: List[int],
+        population4: List[int] | None = None,
+        outgroup: List[int] | None = None,
         num_bootstraps: int = 1000,
         seed: int | None = None,
         use_jackknife: bool = False,
         block_size: int = 500,
-    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        """Calculate D-statistics for the specified populations and return per-combination results.
-
-        This method calculates D-statistics for all combinations of the specified populations. It uses the specified method (Patterson's D, Partitioned D, or D-FOIL) and supports bootstrapping for statistical inference. The results are returned as a DataFrame of per-combination D-statistics.
+    ) -> pd.DataFrame:
+        """Calculate D-statistics for each combination of individuals.
 
         Args:
             method (Literal["patterson", "partitioned", "dfoil"]): The D-statistics method to use.
-            population1 (str | List[str]): The first population to compare.
-            population2 (str | List[str]): The second population to compare.
-            population3 (str | List[str]): The third population to compare.
-            population4 (str | List[str] | None): The fourth population to compare (optional).
-            outgroup (str | List[str]): The outgroup population.
-            num_bootstraps (int): Number of bootstrap replicates.
-            seed (int | None): Random seed for reproducibility.
-            use_jackknife (bool): If True, uses jackknife resampling instead of bootstrapping.
-            block_size (int): Block size for jackknife resampling.
+            geno012 (np.ndarray): Genotype matrix in 0/1/2 format.
+            population1 (List[int]): List of indices for the first population.
+            population2 (List[int]): List of indices for the second population.
+            population3 (List[int]): List of indices for the third population.
+            population4 (List[int] | None): List of indices for the fourth population (optional).
+            outgroup (List[int] | None): List of indices for the outgroup population (optional).
+            num_bootstraps (int): Number of bootstrap replicates. Ignored if `use_jackknife` is True.
+            seed (int | None): Random seed for reproducibility (optional).
+            use_jackknife (bool): If True, uses jackknife resampling instead of bootstrapping. Use this if you have possible linkage disequilibrium (LD) issues.
+            block_size (int): Block size for jackknife resampling. Defaults to 500.
 
         Returns:
-            Tuple[pd.DataFrame, Dict[str, Any]]: DataFrame of per-combination D-statistics and a dictionary of overall statistics.
-
-        Raises:
-            ValueError: If `method` is not one of the valid methods.
-            TypeError: If any of the population arguments are not strings or lists of strings.
+            pd.DataFrame: DataFrame containing D-statistics for each combination of individuals.
         """
-        class_args = (self.genotype_data,)
+        class_args = (self.genotype_data, geno012)
         class_kwargs = {"verbose": self.verbose, "debug": self.debug}
         if method == "patterson":
             dstat = PattersonDStats(*class_args, **class_kwargs)
         elif method == "partitioned":
             dstat = PartitionedDStats(*class_args, **class_kwargs)
-        elif method == "dfoil":
+        else:  # method == "dfoil"
             dstat = DfoilStats(*class_args, **class_kwargs)
-        else:
-            msg = f"Unknown D-statistics method: {method}"
-            self.logger.error(msg)
-            raise ValueError(msg)
 
-        # 2. Calculate D-statistics for each combination
         results_list = []
+        sample_ids = self.genotype_data.samples
 
-        args = (
-            (population1, population2, population3, population4, outgroup)
-            if method != "patterson"
-            else (population1, population2, population3, [None], outgroup)
+        # Prepare the population lists for itertools.product
+        # For patterson's D, pop4 is not used, so we use a placeholder.
+        pop4_iterable = population4 if method != "patterson" else [None]
+
+        all_pop_combinations = product(
+            population1,
+            population2,
+            population3,
+            pop4_iterable,
+            outgroup,
+            desc=f"{method.capitalize()} D-stats",
+            unit=" quartets",
         )
-        # Iterate over all combinations of populations
-        # Uses tqdm to show progress
-        # product is the tqdm version of itertools.product
-        for i1, i2, i3, i4, out in product(
-            *args, desc=f"{method.capitalize()} D-statistics: ", unit="quartets"
-        ):
-            if not isinstance(i1, np.ndarray):
-                i1 = np.array([i1])
-            if not isinstance(i2, np.ndarray):
-                i2 = np.array([i2])
-            if not isinstance(i3, np.ndarray):
-                i3 = np.array([i3])
-            if not isinstance(i4, np.ndarray):  # Will be None for Patterson's D
-                i4 = np.array([i4])
-            if not isinstance(out, np.ndarray):
-                out = np.array([out])
 
-            self.logger.debug(
-                f"Calculating D-statistics for {i1}, {i2}, {i3}, {i4}, {out}"
-            )
-
-            popargs = (
-                (i1, i2, i3, i4, out) if method != "patterson" else (i1, i2, i3, out)
-            )
+        for i1, i2, i3, i4, out in all_pop_combinations:
+            if method == "patterson":
+                popargs = (
+                    np.array([i1]),
+                    np.array([i2]),
+                    np.array([i3]),
+                    np.array([out]),
+                )
+            else:  # partitioned or dfoil
+                popargs = (
+                    np.array([i1]),
+                    np.array([i2]),
+                    np.array([i3]),
+                    np.array([i4]),
+                    np.array([out]),
+                )
 
             combo, bootstats = dstat.calculate(
                 *popargs,
@@ -273,25 +262,30 @@ class DStatistics:
                 block_size=block_size,
             )
 
-            sample_ids = self.genotype_data.samples
-
+            # Create the quartet/quintet name string.
+            # `i1`, `i2`, etc., are single integer indices here.
             if method == "patterson":
-                combo_str = f"{sample_ids[i1[0]]}-{sample_ids[i2[0]]}-{sample_ids[i3[0]]}-{sample_ids[out[0]]}"
+                combo_str = f"{sample_ids[i1]}-{sample_ids[i2]}-{sample_ids[i3]}-{sample_ids[out]}"
+            else:
+                combo_str = f"{sample_ids[i1]}-{sample_ids[i2]}-{sample_ids[i3]}-{sample_ids[i4]}-{sample_ids[out]}"
+
+            # Append results without incorrect indexing.
+            # `combo['D']`, `combo['Z']`, etc., are single float values.
+            if method == "patterson":
                 results_list.append(
                     (
                         combo_str,
-                        combo["D"][0],
-                        combo["Z"][0],
-                        combo["P"][0],
-                        combo["X2"][0],
-                        combo["P_X2"][0],
+                        combo["D"],
+                        combo["Z"],
+                        combo["P"],
+                        combo["X2"],
+                        combo["P_X2"],
                         combo["Method"],
                         combo["Bootstraps"],
                         combo["Seed"],
                     )
                 )
             elif method == "partitioned":
-                combo_str = f"{sample_ids[i1[0]]}-{sample_ids[i2[0]]}-{sample_ids[i3[0]]}-{sample_ids[i4[0]]}-{sample_ids[out[0]]}"
                 results_list.append(
                     (
                         combo_str,
@@ -315,8 +309,7 @@ class DStatistics:
                         combo["Seed"],
                     )
                 )
-            else:
-                combo_str = f"{sample_ids[i1[0]]}-{sample_ids[i2[0]]}-{sample_ids[i3[0]]}-{sample_ids[i4[0]]}-{sample_ids[out[0]]}"
+            else:  # dfoil
                 results_list.append(
                     (
                         combo_str,
@@ -351,8 +344,8 @@ class DStatistics:
             columns = [
                 "Quartet",
                 "D-statistic",
-                "Z-score",
-                "P-value",
+                "Z",
+                "P",
                 "X2",
                 "P_X2",
                 "Method",
@@ -528,7 +521,7 @@ class DStatistics:
             fdr_key = "FDR-BH"
 
             # Create a mask for non-null p-values
-            mask = df["P-value"].notna()
+            mask = df["P"].notna()
 
             # Initialize columns for significance flags
             df[bonf_key] = 1.0
@@ -539,16 +532,16 @@ class DStatistics:
 
             # Bonferroni correction
             df.loc[mask, bonf_key] = multipletests(
-                df.loc[mask, "P-value"].to_numpy(), method="bonferroni"
+                df.loc[mask, "P"].to_numpy(), method="bonferroni"
             )[1]
 
             # FDR-BH correction
             df.loc[mask, fdr_key] = multipletests(
-                df.loc[mask, "P-value"].to_numpy(), method="fdr_bh"
+                df.loc[mask, "P"].to_numpy(), method="fdr_bh"
             )[1]
 
             # Significance flags
-            df.loc[mask, "Significant (Raw)"] = df.loc[mask, "P-value"] < 0.05
+            df.loc[mask, "Significant (Raw)"] = df.loc[mask, "P"] < 0.05
             df.loc[mask, "Significant (Bonferroni)"] = df.loc[mask, bonf_key] < 0.05
             df.loc[mask, "Significant (FDR-BH)"] = df.loc[mask, fdr_key] < 0.05
 
@@ -633,6 +626,7 @@ class DStatistics:
     def _d_stats_overall(
         self,
         method: Literal["patterson", "partitioned", "dfoil"],
+        geno012: np.ndarray,
         d1: np.ndarray,
         d2: np.ndarray,
         d3: np.ndarray,
@@ -649,6 +643,7 @@ class DStatistics:
 
         Args:
             method (str): The D-statistics method to use. Valid options are "patterson", "partitioned", and "dfoil".
+            geno012 (np.ndarray): Genotype data in 0/1/2 format.
             use_jackknife (bool): Whether to use jackknife resampling.
             d1 (np.ndarray): Population 1 indices to process.
             d2 (np.ndarray): Population 2 indices to process.
@@ -712,7 +707,7 @@ class DStatistics:
         seed: int | None = None,
         use_jackknife: bool = False,
         block_size: int = 500,
-    ) -> Dict[str, float | int | str]:
+    ) -> Tuple[dict, np.ndarray]:
         """Calculate overall DFOIL D-statistics.
 
         This method computes overall DFOIL D-statistics using bootstrapping. It calculates the observed D-statistic and its z-score and p-value.
@@ -733,7 +728,9 @@ class DStatistics:
         """
         self.logger.info("Calculating overall DFOIL D-statistics...")
 
-        dfs = DfoilStats(self.genotype_data, verbose=self.verbose, debug=self.debug)
+        dfs = DfoilStats(
+            self.genotype_data, self.geno012, verbose=self.verbose, debug=self.debug
+        )
         return dfs.calculate(
             population1=d1,
             population2=d2,
@@ -779,7 +776,7 @@ class DStatistics:
         self.logger.info("Calculating overall Partitioned D-statistics...")
 
         pds = PartitionedDStats(
-            self.genotype_data, verbose=self.verbose, debug=self.debug
+            self.genotype_data, self.geno012, verbose=self.verbose, debug=self.debug
         )
         return pds.calculate(
             d1,
@@ -824,7 +821,7 @@ class DStatistics:
         self.logger.info("Calculating overall Patterson's D-statistics...")
 
         pds = PattersonDStats(
-            self.genotype_data, verbose=self.verbose, debug=self.debug
+            self.genotype_data, self.geno012, verbose=self.verbose, debug=self.debug
         )
         return pds.calculate(
             population1=d1,
