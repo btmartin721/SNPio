@@ -1,7 +1,7 @@
 import warnings
 from logging import Logger
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Tuple
+from typing import TYPE_CHECKING, Dict, List, Literal, Tuple
 
 import numpy as np
 import pandas as pd
@@ -15,44 +15,49 @@ from snpio import GenotypeEncoder, Plotting
 from snpio.analysis.allele_summary_stats import AlleleSummaryStats
 from snpio.popgenstats.amova import AMOVA
 from snpio.popgenstats.d_statistics import DStatistics
+from snpio.popgenstats.fst_distance import FstDistance
 from snpio.popgenstats.fst_outliers import FstOutliers
 from snpio.popgenstats.genetic_distance import GeneticDistance
 from snpio.popgenstats.summary_statistics import SummaryStatistics
 from snpio.utils.logging import LoggerManager
 from snpio.utils.multiqc_reporter import SNPioMultiQC
 
+if TYPE_CHECKING:
+    from snpio.plotting.plotting import Plotting
+    from snpio.read_input.genotype_data import GenotypeData
+
 
 class PopGenStatistics:
     """Class for calculating population genetics statistics from SNP data.
 
-    This class provides methods for calculating population genetics statistics from SNP data. It is designed to work with GenotypeData objects. The PopGenStatistics class can calculate Patterson's D-statistic, partitioned D-statistic, D-foil statistic, summary statistics, and perform PCA and DAPC dimensionality reduction analysis.
+    This class provides methods for calculating population genetics statistics from SNP data. It is designed to work with GenotypeData objects. The PopGenStatistics class can calculate Patterson's D-statistic, partitioned D-statistic, D-foil statistic, summary statistics, and perform PCA dimensionality reduction analysis. It also includes methods for calculating Fst, Nei's genetic distance, and detecting Fst outliers using permutation or DBSCAN clustering methods. Finally, it can conduct AMOVA (Analysis of Molecular Variance) to partition genetic variation among and within populations.
     """
 
     def __init__(
-        self, genotype_data: Any, verbose: bool = False, debug: bool = False
+        self, genotype_data: "GenotypeData", verbose: bool = False, debug: bool = False
     ) -> None:
         """Initialize the PopGenStatistics object.
 
-        This class provides methods for calculating population genetics statistics from SNP data. It is designed to work with GenotypeData objects. The PopGenStatistics class can calculate Patterson's D-statistic, partitioned D-statistic, D-foil statistic, summary statistics, and perform PCA and DAPC dimensionality reduction analysis.
+        This class provides methods for calculating population genetics statistics from SNP data. It is designed to work with GenotypeData objects. The PopGenStatistics class can calculate Patterson's D-statistic, partitioned D-statistic, D-foil statistic, summary statistics, and perform PCA dimensionality reduction analysis.
 
         Args:
             genotype_data (GenotypeData): GenotypeData object containing SNP data and metadata.
             verbose (bool): Whether to display verbose output. Defaults to False.
             debug (bool): Whether to display debug output. Defaults to False.
         """
-        self.genotype_data: Any = genotype_data
+        self.genotype_data: "GenotypeData" = genotype_data
         self.verbose: bool = verbose
         self.debug: bool = debug
         self.alignment: np.ndarray = genotype_data.snp_data
         self.popmap: Dict[str, str | int] = genotype_data.popmap
         self.populations: List[str | int] = genotype_data.populations
 
-        plot_kwargs: Dict[str, Any] = genotype_data.plot_kwargs
+        plot_kwargs: dict = genotype_data.plot_kwargs
         plot_kwargs["debug"] = debug
         plot_kwargs["verbose"] = verbose
 
         # Initialize plotting and dstats objects
-        self.plotter: Any = Plotting(genotype_data, **plot_kwargs)
+        self.plotter: "Plotting" = Plotting(genotype_data, **plot_kwargs)
 
         # Initialize logger
         logman = LoggerManager(
@@ -107,7 +112,7 @@ class PopGenStatistics:
         calc_overall: bool = True,
         use_jackknife: bool = False,
         block_size: int = 500,
-    ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    ) -> Tuple[pd.DataFrame, dict]:
         """Calculate D-statistics with bootstrap support and return a summary DataFrame and overall stats.
 
         This method calculates D-statistics using the specified method (patterson, partitioned, or dfoil) for the given populations and outgroup. It supports bootstrapping for statistical significance and can save results to a file.
@@ -132,7 +137,7 @@ class PopGenStatistics:
 
 
         Returns:
-            Tuple[pd.DataFrame, Dict[str, Any]]: A tuple containing a DataFrame with D-statistics results and a dictionary with overall statistics.
+            Tuple[pd.DataFrame, dict]: A tuple containing a DataFrame with D-statistics results and a dictionary with overall statistics.
         """
         self.logger.info("Calculating D-statistics...")
         self.logger.info(f"Using D-statistics method: {method}")
@@ -164,8 +169,6 @@ class PopGenStatistics:
             use_jackknife=use_jackknife,
             block_size=block_size,
         )
-
-        save_plot = False
 
         if save_plot:
             self.plotter.plot_d_statistics(df, method=method)
@@ -319,31 +322,27 @@ class PopGenStatistics:
 
     def summary_statistics(
         self,
-        n_permutations: int = 0,
+        fst_method: Literal["observed", "permutation", "bootstrap"] = "observed",
+        n_reps: int = 1000,
         n_jobs: int = 1,
         save_plots: bool = True,
-        use_pvalues: bool = False,
-    ) -> Tuple[pd.Series, Dict[str, dict | pd.DataFrame]]:
+    ) -> Tuple[pd.DataFrame, dict]:
         """Calculate a suite of summary statistics for SNP data.
 
-        This method calculates a suite of summary statistics for SNP data, including observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and Fst between populations. Summary statistics are calculated both overall and per population.
+        This method calculates heterozygosity, nucleotide diversity, and Fst. It can also perform permutation tests or bootstrapping for Fst. The method returns a DataFrame with allele-based summary statistics and a dictionary with other summary statistics.
 
         Args:
-            n_permutations (int): Number of permutation replicates to use for estimating variance of Fst per SNP. If 0, then permutations are not used and confidence intervals are estimated from the data. Defaults to 0.
-            n_jobs (int): Number of parallel jobs. If set to -1, all available CPU threads are used. Defaults to 1.
-            save_plots (bool): Whether to save plots of the summary statistics. In any case, a dictionary of summary statistics is returned. Defaults to True.
-            use_pvalues (bool): Whether to calculate p-values for Fst. Otherwise calculates 95% confidence intervals. Defaults to False.
+            fst_method (str): The Fst calculation method to use.
+                - 'observed': (Default) Computes the observed Fst matrix.
+                - 'permutation': Performs a permutation test to get p-values.
+                - 'bootstrap': Performs a bootstrap to get confidence intervals.
+            n_reps (int): Number of replicates for permutation or bootstrap.
+            n_jobs (int): Number of parallel jobs (-1 for all cores).
+            save_plots (bool): Whether to save plots of the summary statistics.
 
         Returns:
-            Tuple[pd.Series, dict]: A tuple containing a pandas Series with the allele-based summary statistics and a dictionary containing summary statistics per population and overall. The dictionary keys and values are:
-                - "overall": DataFrame with overall Ho, He, and Pi.
-                - "per_population": Dictionary with population IDs as keys and DataFrames with Ho, He, and Pi for each population.
-                - "Fst_between_populations_obs": DataFrame with observed Fst values between populations.
-                - "Fst_between_populations_lower": DataFrame with lower bounds of Fst confidence intervals.
-                - "Fst_between_populations_upper": DataFrame with upper bounds of Fst confidence intervals.
-                - "Fst_between_populations_pvalues": DataFrame with p-values for Fst comparisons (if use_pvalues is True).
+            Tuple[pd.DataFrame, dict]: A tuple containing a DataFrame with allele-based summary statistics and a dictionary with all other summary statistics.
         """
-
         allele_sumstats = AlleleSummaryStats(
             self.genotype_data, verbose=self.verbose, debug=self.debug
         )
@@ -357,11 +356,9 @@ class PopGenStatistics:
             debug=self.debug,
         )
 
+        # Call the helper method with the new, clearer API
         sumstats = summary_stats.calculate_summary_statistics(
-            n_permutations=n_permutations,
-            n_jobs=n_jobs,
-            save_plots=save_plots,
-            use_pvalues=use_pvalues,
+            fst_method=fst_method, n_reps=n_reps, n_jobs=n_jobs, save_plots=save_plots
         )
 
         return sumstats, allele_sumstats_df
@@ -409,95 +406,284 @@ class PopGenStatistics:
 
         return amv
 
-    def neis_genetic_distance(
+    def fst_distance(
         self,
-        n_permutations: int = 0,
+        method: Literal["observed", "permutation", "bootstrap"] = "observed",
+        n_reps: int = 1000,
         n_jobs: int = 1,
-        use_pvalues: bool = False,
-        palette: str = "magma",
+        palette: str = "viridis",
         suppress_plot: bool = False,
-    ) -> pd.DataFrame | Tuple[pd.DataFrame, pd.DataFrame]:
-        """Calculate Nei's genetic distance between all pairs of populations.
+    ) -> Dict[str, pd.DataFrame]:
+        """Estimate Weir & Cockerham's Fst, optionally run statistical tests.
 
-        Optionally computes bootstrap-based p-values for each population pair if n_permutations > 0.
-
-        Nei's genetic distance is defined as ``D = -ln( Ī )``, where Ī is the ratio of the average genetic identity to the geometric mean of the average homozygosities.
+        This method calculates Weir & Cockerham's Fst between populations and can perform permutation tests for p-values or bootstrapping for 95 percent confidence intervals (CIs). The resulting Fst matrix can be visualized as a heatmap. The method returns a dictionary containing the observed Fst matrix, and optionally lower/upper confidence intervals or p-values depending on the chosen method.
 
         Args:
-            n_permutations (int): Number of bootstrap replicates to compute p-values. Defaults to 0 (only distances are returned).
-            n_jobs (int): Number of parallel jobs. -1 uses all cores. Defaults to 1.
-            use_pvalues (bool): If True, returns a tuple of (distance matrix, p-value matrix). Defaults to False.
-            palette (str): Color palette for the distance matrix plot. Can use any matplotlib gradient-based palette. Some frequently used options include: "coolwarm", "viridis", "magma", and "inferno". Defaults to 'coolwarm'.
-            suppress_plot (bool): If True, suppresses the plotting of the distance matrix. Defaults to False.
+            method (str): The calculation method to use. 'observed': (Default) Computes the observed Fst matrix. 'permutation': Performs a permutation test to get p-values. 'bootstrap': Performs a bootstrap to get confidence intervals.
+            n_reps (int): Number of replicates for 'permutation' or 'bootstrap'.
+            n_jobs (int): Number of parallel jobs (-1 for all cores).
+            palette (str): Color palette for the distance matrix heatmap.
+            suppress_plot (bool): If True, suppresses plotting the heatmap.
 
         Returns:
-            pd.DataFrame: If n_permutations == 0, returns a DataFrame of Nei's distances.
-            Tuple[pd.DataFrame, pd.DataFrame]: If n_permutations > 0, returns a tuple of (distance matrix, p-value matrix).
+            Dict[str, pd.DataFrame]: A dictionary containing the resulting DataFrames. Keys may include 'observed', 'pvalues', 'lower_ci', 'upper_ci'.
+        """
+        fst = FstDistance(
+            self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
+        )
+        self.logger.info(f"Calculating Weir & Cockerham Fst (method: '{method}')...")
+
+        # Call the backend with the new, explicit API
+        fst_results = fst.weir_cockerham_fst(
+            method=method, n_reps=n_reps, n_jobs=n_jobs
+        )
+
+        # The parser handles the output from any method
+        df_obs, df_lower, df_upper, df_pval = fst.parse_wc_fst(fst_results)
+
+        if not suppress_plot:
+            # Plotting logic now depends on the method chosen
+            self.plotter.plot_dist_matrix(
+                df_obs,
+                pvals=df_pval if method == "permutation" else None,
+                palette=palette,
+                title="SNPio: Weir & Cockerham $F_{ST}$",
+                dist_type="fst",
+            )
+
+        self.logger.info("Fst calculation complete!")
+
+        # Return a structured dictionary
+        final_results = {"observed": df_obs}
+        if df_lower is not None:
+            final_results["lower_ci"] = df_lower
+        if df_upper is not None:
+            final_results["upper_ci"] = df_upper
+        if df_pval is not None:
+            final_results["pvalues"] = df_pval
+
+        return final_results
+
+    def _combine_upper_lower_ci(
+        self, df_upper: pd.DataFrame, df_lower: pd.DataFrame, diagonal="zero"
+    ) -> pd.DataFrame:
+        """Combines two square DataFrames into one, using the upper triangle from one and the lower from the other.
+
+        Args:
+            df_upper (pd.DataFrame): DataFrame to provide the upper triangle (including diagonal if diagonal='upper').
+            df_lower (pd.DataFrame): DataFrame to provide the lower triangle (including diagonal if diagonal='lower').
+            diagonal (str): Which DataFrame should provide the diagonal values. Options are 'upper', 'lower', "zero", or 'nan'.
+
+        Returns:
+            pd.DataFrame: Combined DataFrame with upper/lower triangle values from respective inputs.
+
+        Raises:
+            ValueError: If input DataFrames are not square or do not match in shape.
+        """
+        if df_upper.shape != df_lower.shape:
+            msg = "Both DataFrames must have the same shape."
+            self.logger.error(msg)
+            raise AssertionError(msg)
+
+        if df_upper.shape[0] != df_upper.shape[1]:
+            msg = "Input DataFrames must be square."
+            self.logger.error(msg)
+            raise AssertionError(msg)
+
+        n = df_upper.shape[0]
+
+        upper_mask = np.triu(np.ones((n, n)), k=1)
+        lower_mask = np.tril(np.ones((n, n)), k=-1)
+        diag_mask = np.eye(n)
+
+        combined = np.full_like(df_upper, np.nan, dtype="float64")
+
+        combined[upper_mask.astype(bool)] = df_upper.values[upper_mask.astype(bool)]
+        combined[lower_mask.astype(bool)] = df_lower.values[lower_mask.astype(bool)]
+
+        if diagonal == "upper":
+            combined[diag_mask.astype(bool)] = df_upper.values[diag_mask.astype(bool)]
+        elif diagonal == "lower":
+            combined[diag_mask.astype(bool)] = df_lower.values[diag_mask.astype(bool)]
+        elif diagonal == "nan":
+            pass  # leave diagonal as NaN
+        elif diagonal == "zero":
+            np.fill_diagonal(combined, 0.0)
+        else:
+            msg = (
+                "Invalid option for 'diagonal'. Choose from 'upper', 'lower', or 'nan'."
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        return pd.DataFrame(combined, index=df_upper.index, columns=df_upper.columns)
+
+    def neis_genetic_distance(
+        self,
+        method: Literal["observed", "permutation", "bootstrap"] = "observed",
+        n_reps: int = 1000,
+        n_jobs: int = 1,
+        palette: str = "magma",
+        suppress_plot: bool = False,
+    ) -> Dict[str, pd.DataFrame]:
+        """Calculate Nei's genetic distance and optionally run statistical tests.
+
+        This method calculates Nei's genetic distance between populations and can perform permutation tests for p-values or bootstrapping for 95 percent confidence intervals (CIs). The resulting distance matrix can be visualized as a heatmap. The method returns a dictionary containing the observed distance matrix, and optionally lower/upper confidence intervals or p-values depending on the chosen method.
+
+        Args:
+            method (str): The calculation method to use. 'observed': (Default) Computes the observed Nei's distance matrix. 'permutation': Performs a permutation test to get p-values. 'bootstrap': Performs a bootstrap to get confidence intervals.
+            n_reps (int): Number of replicates for 'permutation' or 'bootstrap'.
+            n_jobs (int): Number of parallel jobs (-1 for all cores).
+            palette (str): Color palette for the distance matrix heatmap.
+            suppress_plot (bool): If True, suppresses plotting the heatmap.
+
+        Returns:
+            Dict[str, pd.DataFrame]: A dictionary containing the resulting DataFrames. Keys may include 'observed', 'pvalues', 'lower_ci', 'upper_ci'.
         """
         gd = GeneticDistance(
             self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
         )
-        self.logger.info("Calculating Nei's genetic distance...")
-        self.logger.info(f"Number of bootstraps: {n_permutations}")
-        self.logger.info(f"Number of parallel jobs: {n_jobs}")
-        self.logger.info(f"Use p-values: {use_pvalues}")
-        self.logger.info(f"Palette: {palette}")
-        self.logger.info(f"Suppress plot: {suppress_plot}")
+        self.logger.info(f"Calculating Nei's genetic distance (method: '{method}')...")
 
-        nei_results = gd.nei_distance(
-            n_permutations=n_permutations, n_jobs=n_jobs, return_pvalues=use_pvalues
-        )
+        # Call the backend with the new, explicit API
+        nei_results = gd.nei_distance(method=method, n_reps=n_reps, n_jobs=n_jobs)
 
+        # The parser handles the output from any method
         df_obs, df_lower, df_upper, df_pval = gd.parse_nei_result(nei_results)
 
         if not suppress_plot:
+            # ---- Force diagonals + clamp for MultiQC display copies ----
+            if df_obs is not None:
+                # Coerce all values to numeric.
+                # Invalid strings (like "NaN") become np.nan.
+                df_obs_plot = df_obs.apply(pd.to_numeric, errors="coerce")
+                df_obs_plot = df_obs_plot.fillna(0.0)
+
+            if df_pval is not None:
+                # Coerce all values to numeric.
+                # Invalid strings (like "NaN") become np.nan.
+                df_pval_plot = df_pval.apply(pd.to_numeric, errors="coerce")
+                df_pval_plot = df_pval_plot.fillna(1.0)
+
+            # ----- Plotting & MultiQC queuing -----
             self.plotter.plot_dist_matrix(
-                df_obs,
-                pvals=df_pval if use_pvalues else None,
+                df_obs_plot,
+                pvals=(df_pval_plot if method == "permutation" else None),
                 palette=palette,
                 title="SNPio: Nei's Genetic Distance",
                 dist_type="nei",
             )
 
-        # Save Nei's genetic distance results to MultiQC
-        self.snpio_mqc.queue_heatmap(
-            df=df_obs,
-            panel_id="pairwise_nei_distances",
-            section="genetic_differentiation",
-            title="SNPio: Pairwise Nei's Genetic Distance Heatmap",
-            description="Nei's (1972) genetic distance between pairwise populations. Nei's distance is defined as D = -ln( Ī ), where Ī is the ratio of the average genetic identity to the geometric mean of the average homozygosities. If n_permutations > 0, the p-values are calculated using permutation replicates and observed values are averaged per population pair.",
-            index_label="Population",
-            pconfig={
-                "id": "pairwise_nei_distances",
-                "xlab": "Population",
-                "ylab": "Population",
-                "zlab": "Nei's Genetic Distance",
-                "title": "SNPio: Pairwise Nei's Genetic Distance Heatmap",
-                "tt_decimals": 4,
-            },
-        )
+            # Unique panel IDs per method
+            obs_id = {
+                "observed": "nei_observed",
+                "permutation": "nei_permutation_observed",
+                "bootstrap": "nei_bootstrap_mean",
+            }[method]
 
-        # Save Nei's genetic distance results to MultiQC
-        self.snpio_mqc.queue_heatmap(
-            df=df_obs,
-            panel_id="pairwise_nei_distance_pvalues",
-            section="genetic_differentiation",
-            title="SNPio: P-values for Nei's Genetic Distance between Pairwise Populations",
-            description="P-values estimated via permutations for Nei's (1972) genetic distance between pairwise populations. Nei's distance is defined as D = -ln( Ī ), where Ī is the ratio of the average genetic identity to the geometric mean of the average homozygosities. The p-values are calculated using permutation replicates.",
-            index_label="Population",
-            pconfig={
-                "id": "pairwise_nei_distance_pvalues",
-                "xlab": "Population",
-                "ylab": "Population",
-                "zlab": "P-value",
-                "title": "SNPio: P-values for Nei's Genetic Distance between Pairwise Populations",
-                "reverse_colors": True,
-                "tt_decimals": 4,
-            },
-        )
+            title = (
+                "SNPio: Nei's Genetic Distance — Observed"
+                if method == "observed"
+                else (
+                    "SNPio: Nei's Genetic Distance — Observed (Permutation)"
+                    if method == "permutation"
+                    else "SNPio: Nei's Genetic Distance — Mean (Bootstrap)"
+                )
+            )
 
-        self.logger.info("Nei's genetic distance calculation complete!")
-        return (df_obs, df_pval) if use_pvalues else df_obs
+            # Observed / mean heatmap
+            self.snpio_mqc.queue_heatmap(
+                df=df_obs_plot,
+                panel_id=obs_id,
+                section="genetic_differentiation",
+                title=title,
+                description=(
+                    "Observed Nei's (1972) genetic distance between pairwise populations."
+                    if method == "observed"
+                    else (
+                        "Observed Nei's distance; significance assessed via permutation (p = Pr(D_perm ≥ D_obs)). This tests the null hypothesis of no genetic differentiation (D = 0). D_perm is the distance from permuted data; D_obs is the observed distance."
+                        if method == "permutation"
+                        else "Mean Nei's distance across bootstrap replicates (loci resampled with replacement). This provides a measure of uncertainty around the observed distance."
+                    )
+                ),
+                index_label="Population",
+                pconfig={
+                    "title": f"Nei's Distance ({method.capitalize()})",
+                    "id": obs_id,
+                    "xlab": "Population",
+                    "ylab": "Population",
+                    "zlab": "Nei's Genetic Distance",
+                    "tt_decimals": 3,
+                    "reverse_colors": False,
+                    "min": 0.0,
+                    "max": 1.0,
+                },
+            )
+
+            # Permutation p-values heatmap (diagonal already = 1.0)
+            if method == "permutation" and df_pval_plot is not None:
+                pval_id = "nei_permutation_pvalues"
+                self.snpio_mqc.queue_heatmap(
+                    df=df_pval_plot,
+                    panel_id=pval_id,
+                    section="genetic_differentiation",
+                    title="SNPio: Nei's Genetic Distance — P-values (Permutation)",
+                    description="One-tailed permutation p-values: Pr(D_perm ≥ D_obs). This tests the null hypothesis of no genetic differentiation (D = 0). D_perm is the distance from permuted data; D_obs is the observed distance.",
+                    index_label="Population",
+                    pconfig={
+                        "title": "Nei's Distance P-values (Permutation)",
+                        "id": pval_id,
+                        "xlab": "Population",
+                        "ylab": "Population",
+                        "zlab": "Permutation p-value",
+                        "reverse_colors": True,
+                        "tt_decimals": 3,
+                        "min": 0.0,
+                        "max": 1.0,
+                    },
+                )
+
+            # 95% CI heatmap for bootstrap
+            if method == "bootstrap" and df_lower is not None and df_upper is not None:
+                df_combined = self._combine_upper_lower_ci(
+                    df_upper.clip(0.0, 1.0),
+                    df_lower.clip(0.0, 1.0),
+                    diagonal="zero",
+                )
+                ci95_id = "nei_bootstrap_ci95"
+                self.snpio_mqc.queue_heatmap(
+                    df=df_combined,
+                    panel_id=ci95_id,
+                    section="genetic_differentiation",
+                    title="SNPio: Nei's Genetic Distance — 95% CIs (Bootstrap)",
+                    description=(
+                        "95 percent confidence intervals from bootstrap replicates. Upper triangle: upper CI; lower triangle: lower CI. The lower and upper CIs are calculated as the 2.5th and 97.5th percentiles of the bootstrap distribution, respectively. Bootstrapping resamples loci with replacement to provide a measure of uncertainty around the observed distance."
+                    ),
+                    index_label="Population",
+                    pconfig={
+                        "title": "Nei's Distance 95% CI (Bootstrap)",
+                        "id": ci95_id,
+                        "xlab": "Population",
+                        "ylab": "Population",
+                        "zlab": "95% CI (Bootstrap)",
+                        "tt_decimals": 3,
+                        "min": 0.0,
+                        "max": 1.0,
+                    },
+                )
+
+            self.logger.info("Nei's genetic distance calculation complete!")
+
+            # Return a structured dictionary, which is more robust than a tuple
+            final_results = {"observed": df_obs}
+            if df_lower is not None:
+                final_results["lower_ci"] = df_lower
+            if df_upper is not None:
+                final_results["upper_ci"] = df_upper
+            if df_pval is not None:
+                final_results["pvalues"] = df_pval
+
+            return final_results
 
     def pca(
         self,
@@ -585,8 +771,8 @@ class PopGenStatistics:
                 raise ValueError(msg)
 
             # 1. Integer-encode genotypes; -9/“-9” → NaN
-            ge = GenotypeEncoder(self.genotype_data)
-            df_raw = pd.DataFrame(ge.genotypes_012, dtype=float)
+            # Use the pre-computed 012 matrix from __init__ for efficiency.
+            df_raw = pd.DataFrame(self.alignment_012, dtype=float)
             df_raw = df_raw.replace([-9, "-9"], np.nan)
 
             # 2. Impute missing values
@@ -733,5 +919,4 @@ class PopGenStatistics:
         )
 
         self.logger.info("PCA completed successfully.")
-
         return components, pca
