@@ -185,21 +185,23 @@ class PhylipReader(GenotypeData):
                     if not line:  # Skip blank lines
                         continue
                     cols = line.split()
-                    if len(cols) < 2:
-                        msg = f"PHYLIP file contains too many columns. Expected 2, but got: {len(cols)}. Ensure that your PHYLIP file is in the correct format. The first column should contain the sample ID, and the second column should contain the sequence data with no delimiter."
-                        self.logger.error(msg)
-                        raise AlignmentFormatError(msg)
-
-                    if len(cols) > 2:
-                        msg = f"PHYLIP file contains too many columns. Expected 2, but got: {len(cols)}. Ensure that your PHYLIP file is in the correct format. The first column should contain the sample ID, and the second column should contain the sequence data with no delimiter."
+                    # Consolidate checks and provide a clear message
+                    if len(cols) != 2:
+                        msg = (
+                            f"Invalid line format. Expected 2 columns "
+                            f"(SampleID and Sequence), but found {len(cols)}. "
+                            f"Please ensure sample IDs contain no "
+                            f"whitespace and are separated from the sequence "
+                            f"by whitespace."
+                        )
                         self.logger.error(msg)
                         raise AlignmentFormatError(msg)
 
                     inds, seqs = cols[0], cols[1]
+
                     if len(list(seqs)) != n_loci:
-                        self.logger.error(
-                            f"Sequence length mismatch for sample {inds}: {len(list(seqs))} != {n_loci}"
-                        )
+                        msg = f"Sequence length mismatch for sample {inds}: {len(list(seqs))} != {n_loci}"
+                        self.logger.error(msg)
                         raise SequenceLengthError(inds)
 
                     snp_data.append(list(seqs))
@@ -213,14 +215,12 @@ class PhylipReader(GenotypeData):
                 or len(self.samples) != len(snp_data)
                 or len(self.samples) != n_samples
             ):
-                msg = "Unexpected number of samples encountered."
+                msg = "Unexpected number of samples encountered in PHYLIP file."
                 self.logger.error(msg)
-                PhylipAlignmentSampleMismatch(
+                raise PhylipAlignmentSampleMismatch(
                     n_samples, len(self.samples), len(snp_data)
                 )
-            self._ref, self._alt, self._alt2 = self.get_ref_alt_alleles(
-                np.array(snp_data)
-            )
+            self._ref, self._alt = self.get_ref_alt_alleles(np.array(snp_data))
 
             self.logger.info(f"PHYLIP file successfully loaded!")
             self.logger.info(
