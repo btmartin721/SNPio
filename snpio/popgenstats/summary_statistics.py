@@ -1,22 +1,36 @@
+from typing import TYPE_CHECKING, Literal
+
 import numpy as np
 import pandas as pd
 
 from snpio.popgenstats.fst_distance import FstDistance
 from snpio.utils.logging import LoggerManager
 
+if TYPE_CHECKING:
+    from snpio.plotting.plotting import Plotting
+    from snpio.read_input.genotype_data import GenotypeData
+
 
 class SummaryStatistics:
-    """Class for calculating summary statistics from genotype data."""
+    """Class for calculating summary statistics from genotype data.
+
+    This class contains methods for estimating population genetic summary statistics.
+    """
 
     def __init__(
-        self, genotype_data, alignment_012, plotter, verbose=False, debug=False
-    ):
+        self,
+        genotype_data: "GenotypeData",
+        alignment_012: np.ndarray,
+        plotter: "Plotting",
+        verbose: bool = False,
+        debug: bool = False,
+    ) -> None:
         """Initialize the SummaryStatistics object.
 
         Args:
             genotype_data (GenotypeData): GenotypeData object containing genotype data.
             alignment_012 (np.ndarray): Genotype data in 012-encoded format.
-            plotter (snpio.plotting.Plotting): Plotting object.
+            plotter (Plotting): Plotting object to use.
             verbose (bool): If True, enable verbose logging.
             debug (bool): If True, enable debug logging.
         """
@@ -110,51 +124,43 @@ class SummaryStatistics:
 
     def calculate_summary_statistics(
         self,
-        n_permutations=0,
-        n_jobs=1,
+        fst_method: Literal["observed", "permutation", "bootstrap"] = "observed",
+        n_reps: int = 1000,
+        n_jobs: int = 1,
         save_plots: bool = True,
-        use_pvalues: bool = False,
     ) -> dict:
         """Calculate a suite of summary statistics for SNP data.
 
-        Computes overall and per-population observed heterozygosity (Ho), expected heterozygosity (He), nucleotide diversity (Pi), and pairwise Fst between populations. When bootstrapping is used for Fst, the bootstrap replicates (and optionally p-values) are included in the summary.
+        Computes overall and per-population heterozygosity, nucleotide diversity, and pairwise Fst.
 
         Args:
-            n_permutations (int): Number of permutation replicates for estimating variance of Fst per SNP. Defaults to 0.
-            n_jobs (int): Number of parallel jobs. If -1, all available cores are used. Defaults to 1.
-            save_plots (bool): Whether to save plots of the summary statistics. Defaults to True.
-            use_pvalues (bool): If True, compute p-values for pairwise Fst comparisons. Defaults to False.
+            fst_method (str): The Fst calculation method.
+                - 'observed': (Default) Computes the observed Fst matrix.
+                - 'permutation': Performs a permutation test to get p-values.
+                - 'bootstrap': Performs a bootstrap to get confidence intervals.
+            n_reps (int): Number of replicates for permutation or bootstrap.
+            n_jobs (int): Number of parallel jobs (-1 for all cores).
+            save_plots (bool): Whether to save plots of the summary statistics.
 
         Returns:
-            dict: A dictionary containing summary statistics per population and overall. The keys are:
-                - "overall": DataFrame with overall Ho, He, and Pi.
-                - "per_population": Dictionary with population IDs as keys and DataFrames with Ho, He, and Pi for each population.
-                - "Fst_between_populations_obs": DataFrame with observed Fst values between populations.
-                - "Fst_between_populations_lower": DataFrame with lower bounds of Fst confidence intervals.
-                - "Fst_between_populations_upper": DataFrame with upper bounds of Fst confidence intervals.
-                - "Fst_between_populations_pvalues": DataFrame with p-values for Fst comparisons (if use_pvalues is True).
+            dict: A dictionary containing all calculated summary statistics.
         """
         self.logger.info("Calculating summary statistics...")
 
+        # --- This section for Ho, He, and Pi is unchanged and correct ---
         self.logger.info("Calculating heterozygosity and nucleotide diversity...")
-
-        # Overall statistics.
         ho_overall = pd.Series(self.observed_heterozygosity())
         he_overall = pd.Series(self.expected_heterozygosity())
         pi_overall = pd.Series(self.nucleotide_diversity())
-
-        # Per-population statistics.
         ho_per_population = self.observed_heterozygosity_per_population()
         he_per_population = self.expected_heterozygosity_per_population()
         pi_per_population = self.nucleotide_diversity_per_population()
-
         summary_stats = {
             "overall": pd.DataFrame(
                 {"Ho": ho_overall, "He": he_overall, "Pi": pi_overall}
             ),
             "per_population": {},
         }
-
         for pop_id in ho_per_population.keys():
             summary_stats["per_population"][pop_id] = pd.DataFrame(
                 {
@@ -164,23 +170,23 @@ class SummaryStatistics:
                 }
             )
 
-        self.logger.info("Calculating pairwise Weir & Cockerham Fst...")
-        self.logger.info(f"Number of permutations: {n_permutations}")
-        self.logger.info(f"Number of CPU threads: {n_jobs}")
-        self.logger.info(f"Use p-values: {use_pvalues}")
-        self.logger.info(f"Save plots: {save_plots}")
+        self.logger.info(
+            f"Calculating pairwise Weir & Cockerham Fst using method: '{fst_method}'..."
+        )
 
-        # Pairwise Fst between populations.
+        # Instantiate the FstDistance class
         fst = FstDistance(
             self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
         )
 
-        fst_pw = fst.weir_cockerham_fst(
-            n_permutations=n_permutations, n_jobs=n_jobs, return_pvalues=use_pvalues
+        # Call the updated weir_cockerham_fst method with the new API
+        fst_results = fst.weir_cockerham_fst(
+            method=fst_method, n_reps=n_reps, n_jobs=n_jobs
         )
 
-        df_observed, df_lower, df_upper, df_pvals = fst._parse_wc_fst(
-            fst_pw, alpha=0.05
+        # The parser handles the output from any method
+        df_observed, df_lower, df_upper, df_pvals = fst.parse_wc_fst(
+            fst_results, alpha=0.05
         )
 
         summary_stats["Fst_between_populations_obs"] = df_observed
@@ -189,6 +195,8 @@ class SummaryStatistics:
         summary_stats["Fst_between_populations_pvalues"] = df_pvals
 
         if save_plots:
+            # Pass whether p-values were generated to the plotter
+            use_pvalues = fst_method == "permutation"
             self.plotter.plot_summary_statistics(summary_stats, use_pvalues=use_pvalues)
 
         self.logger.info("Fst calculation complete!")
