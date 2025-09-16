@@ -66,47 +66,51 @@ class BaseGenotypeData:
         """Method to load data from file based on filetype"""
         raise NotImplementedError("Subclasses should implement this method")
 
+    # in BaseGenotypeData class
     def get_ref_alt_alleles(
-        self,
-        data: np.ndarray,
-    ) -> Tuple[np.ndarray, np.ndarray, List[np.ndarray]]:
-        """Determine ref/alt alleles for each locus (column) of IUPAC-encoded genotypes.
+        self, data: np.ndarray
+    ) -> Tuple[np.ndarray, List[List[str]]]:
+        """Determine ref/alt alleles for each locus from IUPAC-encoded genotypes.
 
         Args:
-            data: shape (n_samples, n_variants), dtype=object of single-char IUPAC codes.
-
-        Notes:
-            - The most common allele is chosen as the reference (REF).
-            - The second most common allele is chosen as the alternate (ALT).
-            - If there are more than two alleles, any further alleles are stored in a list.
-            - If there are ties in counts, the one with the fewest heterozygotes is chosen.
-            - If still tied, one is chosen at random.
+            data (np.ndarray): (n_variants x n_samples) matrix of IUPAC
 
         Returns:
-            Tuple of
-                - ref_alleles: shape (n_variants,) most‐common allele per locus
-                - alt_alleles: shape (n_variants,) second‐most‐common allele or None
-                - extra_alts: list of arrays of any further alleles per locus
+            tuple: (ref_alleles, alt_lists)
+                - ref_alleles: np.ndarray of REF alleles for each locus
+                - alt_lists: List of ALT alleles for each locus
         """
-        # Handle edge cases for loci with no valid alleles or only one allele
         if data.size == 0:
-            return np.array([]), np.array([]), []
+            return np.array([], dtype="<U1"), []
 
+        VALID_BASES = {"A", "C", "G", "T"}
         ref_alleles = []
-        alt_alleles = []
-        extra_alts = []
+        alt_alleles_list = []
 
         for locus in data.T:
             unique, counts = np.unique(locus, return_counts=True)
-            sorted_alleles = sorted(zip(unique, counts), key=lambda x: (-x[1], x[0]))
+            valid_allele_counts = [
+                (allele, count)
+                for allele, count in zip(unique, counts)
+                if allele.upper() in VALID_BASES
+            ]
+
+            if not valid_allele_counts:
+                ref_alleles.append("N")
+                alt_alleles_list.append(["."])  # Use placeholder
+                continue
+
+            sorted_alleles = sorted(valid_allele_counts, key=lambda x: (-x[1], x[0]))
 
             ref_alleles.append(sorted_alleles[0][0])
-            alt_alleles.append(
-                sorted_alleles[1][0] if len(sorted_alleles) > 1 else None
-            )
-            extra_alts.append([allele for allele, _ in sorted_alleles[2:]])
 
-        return np.array(ref_alleles), np.array(alt_alleles), extra_alts
+            alts = [allele for allele, _ in sorted_alleles[1:]]
+            if not alts:
+                alt_alleles_list.append(["."])
+            else:
+                alt_alleles_list.append(alts)
+
+        return np.array(ref_alleles, dtype="<U1"), alt_alleles_list
 
     def refs_alts_from_snp_data(
         self, snp_matrix: np.ndarray
@@ -204,23 +208,32 @@ class BaseGenotypeData:
         return out
 
     def build_vcf_header(self) -> str:
-        """Dynamically builds the VCF header based on the loaded sample IDs.
+        """Dynamically builds the VCF header using the stored header object."""
+        # Use the stored header from the original VCF file.
+        if hasattr(self, "vcf_header") and self.vcf_header:
+            header_str = str(self.vcf_header)
+            header_lines = header_str.strip().split("\n")
 
-        Returns:
-            str: The VCF header.
-        """
-        sample_headers = "\t".join(self.samples)
+            # Find and replace the #CHROM line to match the current samples
+            for i, line in enumerate(header_lines):
+                if line.startswith("#CHROM"):
+                    fixed_fields = line.split("\t")[:9]
+                    new_chrom_line = "\t".join(fixed_fields + list(self.samples))
+                    header_lines[i] = new_chrom_line
+                    break
 
-        vcf_header = textwrap.dedent(
-            f"""\
-            ##fileformat=VCFv4.2
-            ##source=SNPio
-            ##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">
-            ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
-            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample_headers}\n"""
-        )
-
-        return vcf_header
+            return "\n".join(header_lines) + "\n"
+        else:
+            # Fallback for data not originating from a VCF file
+            sample_headers = "\t".join(self.samples)
+            return textwrap.dedent(
+                f"""\
+                ##fileformat=VCFv4.2
+                ##source=SNPio
+                ##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Data">
+                ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+                #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample_headers}\n"""
+            )
 
     def replace_alleles(self, row: List[str], ref: str, alts: List[str]) -> List[str]:
         """Replace the alleles in the VCF row with the corresponding VCF genotype codes.
