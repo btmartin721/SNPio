@@ -78,55 +78,6 @@ class GenotypeEncoder:
 
         self.iupac = IUPAC(logger=self.logger)
 
-    def read_012(self) -> None:
-        """Read 012-encoded comma-delimited file.
-
-        This method reads a 012-encoded comma-delimited file and stores the data in the GenotypeEncoder object.
-
-        Raises:
-            ValueError: Sequences differ in length.
-        """
-        self.logger.info(f"Reading 012-encoded file: {self.filename}...")
-
-        self._check_filetype("encoded")
-        snp_data, num_snps = [], []
-
-        with open(self.filename, "r") as fin:
-            num_inds = 0
-            for line in fin:
-                line = line.strip()
-                if not line:
-                    continue
-                cols = line.split(",")
-                inds = cols[0]
-                snps = cols[1:]
-                num_snps.append(len(snps))
-                num_inds += 1
-                snp_data.append(snps)
-                self.samples.append(inds)
-
-        if len(list(set(num_snps))) > 1:
-            msg = "All sequences must be the same length. At least one sequence differs in length from the others"
-            self.logger.error(msg)
-            raise exceptions.SequenceLengthError(msg)
-
-        miss_vals = ["NA", np.nan, pd.NA, "N", ".", "-", "?"]
-        df = pd.DataFrame(snp_data)
-        df = df.replace(miss_vals, ["-9"] * len(miss_vals)).astype(int)
-
-        # Decodes 012 and converts to self.snp_data
-        self.genotypes_012 = df
-
-        self.ref = None
-        self.alt = None
-
-        self.logger.info("012 file successfully loaded!")
-        self.logger.info(
-            f"\nFound:\n"
-            f"\t{self.num_inds} individuals...\n"
-            f"\t{self.num_snps} SNPs...\n"
-        )
-
     def convert_012(self, snps: List[List[str]]) -> List[List[int]]:
         """Encode IUPAC nucleotides as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles.
 
@@ -163,31 +114,29 @@ class GenotypeEncoder:
                 all_missing.append(j)
                 continue
             num_alleles = sequence_tools.count_alleles(loc)
+
             if num_alleles != 2:
-                # If monomorphic
                 if num_alleles < 2:
-                    monomorphic_sites.append(j)
-                    try:
-                        ref = list(
-                            map(
-                                sequence_tools.get_major_allele,
-                                loc,
-                                [False for x in loc],
-                            )
+                    # If monomorphic
+                    if num_alleles < 2:
+                        monomorphic_sites.append(j)
+                        # Correctly call the helper on the entire locus
+                        # The result will be a list of alleles found,
+                        # e.g., ['A']
+                        alleles_present = sequence_tools.get_major_allele(
+                            loc, biallelic=False
                         )
-                        ref = str(ref[0])
-                    except IndexError:
-                        ref = list(
-                            map(
-                                sequence_tools.get_major_allele,
-                                loc,
-                                [False for x in loc],
-                            )
-                        )
-                    alt = None
+
+                        # Handle case where the only data is missing
+                        if not alleles_present:
+                            ref = "N"
+                        else:
+                            ref = str(alleles_present[0])
+
+                        alt = None  # Is a monomorphic site
 
                     for i in range(0, len(snps)):
-                        if loc[i] in ["-", "-9", "N"]:
+                        if loc[i] in {"-", "-9", "N", "."}:
                             new_snps[i].append(-9)
 
                         elif loc[i] == ref:
@@ -545,11 +494,22 @@ class GenotypeEncoder:
 
         else:
             dreplace = dict()
-            for col, ref, alt in zip(df.columns, self._ref, self._alt):
-                # if site is monomorphic, set alt and ref state the
-                # same
+            # Use the ref/alt alleles from the stored genotype_data object
+            ref_alleles = self.genotype_data.ref
+            alt_alleles = self.genotype_data.alt
+
+            if not ref_alleles or not alt_alleles:
+                msg = "Reference and alternate alleles are not available in the source GenotypeData object; cannot decode 012 matrix."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            for i, col in enumerate(df.columns):
+                ref = ref_alleles[i]
+                alt = alt_alleles[i]
+
                 if alt is None:
                     alt = ref
+
                 ref2 = f"{ref}/{ref}"
                 alt2 = f"{alt}/{alt}"
                 het2 = f"{ref}/{alt}"
