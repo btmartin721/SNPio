@@ -1,5 +1,5 @@
 from itertools import combinations
-from typing import List, Literal, Tuple
+from typing import TYPE_CHECKING, List, Literal, Tuple
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,9 @@ from snpio.popgenstats.fst_distance import FstDistance
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
 
+if TYPE_CHECKING:
+    from snpio.read_input.genotype_data import GenotypeData
+
 
 class PermutationOutlierDetector:
     """Detects Fst outliers using a univariate, per-locus permutation test.
@@ -17,7 +20,9 @@ class PermutationOutlierDetector:
     This class performs a per-locus permutation test for Fst outliers between all pairs of populations. It computes the Weir & Cockerham Fst for each locus, permutes the sample labels, and calculates p-values based on the distribution of permuted Fst values. The results are adjusted for multiple testing using methods like FDR or Bonferroni correction.
     """
 
-    def __init__(self, genotype_data, verbose: bool = False, debug: bool = False):
+    def __init__(
+        self, genotype_data: "GenotypeData", verbose: bool = False, debug: bool = False
+    ) -> None:
         """Initialize the permutation outlier detector.
 
         Initializes the permutation outlier detector with genotype data and sets up necessary components for Fst distance calculation and plotting.
@@ -160,7 +165,7 @@ class PermutationOutlierDetector:
 
             # compute single-locus numerator, denominator
             try:
-                a, d = self.fst_dist._two_pop_weir_cockerham_fst(g1, g2)
+                a, d = self.fst_dist._two_pop_weir_cockerham_fst_locus(g1, g2)
                 fst_values[loc] = a / d if d > 0 else np.nan
             except ValueError:
                 fst_values[loc] = np.nan
@@ -235,7 +240,7 @@ class PermutationOutlierDetector:
                 g2 = [self.phased_encoding.get(x, x) for x in g2]
 
                 try:
-                    a, d = self.fst_dist._two_pop_weir_cockerham_fst(g1, g2)
+                    a, d = self.fst_dist._two_pop_weir_cockerham_fst_locus(g1, g2)
                     perm_dist[i] = a / d if d > 0 else np.nan
                 except ValueError:
                     continue
