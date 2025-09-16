@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
-from snpio import GenotypeEncoder
 from snpio.popgenstats.dstats_base import DStatsBase, DStatsConfig, DStatsResults
 from snpio.popgenstats.numba_helpers import _compute_dfoil, _execute_bootstrap_dfoil
 from snpio.utils.logging import LoggerManager
@@ -17,11 +16,18 @@ class DfoilStats(DStatsBase):
     This class computes the DFOIL statistic for a 5-taxon model, which is used to detect introgression between populations.
     """
 
-    def __init__(self, genotype_data: "GenotypeData", *, verbose=False, debug=False):
+    def __init__(
+        self,
+        genotype_data: "GenotypeData",
+        geno012: np.ndarray,
+        verbose=False,
+        debug=False,
+    ):
         """Initialize the DfoilStats class.
 
         Args:
             genotype_data (GenotypeData): The genotype data to analyze.
+            geno012 (np.ndarray): Genotype matrix in 0/1/2 format.
             verbose (bool): If True, enables verbose logging.
             debug (bool): If True, enables debug logging.
         """
@@ -29,6 +35,8 @@ class DfoilStats(DStatsBase):
         self.logger = LoggerManager(
             __name__, prefix=genotype_data.prefix, verbose=verbose, debug=debug
         ).get_logger()
+
+        self.geno012 = geno012
 
     def calculate(
         self,
@@ -42,29 +50,9 @@ class DfoilStats(DStatsBase):
         use_jackknife: bool = False,
         block_size: int = 500,
     ) -> Tuple[dict, np.ndarray]:
-        """Calculate DFOIL statistics from 5 populations and an outgroup.
-
-        This method performs the necessary computations to obtain the DFOIL statistics and their associated bootstrap or jackknife estimates.
-
-        Args:
-            population1 (np.ndarray): Genotype data for the first population.
-            population2 (np.ndarray): Genotype data for the second population.
-            population3 (np.ndarray): Genotype data for the third population.
-            population4 (np.ndarray): Genotype data for the fourth population.
-            outgroup (np.ndarray): Genotype data for the outgroup population.
-            n_boot (int): Number of bootstrap replicates.
-            seed (int | None): Random seed for reproducibility. If None, a random seed will be used.
-            use_jackknife (bool): If True, uses jackknife resampling instead of bootstrap.
-            block_size (int): Block size for jackknife resampling.
-
-        Returns:
-            Tuple[dict, np.ndarray]: A tuple containing the results of the DFOIL statistics calculation and the bootstrap results.
-        """
-        ge = GenotypeEncoder(self.genotype_data)
-        geno012 = ge.genotypes_012.astype(int, copy=False)
-
+        """Calculate DFOIL statistics from 5 populations and an outgroup."""
         config = DStatsConfig(
-            geno012=geno012,
+            geno012=self.geno012,
             pop1=population1,
             pop2=population2,
             pop3=population3,
@@ -75,33 +63,37 @@ class DfoilStats(DStatsBase):
             MISSING=-9,
             method="dfoil",
         )
-
         self.logger.debug(f"Config: {config.to_dict()}")
 
-        # Subset the genotypes to only relevant populations.
-        geno_sub, pops_mapped = self._map_geno_to_pops(geno012, config)
+        geno_sub, pops_mapped = self._map_geno_to_pops(self.geno012, config)
+        arr = self._extract_pop_freqs(config, geno_sub, pops_mapped)  # (5, S)
 
-        # Get derived and ancestral population frequencies.
-        arr = self._extract_pop_freqs(config, geno_sub, pops_mapped)
+        if arr.shape[0] != 5:
+            raise ValueError(f"DFOIL expects 5 populations; got shape {arr.shape}.")
 
-        # Compute observed DFOIL statistics
+        # Observed 4-tuple (DFO, DFI, DOL, DIL)
         dfoil = _compute_dfoil(arr)
 
+        # Resampling indices
         if use_jackknife:
-            # Jackknife resampling
             boots = self.jackknife_indices(arr.shape[1], block_size=block_size)
         else:
-            # Bootstrap the DFOIL statistics
             boots = self.bootstrap_indices(
                 arr.shape[1], config.n_boot, seed=config.seed
             )
 
+        # Replicates × stats
         boot_res = _execute_bootstrap_dfoil(
             boots.shape[0], arr, boots, n_dstats=config.n_dstats
         )
+        if boot_res.ndim != 2 or boot_res.shape[1] != 4:
+            raise RuntimeError(f"Unexpected DFOIL bootstrap shape: {boot_res.shape}")
 
         zs, ps = self.zscore(dfoil, boot_res)
         x2s, p_x2s = self.chisq(dfoil, boot_res)
+
+        # Report the true replicate count
+        n_reps = boot_res.shape[0]
 
         self.results = DStatsResults(
             DFO=dfoil[0],
@@ -124,7 +116,7 @@ class DfoilStats(DStatsBase):
             P_X2_DFI=p_x2s[1],
             P_X2_DOL=p_x2s[2],
             P_X2_DIL=p_x2s[3],
-            n_boot=n_boot,
+            n_boot=n_reps,
             seed=seed,
             method="dfoil",
         )
