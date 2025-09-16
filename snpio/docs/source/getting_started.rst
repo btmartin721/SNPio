@@ -518,6 +518,16 @@ Encodes phased diploid data:
 - `2` = Homozygous alternate
 - `-9` = Missing
 
+Two-channel Allele Encoding
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The two-channel alleles encoding provides separate matrices for each allele in diploid genotypes.
+
+.. code-block:: python
+
+  # Tuple of numpy arrays of shape (n_samples, n_variants)
+  gt_allele1, gt_allele2 = encoder.two_channel_alleles
+
 Reversing the Encoding
 ----------------------
 
@@ -528,6 +538,7 @@ All encodings are **bi-directional**. You can convert encoded data back to genot
   encoder.genotypes_onehot = gt_ohe
   encoder.genotypes_int = gt_int
   encoder.genotypes_012 = gt_012
+  encoder.two_channel_alleles = (gt_allele1, gt_allele2)
 
 This updates the original `GenotypeData.snp_data` matrix with the decoded genotype values.
 
@@ -554,9 +565,9 @@ The `PopGenStatistics` class provides a unified interface to perform key populat
 
 It supports:
 
-- Summary statistics: He, Ho, Pi, pairwise Weir & Cockerham Fst :cite:p:`WeirCockerham1984`
-- Nei's genetic distance :cite:p:`Nei1972`
-- D-statistics: Patterson's :cite:p:`PattersonPriceReich2006,GreenEtAl2010` partitioned :cite:p:`EatonRee2013` and D-FOIL :cite:p:`PeaseHahn2015`
+- Summary statistics: He, Ho, π, and pairwise Weir & Cockerham Fst :cite:p:`WeirCockerham1984`
+- Nei's genetic distance :cite:p:`Nei1972` (observed, permutation p-values, bootstrap CIs)
+- D-statistics: Patterson's :cite:p:`PattersonPriceReich2006,GreenEtAl2010`, Partitioned :cite:p:`EatonRee2013`, and D-FOIL :cite:p:`PeaseHahn2015`
 - Fst outlier detection :cite:p:`BeaumontNichols1996,FollGaggiotti2008`
 - Principal Component Analysis (PCA)
 - (Experimental) AMOVA :cite:p:`ExcoffierSmouseQuattro1992`
@@ -578,7 +589,13 @@ Basic Usage
 
   pgs = PopGenStatistics(gd)
 
-  summary = pgs.summary_statistics(n_permutations=100, use_pvalues=True)
+  # New API (returns a tuple)
+  summary_stats, allele_stats_df = pgs.summary_statistics(
+      fst_method="permutation",  # "observed", "permutation", or "bootstrap"
+      n_reps=100,
+      n_jobs=-1,
+      save_plots=True
+  )
 
 Calculates:
 
@@ -590,11 +607,6 @@ Calculates:
 
 Includes per-population tables and visualizations.
 
-.. figure:: ../../../snpio/img/summary_statistics.png
-  :alt: Summary statistics plot
-  :figclass: img-responsive
-
-  Figure: Ho, He, and π per-locus and overall means across populations.
 
 Allele Summary Statistics
 =========================
@@ -619,89 +631,44 @@ Example
 
   pgs = PopGenStatistics(gd)
 
-  # pandas Series, Dictionary of DataFrame/ Series objects
-  allele_stats, summary_stats_dict = pgs.summary_statistics(
-      n_permutations=100,
-      use_pvalues=True,
-      save_plot=True
+  # New return order: (summary_stats, allele_stats_df)
+  summary_stats, allele_stats_df = pgs.summary_statistics(
+      fst_method="permutation",
+      n_reps=100,
+      n_jobs=-1,
+      save_plots=True
   )
-
-Overview of Calculated Metrics
-------------------------------
-
-**Missing Data Statistics**
-
-- Overall missing genotype rate
-- Median and IQR of sample/locus missingness
-- Percent of samples/loci with any missing data
-
-**Heterozygosity**
-
-- Observed heterozygosity (Ho), per-locus and per-sample
-- Quartile summaries of Ho across individuals/loci
-
-**Allele Frequency Spectrum**
-
-- Proportions of monomorphic, biallelic, triallelic, and quadallelic loci
-- Mean number of alleles per locus
-- Effective number of alleles per locus
-- Expected heterozygosity (He)
-- Inbreeding coefficient \( F_{IS} = 1 - \frac{H_O}{H_E} \)
-
-**Minor Allele Frequency (MAF) Summary**
-
-- Mean and median MAF
-- Proportion of singleton loci (MAF = 1 count)
-- Proportion of rare variants (MAF < 0.05)
-- Spectrum bins:
-  - MAF < 0.01
-  - 0.01 ≤ MAF < 0.05
-  - 0.05 ≤ MAF < 0.10
-  - 0.10 ≤ MAF < 0.20
-  - MAF ≥ 0.20
-
-**Pairside Weir and Cockerham (1984) Fst**
-
-- Mean pairwise Fst across populations
-- P-values for pairwise Fst significance
-- Fst heatmap visualization
 
 Output
 ------
 
 Returns:
 
-- A `pd.Series` with over 30 proportional metrics
-- A facet grid of barplots automatically saved to the output directory
-- A summary table with key statistics
-- A dictionary of DataFrames containing detailed statistics per population
-- A MultiQC-compatible summary for integration into reports
+- ``summary_stats``: a dictionary of result DataFrames (e.g., Ho/He/π summaries, pairwise Fst matrices and, if applicable, p-values or bootstrap intervals).
+- ``allele_stats_df``: a ``pd.DataFrame`` with >30 allele-level metrics.
 
 .. note::
 
-  All proportions range from 0.0 to 1.0. This object is also internally used by the `PopGenStatistics.summary_statistics()` method to combine allele-level metrics with nucleotide diversity and Fst statistics.
+  All proportions range from 0.0 to 1.0. The tuple return is ordered as ``(summary_stats, allele_stats_df)``.
 
-Pairwise Fst Heatmap
---------------------
-
-Automatically generated with `summary_statistics()`:
-
-.. figure:: ../../../snpio/img/fst_between_populations_heatmap.png
-  :alt: Pairwise Fst heatmap
-  :figclass: img-responsive
-
-  Figure: Pairwise Fst matrix. Lighter colors indicate higher differentiation.
 
 Nei's (1972) Genetic Distance
 -----------------------------
 
+Computes pairwise Nei's genetic distance between populations. Supports: observed distances, permutation-based p-values, and bootstrap confidence intervals.
+
 .. code-block:: python
 
-  df_nei, df_pvals = pgs.neis_genetic_distance(
-      n_bootstraps=1000,
-      use_pvalues=True,
+  nei_results = pgs.neis_genetic_distance(
+      method="permutation",   # "observed", "permutation", or "bootstrap"
+      n_reps=1000,
       n_jobs=-1
   )
+
+  df_nei = nei_results["observed"]
+  df_pvals = nei_results.get("pvalues")  # present if method == "permutation"
+  df_lower = nei_results.get("lower_ci") # present if method == "bootstrap"
+  df_upper = nei_results.get("upper_ci") # present if method == "bootstrap"
 
 .. figure:: ../../../snpio/img/nei_between_populations_heatmap.png
   :alt: Nei's Genetic Distance Heatmap between Pairwise Populations
@@ -709,28 +676,44 @@ Nei's (1972) Genetic Distance
 
   Figure: Heatmap showing Nei's (1972) genetic distance between pairwise populations.
 
+.. tip::
+
+  When plotted via SNPio’s built-ins and in the MultiQC report, diagonals are shown as **0.0** for distances and **1.0** for permutation p-values for readability.
+
+
+Weir & Cockerham Fst (Distance Matrix)
+--------------------------------------
+
+Compute pairwise Weir & Cockerham Fst between populations. Supports: observed Fst, permutation-based p-values, and bootstrap confidence intervals.
+
+.. code-block:: python
+
+  fst_results = pgs.fst_distance(
+      method="permutation",   # "observed", "permutation", or "bootstrap"
+      n_reps=1000,
+      n_jobs=-1,
+      palette="viridis",
+      suppress_plot=False
+  )
+
+  df_fst = fst_results["observed"]
+  df_fst_p = fst_results.get("pvalues")      # if method == "permutation"
+  df_fst_l = fst_results.get("lower_ci")     # if method == "bootstrap"
+  df_fst_u = fst_results.get("upper_ci")     # if method == "bootstrap"
+
+.. figure:: ../../../snpio/img/fst_between_populations_heatmap.png
+  :alt: Pairwise Fst heatmap
+  :figclass: img-responsive
+
+  Figure: Pairwise Fst matrix. Lighter colors indicate higher differentiation.
+
+
 D-Statistics (Patterson, Partitioned, DFOIL)
 --------------------------------------------
 
-SNPio provides a robust and unified interface for calculating D-statistics to detect introgression and admixture events in 4- and 5-taxon population trees. Supported methods include:
+Calculate D-statistics for testing introgression among four (Patterson's D), or five (Partitioned D, D-FOIL) populations. Supports bootstrap resampling, jackknife resampling, overall and per-combination statistics, and plotting.
 
-- **Patterson's D** :cite:p:`PattersonPriceReich2006,GreenEtAl2010`
-- **Partitioned D** :cite:p:`EatonRee2013`
-- **D-FOIL** :cite:p:`PeaseHahn2015`
-
-The D-statistics outputs and infrastructure are based on the Comp-D software package :cite:p:`Mussmann2020COMPD`
-
-These methods are implemented via a common framework (`DStatistics` class) and support:
-
-- Bootstrap resampling for statistical inference
-- Block jackknifing alternative to reduce linkage disequilibrium (LD) effects
-- Z-score and chi-squared test output, including P-values
-- Per-sample-combination and overall D-statistics
-- Multiple testing adjustments (Bonferroni and FDR-BH)
-- Custom individual selection per population
-- Automated sample subsetting, either randomly or deterministically
-- Exportable tables and figures for downstream reporting
-- Results visualization in the MultiQC report
+Also supported are randomized or deterministic individual selection per population, and limiting the maximum number of individuals per population for balanced sampling and/or speed.
 
 Basic Example
 ^^^^^^^^^^^^^
@@ -756,101 +739,16 @@ Basic Example
       population4="P3b",
       outgroup="Out",
       num_bootstraps=1000,
-      max_individuals_per_pop=5, # Max individuals to subset for D-tests
-      individual_selection="random"
-      per_combination=True, # On by default
-      calc_overall=True, # On by default
+      max_individuals_per_pop=5,
+      individual_selection="random",
+      per_combination=True,
+      calc_overall=True,
       save_plot=True,
       use_jackknife=False,
       block_size=500,
-      seed=42, # For reproduciblity
+      seed=42,
   )
 
-Result Columns
-^^^^^^^^^^^^^^
-
-- **Patterson's D**: `D`, `Z`, `P`, `X2`, `P_X2`
-- **Partitioned D**: `D1`, `D2`, `D12`, and their Z/P/X2 values (e.g., `Z_D1`, `Z_D2`, `Z_D12`, `P_D1`, `P_D2`, `P_D12`, `X2_D1`, `X2_D2 `, `X2_D12`, `P_X2_D1`, `P_X2_D2`, `P_X2_D12`)
-- **D-FOIL**: `DFO`, `DFI`, `DOL`, `DIL`, and their Z/P/X2 values (e.g., `Z_DFO`, `P_DFO`, `X2_DFO`, `P_X2_DFO`, etc.)
-
-Significance columns (added automatically):
-- Raw (uncorrected) significance
-- Bonferroni- and FDR-BH-corrected P-values
-- Binary flags for significance after correction
-
-.. tip::
-
-  The Bonferroni and FDR-BH-corrected P-values have been adjusted to an alpha threshold of 0.05.
-
-Visualization Output
-^^^^^^^^^^^^^^^^^^^^
-
-SNPio produces violin plots, heatmaps, and bar plots for visualizing:
-
-- Distribution of D-statistics
-- Chi-squared values
-- Significance proportions across quartets
-- Annotated significance flags in heatmap format
-- Distribution of -log10(P-values)
-
-.. figure:: ../../../snpio/img/dfoil_violin_plot.png
-  :alt: Violin plot of DFOIL D-statistics
-  :figclass: img-responsive
-
-  Figure: Violin plot of DFOIL D-statistics (DFO, DFI, DOL, DIL) across population sample combinations. Each combination was run with 1,000 bootstrap replicates to estimate Z-scores, Chi-square, and P-values.
-
-.. figure:: ../../../snpio/img/dfoil_significance_counts.png
-  :alt: Bar plot of significant DFOIL tests among all possible sample combinations.
-  :figclass: img-responsive
-
-  Figure: Bar chart showing number of significant DFOIL tests across all possible sample combinations for populations 1, 2, 3, 4, and the outgroup. Significance was assessed with 1,000 bootstrap replicates to estimate Z-scores, Chi-square, and P-values.
-
-.. figure:: ../../../snpio/img/dfoil_heatmap.png
-  :alt: Heatmap of DFOIL statistics (columns) per sample combination (rows). Deeper red cell colors indicate stronger significance.
-  :figclass: img-responsive
-
-  Figure: Heatmap depicting DFO, DFI, DOL, DIL statistics (columns) for all possible per-population sample combinations (rows). Heatmap cells are colored by -log10(P-value), with darker reds and greater -log10(P-value) values indicating stronger significance. P-values were estimated by estimating Z-scores from 1,000 bootstrap replicates. '*' symbols indicate statistical significance for uncorrected (raw) P-values. '**' symbols indicate significance after Bonferroni adjustment. '✝' symbols indicate significance after FDR-BH adjustment. The P-value adjustments represent multiple test corrections and make significance determination more stringent.
-
-.. figure:: ../../../snpio/img/dfoil_pvalue_histogram.png
-  :alt: Stacked histogram of -log10(P-values) for all DFOIL tests.
-  :figclass: img-responsive
-
-  Figure: Stacked histogram showing distribution of -log10(P-values) for all DFOIL tests across all possible sample combinations for populations 1, 2, 3, 4, and the outgroup. The stacked bar groups correspond to each of the estimated D-statistics (DFO, DFI, DOL, DIL). Significance was assessed with 1,000 bootstrap replicates to estimate Z-scores, Chi-square, and P-values.
-
-Advanced Options
-^^^^^^^^^^^^^^^^
-
-- `individual_selection`: Specify `"random"` or a dictionary of predefined sampleIDs per population. Only used if `max_individuals_per_pop` is set.
-- `max_individuals_per_pop`: Limit to a fixed number of individuals per population.
-- `use_jackknife`: Use jackknife instead of bootstrapping to account for linkage disequilibrium (LD)
-- `block_size`: Size of blocks when jackknifing (default: 500 SNPs).
-- `seed`: Ensures reproducibility of random sampling for the bootstrap indices as well as `individual_selection` (if set to ``random``)
-
-.. tip::
-
-  Use `calc_overall=True` to obtain a single D value across all SNPs. Use `per_combination=True` to compute D-statistics per all possible sample combinations. Both options can be used together to get both overall and per-combination results. They are both on by default.
-
-.. tip::
-
-  Use `max_individuals_per_pop` with `individual_selection='random'` or provide a dictionary of sampleIDs per population to subset the individuals used in the D-statistic calculations. This can be useful if there are many samples to reduce the number of sample combinations and thus overall execution time.
-
-Output Files
-^^^^^^^^^^^^
-
-- JSON and CSV summaries of quartet-level and overall statistics
-- Annotated significance flags
-- MultiQC-compatible figures for integration into SNPio reports
-
-.. tip::
-
-  Results are saved to:
-
-  ``{prefix}_output/nremover/analysis/d_stats/`` if filtering was applied with `NRemover2`, or ``{prefix}_output/analysis/d_stats/`` if no filtering was applied before D-statistics calculations.
-
-Next Steps
-^^^^^^^^^^
-
-After computing D-statistics, results can be visualized, exported, or included in **MultiQC** reports automatically using `SNPioMultiQC`.
 
 Fst Outlier Detection
 ---------------------
@@ -862,16 +760,21 @@ Supports two methods:
 
 .. code-block:: python
 
-  df_outliers, df_pvals = pgs.detect_fst_outliers(
+  # Permutation-based outliers (single DataFrame with unadjusted/adjusted 
+  # p-values)
+  df_outliers = pgs.detect_fst_outliers(
       n_permutations=1000,
-      correction_method="fdr_bh",
-      n_jobs=4
+      correction_method="fdr_bh",  # or "bonferroni", "holm", etc.
+      n_jobs=4,
+      seed=123
   )
 
-  df_dbscan, _ = pgs.detect_fst_outliers(
+  # DBSCAN-based outliers
+  df_dbscan = pgs.detect_fst_outliers(
       use_dbscan=True,
       correction_method="fdr_bh",
-      n_jobs=4
+      n_jobs=4,
+      min_samples=5
   )
 
 .. figure:: ../../../snpio/img/outlier_snps_heatmap.png
@@ -880,18 +783,10 @@ Supports two methods:
 
   Figure: Outlier SNPs based on Fst between population pairs.
 
-.. tip::
+.. note::
 
-  DBSCAN is sensitive to parameter tuning. If the default values return too few or too many outliers, experiment with `eps` and `min_samples`.
+  ``detect_fst_outliers`` now returns **one** DataFrame. If a correction method is provided, adjusted p-values are included as columns.
 
-Principal Component Analysis (PCA)
-----------------------------------
-
-.. code-block:: python
-
-  pgs.pca()
-
-Generates PCA plots colored by population, with markers indicating missing data proportions.
 
 AMOVA (Experimental)
 --------------------
@@ -905,11 +800,12 @@ AMOVA (Experimental)
           "TT": "East",
           "DS": "West"
       },
-      n_bootstraps=100,
+      n_permutations=100,
       n_jobs=1
   )
 
 Performs Analysis of Molecular Variance based on hierarchical population structure.
+
 
 PopGenStatistics Method Summary
 -------------------------------
@@ -921,23 +817,26 @@ PopGenStatistics Method Summary
   * - Method
     - Description
     - Algorithm(s)
-  * - ``summary_statistics()``
-    - Calculates He, Ho, π, and Fst, and various allele-level statistics.
-    - Standard formulas + bootstrapping
-  * - ``neis_genetic_distance()``
-    - Computes Nei’s pairwise distances.
+  * - ``summary_statistics(fst_method="observed|permutation|bootstrap", n_reps, n_jobs, save_plots)``
+    - Calculates He, Ho, π, and pairwise Fst; returns ``(summary_stats, allele_stats_df)``.
+    - Standard formulas; permutation/bootstrapping for Fst if requested
+  * - ``neis_genetic_distance(method, n_reps, n_jobs, palette, suppress_plot)``
+    - Computes Nei’s pairwise distances. Returns dict with keys: ``observed``, and (optionally) ``pvalues``, ``lower_ci``, ``upper_ci``.
     - Nei (1972)
-  * - ``calculate_d_statistics()``
-    - Calculates Patterson/Partitioned/D-FOIL.
-    - ABBA-BABA framework
-  * - ``detect_fst_outliers()``
-    - Detects outlier loci.
+  * - ``fst_distance(method, n_reps, n_jobs, palette, suppress_plot)``
+    - Computes Weir & Cockerham pairwise Fst. Returns dict like Nei’s: ``observed`` plus (optionally) ``pvalues`` or CIs.
+    - Weir & Cockerham (1984)
+  * - ``calculate_d_statistics(method, population1, population2, population3, population4=None, outgroup=None, num_bootstraps, max_individuals_per_pop, individual_selection, save_plot, seed, per_combination, calc_overall, use_jackknife, block_size)``
+    - Calculates Patterson / Partitioned / D-FOIL with bootstrap or jackknife support.
+    - ABBA–BABA framework with resampling
+  * - ``detect_fst_outliers(correction_method=None, alpha=0.05, use_dbscan=False, n_permutations=1000, n_jobs=1, seed=None, min_samples=5, max_outliers_to_plot=None)``
+    - Detects outlier loci via permutations or DBSCAN. **Returns a single DataFrame** (includes unadjusted/adjusted p-values when requested).
     - Permutations or DBSCAN
-  * - ``pca()``
-    - Runs PCA and creates visualizations.
+  * - ``pca(n_components=None, center=True, scale=False, n_axes=2|3, seed=None, ..., plot_format=None)``
+    - Runs PCA (KNN-imputes missing data, optional scaling, robust guards) and creates visualizations.
     - scikit-learn PCA
-  * - ``amova()`` *(experimental)*
-    - Performs AMOVA.
+  * - ``amova(regionmap=None, n_permutations=0, n_jobs=1, random_seed=None)`` *(experimental)*
+    - Performs AMOVA with optional SNP-wise permutations for p-values.
     - Hierarchical variance partitioning
 
 Next Steps
