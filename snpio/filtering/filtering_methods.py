@@ -248,6 +248,203 @@ class FilteringMethods:
         self.nremover._update_loci_indices(full_mask, inspect.stack()[0][3], t)
         return self.nremover
 
+    def filter_het(self, threshold: float) -> "NRemover2":
+        """Filters out loci (columns) with heteroyzgosity greater than the specified threshold.
+
+        Args:
+            threshold (float): Maximum allowable heteroyzgosity per locus (0.0 to 1.0 inclusive).
+
+        Returns:
+            NRemover2: The NRemover2 object with updated loci_indices.
+
+        Raises:
+            TypeError: If threshold is not a float.
+            InvalidThresholdError: If threshold is outside the range [0.0, 1.0].
+
+        Notes:
+            - Uses vectorized NumPy operations to calculate heteroyzgosity.
+            - The mask is applied only to currently active loci and samples.
+        """
+
+        self.logger.info(
+            f"Filtering loci with heteroyzgosity > {threshold:.3f}"
+        )
+
+        self.nremover._propagate_chain()
+
+        if not isinstance(threshold, float):
+            msg: str = f"Threshold must be a float value, but got: {type(threshold)}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        if threshold < 0.0 or threshold > 1.0:
+            msg = f"Threshold must be between [0.0, 1.0], but got: {threshold:.3f}"
+            self.logger.error(msg)
+            raise exceptions.InvalidThresholdError(threshold, msg)
+
+        if not np.any(self.nremover.loci_indices):
+            self.logger.warning(
+                "No loci remain in the alignment. Try adjusting filtering parameters."
+            )
+            return self.nremover
+
+        alignment_array: np.ndarray = self.nremover.alignment[
+            self.nremover.sample_indices, :
+        ][:, self.nremover.loci_indices].astype(str, copy=False)
+
+        missing_counts: int = np.count_nonzero(
+            np.isin(alignment_array, self.ambiguous_bases), axis=0
+        )
+
+        num_samples: int = np.count_nonzero(self.nremover.sample_indices)
+
+        self.logger.debug(f"Total Loci Before {inspect.stack()[0][3]}: {num_samples}")
+
+        missing_props: float = missing_counts / num_samples
+
+        self.logger.debug(f"Total Loci Before {inspect.stack()[0][3]}: {num_samples}")
+        self.logger.debug(f"het_props: {missing_props}")
+        self.logger.debug(f"het_props shape: {missing_props.shape}")
+
+        retained_loci_mask = missing_props <= threshold
+
+        self.logger.debug(f"mask {inspect.stack()[0][3]}: {retained_loci_mask}")
+        self.logger.debug(
+            f"mask shape {inspect.stack()[0][3]}: {retained_loci_mask.shape}"
+        )
+
+        full_mask: np.ndarray = np.zeros_like(self.nremover.loci_indices, dtype=bool)
+        full_mask[self.nremover.loci_indices] = retained_loci_mask
+
+        # Update loci indices
+        n_to_keep: int = np.count_nonzero(full_mask)
+
+        if n_to_keep == 0:
+            self.logger.warning(
+                f"No loci remain in the alignment after {inspect.stack()[0][3]}. Adjust filtering parameters."
+            )
+            n_removed: int = np.count_nonzero(~full_mask)
+            self._append_global_list(inspect.stack()[0][3], n_removed, 1.0)
+            return self.nremover
+
+        t: None | float = None if self.nremover.search_mode else threshold
+        self.nremover._update_loci_indices(full_mask, inspect.stack()[0][3], t)
+
+        return self.nremover
+
+    def filter_het_pop(self, threshold: float) -> "NRemover2":
+        """Filters loci (columns) based on heterozygosity per population.
+
+        This method calculates the proportion of heterozygosity per locus for each user-defined population. A locus is retained only if the missing proportion is ≤ threshold in **every** population. Missing genotypes are defined as: "N", "-", ".", or "?". Sample-to-population assignments are taken from `self.nremover.popmap_inverse`.
+
+        Args:
+            threshold (float): Maximum allowable heterozygosity per population.
+
+        Returns:
+            NRemover2: NRemover2 object with updated `loci_indices`.
+
+        Raises:
+            MissingPopulationMapError: If `popmap_inverse` is not defined.
+        """
+
+        self.logger.info(
+            f"Filtering loci with heterozygosity > {threshold:.3f} in any population."
+        )
+
+        if self.nremover.popmap_inverse is None:
+            msg = "No population map data found. Cannot filter by population."
+            self.logger.error(msg)
+            raise exceptions.MissingPopulationMapError(msg)
+
+        self.nremover._propagate_chain()
+
+        # Check if any loci are still active
+        if not np.any(self.nremover.loci_indices):
+            self.logger.warning(
+                "No loci remain in the alignment. Try adjusting the filtering parameters."
+            )
+            return self.nremover
+
+        # Extract the active samples and loci from the alignment
+        alignment_array: np.ndarray = self.nremover.alignment[
+            self.nremover.sample_indices, :
+        ][:, self.nremover.loci_indices].astype(str, copy=False)
+
+        if alignment_array.size == 0:
+            self.logger.warning(
+                "No samples remain in the alignment. Try adjusting the filtering parameters."
+            )
+            return self.nremover
+
+        populations: Dict[str | int, List[str]] = self.nremover.popmap_inverse
+        samples: np.ndarray = np.array(self.nremover.samples)[
+            self.nremover.sample_indices
+        ]
+
+        # Initialize a list to collect population-specific masks for loci
+        pop_masks: list = []
+
+        for sample_ids in populations.values():
+            sample_ids_filt_set = set(sample_ids)
+            indices = np.where(np.isin(samples, list(sample_ids_filt_set)))[0]
+
+            if indices.size == 0:
+                continue
+
+            # shape: (n_sub_samples, n_loci)
+            submatrix = alignment_array[indices, :]
+            missing_matrix = np.isin(submatrix, self.ambiguous_bases)
+            missing_props = np.mean(missing_matrix, axis=0)
+
+            # Mask loci where the missing proportion exceeds the threshold
+            pop_mask: npt.NDArray[npt.Bool] = missing_props <= threshold
+
+            self.logger.debug(f"het_pop_mask: {pop_mask}")
+            self.logger.debug(f"het_pop_mask shape: {pop_mask.shape}")
+            self.logger.debug(f"het_pop_mask sum: {np.count_nonzero(pop_mask)}")
+
+            pop_masks.append(pop_mask)
+
+        # Combine all population masks: Loci must be retained if they meet the
+        # threshold in all populations
+        if pop_masks:
+            cumulative_mask: npt.NDArray[npt.Bool] = np.all(
+                np.vstack(pop_masks), axis=0
+            )
+        else:
+            self.logger.warning(
+                "No populations had retained samples; all loci will be filtered."
+            )
+            cumulative_mask: npt.NDArray[npt.Bool] = np.zeros(
+                alignment_array.shape[1], dtype=bool
+            )
+
+        self.logger.debug(f"cumulative_mask: {cumulative_mask}")
+        self.logger.debug(f"cumulative_mask shape: {cumulative_mask.shape}")
+
+        # Initialize full_mask with the same length as the alignment's loci
+        full_mask: npt.NDArray[npt.Bool] = np.zeros(
+            self.nremover.alignment.shape[1], dtype=bool
+        )
+
+        # Update loci_indices using the cumulative mask, applied only to active loci
+        full_mask[self.nremover.loci_indices] = cumulative_mask
+
+        # Check if any loci remain after filtering
+        if np.count_nonzero(full_mask) == 0:
+            self.logger.warning(
+                f"No loci remain in the alignment after {inspect.stack()[0][3]}. Adjust filtering parameters."
+            )
+            n_removed: int = np.count_nonzero(~full_mask)
+            # Append this information to the filtering results dataframe
+            self._append_global_list(inspect.stack()[0][3], n_removed, 1.0)
+            return self.nremover
+
+        # Update the loci indices with the final mask
+        t: None | float = None if self.nremover.search_mode else threshold
+        self.nremover._update_loci_indices(full_mask, inspect.stack()[0][3], t)
+        return self.nremover
+
     def filter_missing_sample(self, threshold: float) -> "NRemover2":
         """Remove samples with missing data proportion > threshold.
 

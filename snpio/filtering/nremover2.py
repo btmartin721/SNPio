@@ -281,6 +281,42 @@ class NRemover2:
         return self._filtering_methods.filter_missing_sample(threshold)
 
     @wraps(FilteringMethods.filter_missing)
+    def filter_het(self, threshold: float) -> "NRemover2":
+        """Filters out loci (columns) with heterozygosity greater than the specified threshold.
+
+        Args:
+            threshold (float): Maximum allowable heterozygosity per locus (0.0 to 1.0 inclusive).
+
+        Returns:
+            NRemover2: The NRemover2 object with updated loci_indices.
+
+        Raises:
+            TypeError: If threshold is not a float.
+            InvalidThresholdError: If threshold is outside the range [0.0, 1.0].
+
+        Notes:
+            - The mask is applied only to currently active loci and samples.
+        """
+        return self._filtering_methods.filter_het(threshold)
+
+    @wraps(FilteringMethods.filter_missing_pop)
+    def filter_het_pop(self, threshold: float) -> "NRemover2":
+        """Filters loci (columns) based on maximum allowable heterozygosity per population.
+
+        This method calculates heterozygosity values per locus for each user-defined population. A locus is retained only if it is below the specified heterozygosity in **all** populations. Sample-to-population assignments are taken from `self.nremover.popmap_inverse`.
+
+        Args:
+            threshold (float): Maximum allowable heterozygosity per population.
+
+        Returns:
+            NRemover2: NRemover2 object with updated `loci_indices`.
+
+        Raises:
+            MissingPopulationMapError: If `popmap_inverse` is not defined.
+        """
+        return self._filtering_methods.filter_het_pop(threshold)
+    
+    @wraps(FilteringMethods.filter_missing)
     def filter_missing(self, threshold: float) -> "NRemover2":
         """Filters out loci (columns) with missing data proportion greater than the specified threshold.
 
@@ -1125,3 +1161,5 @@ class NRemover2:
             str: A string representation of the NRemover2 instance.
         """
         return f"NRemover2(genotype_data={self.genotype_data})"
+
+
