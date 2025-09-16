@@ -51,34 +51,54 @@ parent_ids:
   pca_missingness: population_structure
   pca_missingness_scatter: population_structure
 
-  # Genetic Differentiation
-  pairwise_WC_fst: genetic_differentiation
-  pairwise_WC_fst_ci95: genetic_differentiation
-  pairwise_WC_fst_pvalues: genetic_differentiation
+  # Genetic Differentiation (updated Fst panel IDs)
+  wc_fst_observed: genetic_differentiation
+  wc_fst_bootstrap_mean: genetic_differentiation
+  wc_fst_bootstrap_ci95: genetic_differentiation
+  wc_fst_permutation_observed: genetic_differentiation
+  wc_fst_permutation_pvalues: genetic_differentiation
+
+  nei_observed: genetic_differentiation
+  nei_permutation_observed: genetic_differentiation
+  nei_permutation_pvalues: genetic_differentiation
+  nei_bootstrap_mean: genetic_differentiation
+  nei_bootstrap_ci95: genetic_differentiation
+
   pairwise_nei_distances: genetic_differentiation
   pairwise_nei_distance_pvalues: genetic_differentiation
+  pairwise_nei_distance_ci95: genetic_differentiation
 
-  # Introgression
-  d_statistics_significance_counts_patterson: introgression
-  dstat_chi_square_distribution_patterson: introgression
-  dstat_pvalue_distribution_patterson: introgression
-  dstat_stacked_significance_barplot_patterson: introgression
-  dstat_upset_style_significance_counts_patterson: introgression
+  # Introgression: Patterson's D
   d_statistics_heatmap_patterson: introgression
+  d_statistics_significance_counts_table_patterson: introgression
+  d_statistics_significance_counts_plot_patterson: introgression
+  dstat_stacked_significance_barplot_patterson: introgression
+  d_statistics_z_distribution_patterson_d: introgression
+  dstat_pvalue_distribution_patterson: introgression
+  dstat_chi_square_distribution_patterson: introgression
 
-  d_statistics_significance_counts_partitioned: introgression
-  dstat_chi_square_distribution_partitioned: introgression
-  dstat_pvalue_distribution_partitioned: introgression
-  dstat_stacked_significance_barplot_partitioned: introgression
-  dstat_upset_style_significance_counts_partitioned: introgression
+  # Introgression: Partitioned D
   d_statistics_heatmap_partitioned: introgression
+  d_statistics_significance_counts_table_partitioned: introgression
+  d_statistics_significance_counts_plot_partitioned: introgression
+  dstat_stacked_significance_barplot_partitioned: introgression
+  d_statistics_z_distribution_partitioned_D1: introgression
+  d_statistics_z_distribution_partitioned_D2: introgression
+  d_statistics_z_distribution_partitioned_D12: introgression
+  dstat_pvalue_distribution_partitioned: introgression
+  dstat_chi_square_distribution_partitioned: introgression
 
-  d_statistics_significance_counts_dfoil: introgression
-  dstat_chi_square_distribution_dfoil: introgression
-  dstat_pvalue_distribution_dfoil: introgression
-  dstat_stacked_significance_barplot_dfoil: introgression
-  dstat_upset_style_significance_counts_dfoil: introgression
+  # Introgression: DFOIL D
   d_statistics_heatmap_dfoil: introgression
+  d_statistics_significance_counts_table_dfoil: introgression
+  d_statistics_significance_counts_plot_dfoil: introgression
+  dstat_stacked_significance_barplot_dfoil: introgression
+  d_statistics_z_distribution_dfoil_DFO: introgression
+  d_statistics_z_distribution_dfoil_DIL: introgression
+  d_statistics_z_distribution_dfoil_DFI: introgression
+  d_statistics_z_distribution_dfoil_DOL: introgression
+  dstat_pvalue_distribution_dfoil: introgression
+  dstat_chi_square_distribution_dfoil: introgression
 
   # Detailed Stats
   summary_statistics_overall: detailed_statistics
@@ -128,52 +148,74 @@ section_names:
   maf_thresholds: "MAF Thresholds"
   boolean_thresholds: "Boolean Thresholds (Singletons, Monomorphic, Biallelic)"
 
-  pca_missingness: "PCA Results"
-  pca_missingness_scatter: "PCA: Missingness Colored"
+  pca_missingness: "PCA Results Table"
+  pca_missingness_scatter: "PCA Scatter Plot"
 
-  pairwise_WC_fst: "Fst (Weir & Cockerham)"
-  pairwise_WC_fst_ci95: "Fst 95% CI"
-  pairwise_WC_fst_pvalues: "Fst P-values"
+  # Updated Fst titles
+  wc_fst_observed: "Fst (Weir & Cockerham) — Observed"
+  wc_fst_bootstrap_mean: "Fst (Weir & Cockerham) — Bootstrap Mean"
+  wc_fst_bootstrap_ci95: "Fst (Weir & Cockerham) — 95% CIs (Bootstrap)"
+  wc_fst_permutation_observed: "Fst (Weir & Cockerham) — Observed (Permutation Test)"
+  wc_fst_permutation_pvalues: "Fst (Weir & Cockerham) — Permutation P-values"
+
+  nei_observed: "Nei's Genetic Distance — Observed"
+  nei_permutation_observed: "Nei's Genetic Distance — Observed (Permutation)"
+  nei_permutation_pvalues: "Nei's Genetic Distance — Permutation P-values"
+  nei_bootstrap_mean: "Nei's Genetic Distance — Bootstrap Mean"
+  nei_bootstrap_ci95: "Nei's Genetic Distance — 95% CIs (Bootstrap)"
+
   pairwise_nei_distances: "Nei Distances"
   pairwise_nei_distance_pvalues: "Nei Distance P-values"
+  pairwise_nei_distance_ci95: "Nei's Genetic Distance 95% CIs"
 
+  # Patterson D
   d_statistics_heatmap_patterson: "Patterson D: Heatmap"
-  d_statistics_heatmap_partitioned: "Partitioned D: Heatmap"
-  d_statistics_heatmap_dfoil: "DFOIL D: Heatmap"
-
-  dstat_chi_square_distribution_patterson: "Patterson D: Chi-Square"
-  dstat_chi_square_distribution_partitioned: "Partitioned D: Chi-Square"
-  dstat_chi_square_distribution_dfoil: "DFOIL D: Chi-Square"
-
-  dstat_pvalue_distribution_patterson: "Patterson D: P-values"
-  dstat_pvalue_distribution_partitioned: "Partitioned D: P-values"
-  dstat_pvalue_distribution_dfoil: "DFOIL D: P-values"
-
+  d_statistics_significance_counts_table_patterson: "Patterson D: Significance Counts (Table)"
+  d_statistics_significance_counts_plot_patterson: "Patterson D: Significance Counts (Plot)"
   dstat_stacked_significance_barplot_patterson: "Patterson D: Significance Breakdown"
+  d_statistics_z_distribution_patterson_d: "Patterson D: Z-Score Distribution"
+  dstat_pvalue_distribution_patterson: "Patterson D: P-value Distribution"
+  dstat_chi_square_distribution_patterson: "Patterson D: Chi-Square Distribution"
+
+  # Partitioned D
+  d_statistics_heatmap_partitioned: "Partitioned D: Heatmap"
+  d_statistics_significance_counts_table_partitioned: "Partitioned D: Significance Counts (Table)"
+  d_statistics_significance_counts_plot_partitioned: "Partitioned D: Significance Counts (Plot)"
   dstat_stacked_significance_barplot_partitioned: "Partitioned D: Significance Breakdown"
+  d_statistics_z_distribution_partitioned_D1: "Partitioned D: D1 Z-Score Distribution"
+  d_statistics_z_distribution_partitioned_D2: "Partitioned D: D2 Z-Score Distribution"
+  d_statistics_z_distribution_partitioned_D12: "Partitioned D: D12 Z-Score Distribution"
+  dstat_pvalue_distribution_partitioned: "Partitioned D: P-value Distribution"
+  dstat_chi_square_distribution_partitioned: "Partitioned D: Chi-Square Distribution"
+
+  # DFOIL D
+  d_statistics_heatmap_dfoil: "DFOIL D: Heatmap"
+  d_statistics_significance_counts_table_dfoil: "DFOIL D: Significance Counts (Table)"
+  d_statistics_significance_counts_plot_dfoil: "DFOIL D: Significance Counts (Plot)"
   dstat_stacked_significance_barplot_dfoil: "DFOIL D: Significance Breakdown"
+  d_statistics_z_distribution_dfoil_DFO: "DFOIL D: DFO Z-Score Distribution"
+  d_statistics_z_distribution_dfoil_DIL: "DFOIL D: DIL Z-Score Distribution"
+  d_statistics_z_distribution_dfoil_DFI: "DFOIL D: DFI Z-Score Distribution"
+  d_statistics_z_distribution_dfoil_DOL: "DFOIL D: DOL Z-Score Distribution"
+  dstat_pvalue_distribution_dfoil: "DFOIL D: P-value Distribution"
+  dstat_chi_square_distribution_dfoil: "DFOIL D: Chi-Square Distribution"
 
-  d_statistics_significance_counts_patterson: "Patterson D: Significant Tests"
-  d_statistics_significance_counts_partitioned: "Partitioned D: Significant Tests"
-  d_statistics_significance_counts_dfoil: "DFOIL D: Significant Tests"
-
-  dstat_upset_style_significance_counts_patterson: "Patterson D: UpSet Plot"
-  dstat_upset_style_significance_counts_partitioned: "Partitioned D: UpSet Plot"
-  dstat_upset_style_significance_counts_dfoil: "DFOIL D: UpSet Plot"
-
+  # Detailed Stats
   summary_statistics_overall: "Overall Summary"
   summary_statistics_per_population_pi: "Pi per Population"
   summary_statistics_per_population_ho: "Ho per Population"
   summary_statistics_per_population_he: "He per Population"
 
+  # Outliers
   fst_outliers_dbscan_method: "Fst Outliers: DBSCAN"
   fst_outliers_permutation_method: "Fst Outliers: Permutation"
 
+  # Logs
   verbose: "Verbose Logs"
   debug: "Debug Logs"
 
 # -----------------------------------------------------------------------------
-# Section descriptions (if supported)
+# Section descriptions
 # -----------------------------------------------------------------------------
 section_descriptions:
   overview: "Summary tables of population-level and genotype data."
