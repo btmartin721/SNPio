@@ -1,6 +1,9 @@
 import unittest
+
 import numpy as np
-from snpio.popgenstats.dstat import PattersonDStats  # Adjust as needed
+
+from snpio.analysis.genotype_encoder import GenotypeEncoder
+from snpio.popgenstats.dstat import PattersonDStats
 
 MISSING = -9
 
@@ -72,32 +75,36 @@ class TestPattersonD(unittest.TestCase):
     def test_positive_d(self):
         arr = self._build_perfect_abba()
         gd = DummyGenotypeData(arr)
-        pds = PattersonDStats(gd)
+        enc = GenotypeEncoder(gd)
+        pds = PattersonDStats(gd, enc.genotypes_012)
         results, _ = pds.calculate(*self.pops, n_boot=200, seed=0)
-        self.assertAlmostEqual(results["D"][0], 1.0, places=1)
+        self.assertAlmostEqual(results["D"], 1.0, places=1)
 
     def test_negative_d(self):
         arr = self._build_perfect_baba()
         gd = DummyGenotypeData(arr)
-        pds = PattersonDStats(gd)
+        enc = GenotypeEncoder(gd)
+        pds = PattersonDStats(gd, enc.genotypes_012)
         results, _ = pds.calculate(*self.pops, n_boot=200, seed=1)
-        self.assertAlmostEqual(results["D"][0], -1.0, places=1)
+        self.assertAlmostEqual(results["D"], -1.0, places=1)
 
     def test_zero_d(self):
         abba = self._build_perfect_abba()
         baba = self._build_perfect_baba()
         arr = np.hstack([abba[:, :50], baba[:, :50]])  # 50 ABBA, 50 BABA
         gd = DummyGenotypeData(arr)
-        pds = PattersonDStats(gd)
+        enc = GenotypeEncoder(gd)
+        pds = PattersonDStats(gd, enc.genotypes_012)
         results, _ = pds.calculate(*self.pops, n_boot=200, seed=2)
-        self.assertAlmostEqual(results["D"][0], 0.0, places=1)
+        self.assertAlmostEqual(results["D"], 0.0, places=1)
 
     def test_missing_data(self):
         arr = self._apply_missing(self._build_perfect_abba(), frac=0.2)
         gd = DummyGenotypeData(arr)
-        pds = PattersonDStats(gd)
+        enc = GenotypeEncoder(gd)
+        pds = PattersonDStats(gd, enc.genotypes_012)
         results, _ = pds.calculate(*self.pops, n_boot=200, seed=3)
-        self.assertGreaterEqual(results["D"][0], 0.7)  # still strongly positive
+        self.assertGreaterEqual(results["D"], 0.7)  # still strongly positive
 
 
 if __name__ == "__main__":
