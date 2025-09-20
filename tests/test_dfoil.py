@@ -25,6 +25,7 @@ class DummyGenotypeData:
         self.plot_format = "png"
         self.verbose = False
         self.debug = False
+        self.from_vcf = False
 
         arr = arr.astype(str)
         arr[arr == "0"] = "A"

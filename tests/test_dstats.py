@@ -30,6 +30,7 @@ class DummyGenotypeData:
         arr[arr == "-9"] = "N"
         self.snp_data = arr
         self.was_filtered = True
+        self.from_vcf = False
 
 
 class TestPattersonD(unittest.TestCase):
