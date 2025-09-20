@@ -4,6 +4,27 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.6.4 (2025-09-20)
+--------------------------
+
+Bug Fixes - v1.6.4
+~~~~~~~~~~~~~~~~~~
+
+- Fixed bug where the `GenotypeEncoder` would fail when decoding 0/1/2 genotypes. The `decode_012` method in the `GenotypeEncoder` class now correctly handles 0/1/2 encoded genotypes, ensuring that they are accurately converted back to their original string representations. This fix resolves issues that arose when using 0/1/2 encoded data.
+
+Version 1.6.3 (2025-09-20)
+--------------------------
+
+Bug Fixes - v1.6.3
+~~~~~~~~~~~~~~~~~~
+
+- Fixed bug with 0/1/2 encodings where it would fail. The `GenotypeEncoder` class now correctly handles 0/1/2 encodings, ensuring that genotypes are accurately converted and processed. This fix resolves issues that arose when using 0/1/2 encoded data, allowing for seamless integration with other components of the SNPio library.
+
+Enhancements - v1.6.3
+~~~~~~~~~~~~~~~~~~~~~
+
+- Improved the `GenotypeEncoder` class to better handle various genotype encodings, including 0/1/2 and IUPAC codes. The class now includes more consistency in methods for encoding and decoding genotypes, ensuring compatibility with a wider range of input formats. The order of "A", "C", "G", "T" has been standardized across methods to prevent confusion and errors during genotype processing.
+
 Version 1.6.2 (2025-09-15)
 --------------------------
 
