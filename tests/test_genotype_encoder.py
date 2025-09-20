@@ -152,14 +152,14 @@ class TestGenotypeEncoder(unittest.TestCase):
         np.testing.assert_array_equal(result, expected)
 
     def test_convert_integer(self):
-        # Integer codes: A=1, C=2, G=3, T=4, R=5
+        # Integer codes: A=0, C=1, G=2, T=3, R=5
         expected = np.array(
             [
-                [1, 2, 1, 2, 5, 4, 1, 3, 4, 3],  # Sample1
-                [1, 2, 1, 2, 3, 4, 5, 3, 4, 3],  # Sample2
-                [4, 3, 3, 4, 5, 2, 3, 4, 1, 2],  # Sample3
-                [4, 3, 3, 4, 1, 2, 3, 4, 1, 2],  # Sample4
-                [4, 3, 3, 4, 1, 2, 3, 4, 1, 2],  # Sample5
+                [0, 1, 0, 1, 5, 3, 0, 2, 3, 2],  # Sample1 ACACRTAGTG
+                [0, 1, 0, 1, 2, 3, 5, 2, 3, 2],  # Sample2 ACACGTRGTG
+                [3, 2, 2, 3, 5, 1, 2, 3, 0, 1],  # Sample3 TGGTRCGTAC
+                [3, 2, 2, 3, 0, 1, 2, 3, 0, 1],  # Sample4 TGGTACGTAC
+                [3, 2, 2, 3, 0, 1, 2, 3, 0, 1],  # Sample5 TGGTACGTAC
             ],
             dtype=np.int8,
         )
