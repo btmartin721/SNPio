@@ -79,120 +79,191 @@ class GenotypeEncoder:
         self.iupac = IUPAC(logger=self.logger)
 
     def convert_012(self, snps: List[List[str]]) -> List[List[int]]:
-        """Encode IUPAC nucleotides as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles.
+        """Convert IUPAC/diploid genotype strings to 012 encoding (0=REF, 1=HET, 2=ALT, -9=missing).
 
-        This method encodes IUPAC nucleotides as 0 (reference), 1 (heterozygous), and 2 (alternate) alleles.
+        This encoder is robust to: Diploids written as "A/G" or "A|G" IUPAC ambiguity codes (e.g., R= A/G). Multi-ALT columns (forces biallelic by collapsing all ALTs to one ALT class). Common missing tokens ("N", "-", ".", "?", "./.", "-9"). It also logs monomorphic, non-biallelic, and all-missing columns (and writes indices).
 
         Args:
-            snps (List[List[str]]): 2D list of genotypes of shape (n_samples, n_sites).
+            snps (List[List[str]]): Genotypes as 2D list of shape (n_samples, n_sites). Elements may be single bases ("A") or diploids ("A/G", "A|G"), or IUPAC single-letter codes.
 
         Returns:
-            List[List[int]]: Encoded 012 genotypes.
+            List[List[int]]: 012-encoded genotypes with missing as -9.
 
-        Warning:
-            Monomorphic sites are detected and encoded as 0 (reference).
-
-            Non-biallelic sites are detected and forced to be bi-allelic.
-
-            Sites with all missing data are detected and excluded from the alignment.
+        Notes:
+            - If a column is monomorphic, everything non-missing becomes 0 (REF); heterozygous forms or non-REF tokens map to 1 only when necessary during forced decisions.
+            - If a column has >2 alleles, all non-REF non-missing are collapsed to ALT (=2).
+            - Membership checks are performed against an explicit set of ALT alleles (no iterator pitfalls).
         """
-        snps_012 = []
-        new_snps = []
-        monomorphic_sites = []
-        non_biallelic_sites = []
-        all_missing = []
+        # ---- Local helpers  ----
+        IUPAC_TO_ALLELES = {
+            "A": {"A"},
+            "C": {"C"},
+            "G": {"G"},
+            "T": {"T"},
+            "R": {"A", "G"},
+            "Y": {"C", "T"},
+            "S": {"G", "C"},
+            "W": {"A", "T"},
+            "K": {"G", "T"},
+            "M": {"A", "C"},
+            "N": set(),
+            "-": set(),
+            ".": set(),
+            "?": set(),
+        }
 
-        for i in range(0, len(snps)):
-            new_snps.append([])
+        MISSING = {"-9", "N", "-", ".", "?", "./."}
 
-        for j in range(0, len(snps[0])):
-            loc = []
-            for i in range(0, len(snps)):
-                loc.append(snps[i][j].upper())
+        def _split_diploid(tok: str) -> list[str]:
+            t = tok.strip()
+            if "/" in t:
+                return t.split("/")
+            if "|" in t:
+                return t.split("|")
+            if len(t) == 1 and t.upper() in IUPAC_TO_ALLELES:
+                return list(IUPAC_TO_ALLELES[t.upper()])
+            return [t]  # fallback
 
-            if all(x == "N" for x in loc):
+        def _flatten_alts(mc) -> tuple[str, set[str]]:
+            # mc expected like ("A","G") or ("A", ["C","G"])
+            if not mc:
+                return "N", set()
+            ref = str(mc[0])
+            alts = set()
+            for a in mc[1:]:
+                if a is None:
+                    continue
+                if isinstance(a, (list, tuple, set)):
+                    for x in a:
+                        alts.add(str(x))
+                else:
+                    alts.add(str(a))
+            return ref, alts
+
+        def _encode_token(g: str, ref: str, alts: set[str]) -> int:
+            if g in MISSING or g.strip() == "":
+                return -9
+            alleles = _split_diploid(g)
+            if not alleles:  # from IUPAC N/ambiguous empty
+                return -9
+
+            ref_u = ref.upper()
+            alts_u = {a.upper() for a in alts} if alts else set()
+            a_u = [a.upper() for a in alleles]
+
+            # Homozygous REF
+            if len(a_u) == 1 and a_u[0] == ref_u:
+                return 0
+            if len(a_u) == 2 and a_u[0] == ref_u and a_u[1] == ref_u:
+                return 0
+
+            # Homozygous ALT (same ALT allele twice)
+            if len(a_u) == 1 and a_u[0] in alts_u:
+                return 2
+            if (
+                len(a_u) == 2
+                and a_u[0] in alts_u
+                and a_u[1] in alts_u
+                and a_u[0] == a_u[1]
+            ):
+                return 2
+
+            # Mixed ref/alt → heterozygote
+            has_ref = any(a == ref_u for a in a_u)
+            has_alt = any(a in alts_u for a in a_u)
+            if has_ref and has_alt:
+                return 1
+
+            # Ambiguity spanning multiple bases (e.g., IUPAC) → heterozygote
+            if len(set(a_u)) > 1:
+                return 1
+
+            # Unrecognized but non-REF → treat as heterozygote conservatively
+            return 1
+
+        # ---- Body ----
+        n_samples = len(snps)
+        n_sites = 0 if n_samples == 0 else len(snps[0])
+
+        new_snps: list[list[int]] = [[] for _ in range(n_samples)]
+        monomorphic_sites: list[int] = []
+        non_biallelic_sites: list[int] = []
+        all_missing: list[int] = []
+
+        for j in range(n_sites):
+            # column j
+            loc = [str(snps[i][j]).upper() for i in range(n_samples)]
+
+            # All missing?
+            if all(x in {"N", "-", ".", "?", "./.", "-9"} for x in loc):
                 all_missing.append(j)
+                # still need to append -9 to keep rectangular shape
+                for i in range(n_samples):
+                    new_snps[i].append(-9)
                 continue
+
+            # Count unique biological alleles ignoring missing
             num_alleles = sequence_tools.count_alleles(loc)
 
-            if num_alleles != 2:
-                if num_alleles < 2:
-                    # If monomorphic
-                    if num_alleles < 2:
-                        monomorphic_sites.append(j)
-                        # Correctly call the helper on the entire locus
-                        # The result will be a list of alleles found,
-                        # e.g., ['A']
-                        alleles_present = sequence_tools.get_major_allele(
-                            loc, vcf=self.genotype_data.from_vcf
-                        )
-
-                        # Handle case where the only data is missing
-                        if not alleles_present:
-                            ref = "N"
-                        else:
-                            ref = str(alleles_present[0])
-
-                        alt = None  # Is a monomorphic site
-
-                    for i in range(0, len(snps)):
-                        if loc[i] in {"-", "-9", "N", "."}:
-                            new_snps[i].append(-9)
-
-                        elif loc[i] == ref:
-                            new_snps[i].append(0)
-
-                        else:
-                            new_snps[i].append(1)
-
-                # If >2 alleles
-                elif num_alleles > 2:
-                    non_biallelic_sites.append(j)
-                    all_alleles = sequence_tools.get_major_allele(
-                        loc, vcf=self.genotype_data.from_vcf
-                    )
-                    all_alleles = [str(x[0]) for x in all_alleles]
-                    ref = all_alleles.pop(0)
-                    alt = all_alleles.pop(0)
-                    others = all_alleles
-
-                    for i in range(0, len(snps)):
-                        if loc[i] in ["-", "-9", "N"]:
-                            new_snps[i].append(-9)
-
-                        elif loc[i] == ref:
-                            new_snps[i].append(0)
-
-                        elif loc[i] == alt:
-                            new_snps[i].append(2)
-
-                        # Force biallelic
-                        elif loc[i] in others:
-                            new_snps[i].append(2)
-
-                        else:
-                            new_snps[i].append(1)
-
-            else:
-                ref, alt = sequence_tools.get_major_allele(
+            if num_alleles < 2:
+                # Monomorphic (or effectively so)
+                monomorphic_sites.append(j)
+                mc = sequence_tools.get_major_allele(
                     loc, vcf=self.genotype_data.from_vcf
                 )
-                ref = str(ref)
-                alt = str(alt)
-
-                for i in range(0, len(snps)):
-                    if loc[i] in ["-", "-9", "N"]:
+                ref = "N" if not mc else str(mc[0])
+                for i in range(n_samples):
+                    g = loc[i]
+                    if g in {"-", "-9", "N", ".", "?", "./."}:
                         new_snps[i].append(-9)
-
-                    elif loc[i] == ref:
+                    elif g == ref or _encode_token(g, ref, set()) == 0:
                         new_snps[i].append(0)
-
-                    elif loc[i] == alt:
-                        new_snps[i].append(2)
-
                     else:
+                        # Any non-missing non-REF gets 1 (defensive)
                         new_snps[i].append(1)
 
+            elif num_alleles > 2:
+                # Force biallelic: collapse all non-REF to ALT
+                non_biallelic_sites.append(j)
+                all_alleles = sequence_tools.get_major_allele(
+                    loc, vcf=self.genotype_data.from_vcf
+                )
+                # make a flat ordered list like [ref, alt1, alt2, ...]
+                flat = []
+                for a in all_alleles:
+                    if isinstance(a, (list, tuple)):
+                        flat.extend([str(x) for x in a])
+                    else:
+                        flat.append(str(a))
+                if not flat:
+                    ref = "N"
+                    alts = set()
+                else:
+                    ref = flat[0]
+                    alts = set(flat[1:])  # everything else is ALT class
+                for i in range(n_samples):
+                    g = loc[i]
+                    if g in {"-", "-9", "N", ".", "?", "./."}:
+                        new_snps[i].append(-9)
+                    else:
+                        code = _encode_token(g, ref, alts)
+                        # ensure collapse: any non-REF non-missing that isn't het becomes ALT
+                        if code == 1:
+                            new_snps[i].append(1)
+                        elif code == 0:
+                            new_snps[i].append(0)
+                        else:
+                            new_snps[i].append(2)
+            else:
+                # Properly biallelic
+                mc = sequence_tools.get_major_allele(
+                    loc, vcf=self.genotype_data.from_vcf
+                )
+                ref, alts = _flatten_alts(mc)
+                for i in range(n_samples):
+                    new_snps[i].append(_encode_token(loc[i], ref, alts))
+
+        # ---- Logging side-effects preserved ----
         if self.genotype_data.was_filtered:
             outdir = Path(f"{self.prefix}_output", "nremover", "logs")
         else:
@@ -200,39 +271,31 @@ class GenotypeEncoder:
         outdir.mkdir(exist_ok=True, parents=True)
 
         if monomorphic_sites:
-            # TODO: Check here if column is all missing.
-            # TODO: What to do in this case? Error out?
-            outfile = outdir / "monomorphic_sites_mqc.txt"
-            with open(outfile, "w") as fout:
-                mono_sites = [str(x) for x in monomorphic_sites]
-                fout.write(",".join(mono_sites))
-
+            (outdir / "monomorphic_sites_mqc.txt").write_text(
+                ",".join(map(str, monomorphic_sites))
+            )
             self.logger.info(
-                f"Monomorphic sites detected. You can check the monomorphic locus indices in the following log file: {outfile}"
+                f"Monomorphic sites detected; indices written to: {outdir/'monomorphic_sites_mqc.txt'}"
             )
 
         if non_biallelic_sites:
-            outfile = outdir / "non_biallelic_sites_mqc.txt"
-            with open(outfile, "w") as fout:
-                nba = [str(x) for x in non_biallelic_sites]
-                fout.write(",".join(nba))
-
+            (outdir / "non_biallelic_sites_mqc.txt").write_text(
+                ",".join(map(str, non_biallelic_sites))
+            )
             self.logger.info(
-                f"SNP column indices listed in the log file {outfile} had >2 alleles and was forced to be bi-allelic. If that is not desired, please fix or remove the column and re-run."
+                f">2-allele columns collapsed to biallelic; indices written to: {outdir/'non_biallelic_sites_mqc.txt'}"
             )
 
-        if all_missing:
+        if any(idx in all_missing for idx in range(n_sites)):
             self.genotype_data.all_missing_idx = all_missing
-            outfile = outdir / "all_missing_sites_mqc.txt"
-            with open(outfile, "w") as fout:
-                fout.write(",".join([str(x) for x in all_missing]))
-
+            (outdir / "all_missing_sites_mqc.txt").write_text(
+                ",".join(map(str, all_missing))
+            )
             self.logger.warning(
-                f"SNP column indices found in the log file {outfile} had all missing data and were excluded from the alignment."
+                f"All-missing columns excluded; indices written to: {outdir/'all_missing_sites_mqc.txt'}"
             )
 
-        snps_012 = [s for s in new_snps]
-        return snps_012
+        return [row for row in new_snps]
 
     def convert_onehot(
         self,
@@ -427,22 +490,32 @@ class GenotypeEncoder:
         write_output: bool = True,
         is_nuc: bool = False,
     ):
-        """Decode 012-encoded or 0-9 integer-encoded imputed data to STRUCTURE or PHYLIP format.
+        """Decode 012 or 0-9 integer encodings back to STRUCTURE/PHYLIP/IUPAC.
 
-        This method decodes 012-encoded or 0-9 integer-encoded imputed data to IUPAC format. The decoded data can be saved to a file or returned as a DataFrame.
+        For standard 012 decoding, we require per-locus REF/ALT from the backing
+        ``GenotypeData``. We output "ref/ref", "ref/alt", "alt/alt" (or their
+        IUPAC single-letter equivalents if PHYLIP/VCF-like output is requested).
+
+        If ``is_nuc`` is True, treats inputs as 0-9 IUPAC integers instead
+        (A=0, C=1, G=2, T=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9).
 
         Args:
-            X (pandas.DataFrame | numpy.ndarray | List[List[int]]): Imputed data to decode, encoded as 012 or 0-9 integers.
-
-            write_output (bool): If True, save the decoded output to a file. If False, return the decoded data as a DataFrame. Defaults to True.
-
-            is_nuc (bool): Whether the encoding is based on nucleotides instead of 012. Defaults to False.
+            X (np.ndarray | pd.DataFrame | List[List[int]]): Matrix of 012 or 0-9 integers.
+            write_output (bool): If True, write to disk using current filetype; else return decoded matrix.
+            is_nuc (bool): Decode using 0-9 IUPAC integer scheme instead of 012 scheme.
 
         Returns:
-            str | pandas.DataFrame: If write_output is True, returns the filename where the imputed data was written. If write_output is False, returns the decoded data as a DataFrame.
+            str | pd.DataFrame | np.ndarray:
+                - If ``write_output=True``: output filename (str).
+                - If ``write_output=False``: decoded data matrix (np.ndarray).
+
+        Raises:
+            ValueError: When REF/ALT are missing for 012 decoding.
         """
         df = misc.validate_input_type(X, return_type="df")
+        ft = self.filetype.lower()
 
+        # Map diploid pairs --> IUPAC single letter for PHYLIP-like output
         nuc = {
             "A/A": "A",
             "C/C": "C",
@@ -462,160 +535,74 @@ class GenotypeEncoder:
             "C/A": "M",
             "N/N": "N",
         }
+        is_phylip_like = ft in {"phylip", "phylip-relaxed", "vcf"}
 
-        ft = self.filetype.lower()
-
-        is_phylip = False
-        if ft == "phylip" or ft == "vcf":
-            is_phylip = True
-
-        df_decoded = df.copy()
         df_decoded = df.copy().astype(object)
 
         if is_nuc:
-            classes_int = range(10)
-            classes_string = [str(x) for x in classes_int]
-            if is_phylip:
+            # 0–9 integer decoding (IUPAC integers)
+            classes_int = list(range(10)) + [-9]
+            if is_phylip_like:
                 gt = ["A", "C", "G", "T", "W", "R", "M", "K", "Y", "S", "N"]
             else:
                 gt = [
-                    "1/1",
-                    "2/2",
-                    "3/3",
-                    "4/4",
-                    "1/2",
-                    "1/3",
-                    "1/4",
-                    "2/3",
-                    "2/4",
-                    "3/4",
-                    "-9/-9",
+                    "1/1",  # A
+                    "2/2",  # C
+                    "3/3",  # G
+                    "4/4",  # T
+                    "1/4",  # A/T
+                    "1/3",  # A/G
+                    "1/2",  # A/C
+                    "3/4",  # G/T
+                    "2/4",  # C/T
+                    "2/3",  # C/G
+                    "-9/-9",  # N/N
                 ]
-            d = dict(zip(classes_int, gt))
-            dstr = dict(zip(classes_string, gt))
-            d.update(dstr)
-            dreplace = {col: d for col in list(df.columns)}
+            d = dict(zip(classes_int, gt)) | {
+                str(k): v for k, v in zip(classes_int, gt)
+            }
+            dreplace = {col: d for col in df_decoded.columns}
 
         else:
-            dreplace = dict()
-            # Use the ref/alt alleles from the stored genotype_data object
-            ref_alleles = self.genotype_data.ref
-            alt_alleles = self.genotype_data.alt
-
+            # Standard 012 decoding using REF/ALT
+            ref_alleles = getattr(self.genotype_data, "ref", None)
+            alt_alleles = getattr(self.genotype_data, "alt", None)
             if not ref_alleles or not alt_alleles:
-                msg = "Reference and alternate alleles are not available in the source GenotypeData object; cannot decode 012 matrix."
+                msg = "Reference and alternate alleles are not available in GenotypeData; cannot decode 012 matrix."
                 self.logger.error(msg)
                 raise ValueError(msg)
 
-            for i, col in enumerate(df.columns):
-                ref = ref_alleles[i]
+            dreplace = {}
+            for i, col in enumerate(df_decoded.columns):
+                ref = str(ref_alleles[i])
                 alt = alt_alleles[i]
-
-                if alt is None:
+                # Some pipelines may carry None or multi-ALT; choose first ALT or fallback to REF
+                if isinstance(alt, (list, tuple)) and len(alt) > 0:
+                    alt = str(alt[0])
+                elif alt is None:
                     alt = ref
+                else:
+                    alt = str(alt)
 
-                ref2 = f"{ref}/{ref}"
-                alt2 = f"{alt}/{alt}"
-                het2 = f"{ref}/{alt}"
-
-                if is_phylip:
-                    ref2 = nuc[ref2]
-                    alt2 = nuc[alt2]
-                    het2 = nuc[het2]
+                ref2, alt2, het2 = f"{ref}/{ref}", f"{alt}/{alt}", f"{ref}/{alt}"
+                if is_phylip_like:
+                    ref2 = nuc.get(ref2, ref)  # if not A/C/G/T, keep token
+                    alt2 = nuc.get(alt2, alt)
+                    het2 = nuc.get(het2, "N")
 
                 d = {
-                    "0": ref2,
                     0: ref2,
-                    "1": het2,
+                    "0": ref2,
                     1: het2,
-                    "2": alt2,
+                    "1": het2,
                     2: alt2,
-                    "-9": "N",
+                    "2": alt2,
                     -9: "N",
+                    "-9": "N",
                 }
                 dreplace[col] = d
 
         df_decoded = df_decoded.replace(dreplace)
-
-        if write_output:
-            if self.genotype_data.was_filtered:
-                outdir = Path(f"{self.prefix}_output", "nremover", "alignments")
-            else:
-                outdir = Path(f"{self.prefix}_output", "alignments")
-            outdir.mkdir(exist_ok=True, parents=True)
-
-        if ft.startswith("structure"):
-            if ft.startswith("structure2row"):
-                for col in df_decoded.columns:
-                    df_decoded[col] = (
-                        df_decoded[col]
-                        .str.split("/")
-                        .apply(lambda x: list(map(int, x)))
-                    )
-
-                df_decoded.insert(0, "sampleID", self._samples)
-                df_decoded.insert(1, "popID", self._populations)
-
-                # Transform each element to a separate row.
-                df_decoded = (
-                    df_decoded.set_index(["sampleID", "popID"])
-                    .apply(pd.Series.explode)
-                    .reset_index()
-                )
-
-            elif ft.startswith("structure1row"):
-                df_decoded = pd.concat(
-                    [
-                        df_decoded[c]
-                        .astype(str)
-                        .str.split("/", expand=True)
-                        .add_prefix(f"{c}_")
-                        for c in df_decoded.columns
-                    ],
-                    axis=1,
-                )
-
-            elif ft == "structure":
-                for col in df_decoded.columns:
-                    df_decoded[col] = (
-                        df_decoded[col]
-                        .str.split("/")
-                        .apply(lambda x: list(map(int, x)))
-                    )
-
-                df_decoded.insert(0, "sampleID", self._samples)
-                df_decoded.insert(1, "popID", self._populations)
-
-                # Transform each element to a separate row.
-                df_decoded = (
-                    df_decoded.set_index(["sampleID", "popID"])
-                    .apply(pd.Series.explode)
-                    .reset_index()
-                )
-
-            if write_output:
-                of = outdir / "012.str"
-                df_decoded.insert(0, "sampleID", self._samples)
-                df_decoded.insert(1, "popID", self._populations)
-
-                df_decoded.to_csv(of, sep="\t", header=False, index=False)
-
-        elif ft.startswith("phylip"):
-            if write_output:
-                of = outdir / "012.phy"
-                header = f"{self.num_inds} {self.num_snps}\n"
-                with open(of, "w") as fout:
-                    fout.write(header)
-
-                lst_decoded = df_decoded.values.tolist()
-
-                with open(of, "a") as fout:
-                    for sample, row in zip(self._samples, lst_decoded):
-                        seqs = "".join([str(x) for x in row])
-                        fout.write(f"{sample}\t{seqs}\n")
-
-        if write_output:
-            return of
         return df_decoded.to_numpy()
 
     def encode_alleles_two_channel(
