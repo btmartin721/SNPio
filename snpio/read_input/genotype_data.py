@@ -1178,9 +1178,9 @@ class GenotypeData(BaseGenotypeData):
     def _get_custom_gt2iupac(self):
         iupac_ambig_dict = {
             "AA": "A",
-            "TT": "T",
             "CC": "C",
             "GG": "G",
+            "TT": "T",
             "AT": "W",
             "TA": "W",
             "AC": "M",

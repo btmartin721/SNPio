@@ -124,7 +124,7 @@ class GenotypeEncoder:
                         # The result will be a list of alleles found,
                         # e.g., ['A']
                         alleles_present = sequence_tools.get_major_allele(
-                            loc, biallelic=False
+                            loc, vcf=self.genotype_data.from_vcf
                         )
 
                         # Handle case where the only data is missing
@@ -148,7 +148,9 @@ class GenotypeEncoder:
                 # If >2 alleles
                 elif num_alleles > 2:
                     non_biallelic_sites.append(j)
-                    all_alleles = sequence_tools.get_major_allele(loc)
+                    all_alleles = sequence_tools.get_major_allele(
+                        loc, vcf=self.genotype_data.from_vcf
+                    )
                     all_alleles = [str(x[0]) for x in all_alleles]
                     ref = all_alleles.pop(0)
                     alt = all_alleles.pop(0)
@@ -172,7 +174,9 @@ class GenotypeEncoder:
                             new_snps[i].append(1)
 
             else:
-                ref, alt = sequence_tools.get_major_allele(loc)
+                ref, alt = sequence_tools.get_major_allele(
+                    loc, vcf=self.genotype_data.from_vcf
+                )
                 ref = str(ref)
                 alt = str(alt)
 
@@ -441,9 +445,9 @@ class GenotypeEncoder:
 
         nuc = {
             "A/A": "A",
-            "T/T": "T",
-            "G/G": "G",
             "C/C": "C",
+            "G/G": "G",
+            "T/T": "T",
             "A/G": "R",
             "G/A": "R",
             "C/T": "Y",
@@ -472,7 +476,7 @@ class GenotypeEncoder:
             classes_int = range(10)
             classes_string = [str(x) for x in classes_int]
             if is_phylip:
-                gt = ["A", "T", "G", "C", "W", "R", "M", "K", "Y", "S", "N"]
+                gt = ["A", "C", "G", "T", "W", "R", "M", "K", "Y", "S", "N"]
             else:
                 gt = [
                     "1/1",
@@ -624,7 +628,7 @@ class GenotypeEncoder:
         Each matrix will have shape (N_samples, N_loci), where each entry is an integer representing one of the two alleles (reference or alternate).
 
         Args:
-            snp_data (np.ndarray): An (n_samples x n_loci) numpy array of IUPAC-encoded genotypes, where each entry is a single character string representing the genotype (e.g., "A", "T", "C", "G", "N", "-", etc.). Heterozygous genotypes are represented by ambiguity codes (e.g., "W", "S", "M", "K", "R", "Y").
+            snp_data (np.ndarray): An (n_samples x n_loci) numpy array of IUPAC-encoded genotypes, where each entry is a single character string representing the genotype (e.g., "A", "C", "G", "T", "N", "-", etc.). Heterozygous genotypes are represented by ambiguity codes (e.g., "W", "S", "M", "K", "R", "Y").
 
         Returns:
             Tuple[np.ndarray, np.ndarray]: Two matrices where each row corresponds to a sample and each column to a locus. The first matrix contains the first allele (allele1) and the second matrix contains the second allele (allele2).

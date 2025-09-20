@@ -66,9 +66,7 @@ def get_major_allele(
 
     Args:
         l (List[str]): A list of genotypes for one sample.
-
         num (int | None, optional): The number of elements to return. If None, all elements are returned. Defaults to None.
-
         vcf (bool, optional): If True, the alleles are in VCF format. If False, the alleles are in STRUCTURE-style format. Defaults to False.
 
     Returns:
@@ -97,9 +95,9 @@ def get_major_allele(
     # Returns two most common non-ambiguous bases
     # Makes sure the least common base isn't N or -9
     if vcf:
-        return [x[0] for x in rets if x[0] != "-9"]
+        return [x[0] for x in rets if x[0] not in {"-9", -9}]
     else:
-        return [x[0] for x in rets if x[0] in ["A", "T", "G", "C"]]
+        return [x[0] for x in rets if x[0] in ("A", "C", "G", "T")]
 
 
 def get_iupac_caseless(char: str) -> List[str]:
@@ -124,6 +122,8 @@ def get_iupac_caseless(char: str) -> List[str]:
         "T": ["T", "T"],
         "N": ["N", "N"],
         "-": ["N", "N"],
+        "?": ["N", "N"],
+        ".": ["N", "N"],
         "R": ["A", "G"],
         "Y": ["C", "T"],
         "S": ["G", "C"],
