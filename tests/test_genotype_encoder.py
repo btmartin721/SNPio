@@ -146,22 +146,20 @@ class TestGenotypeEncoder(unittest.TestCase):
             ],
             dtype=np.float32,
         )
-
         result = self.encoder.genotypes_onehot
         np.testing.assert_array_equal(result, expected)
 
     def test_convert_integer(self):
         expected = np.array(
             [
-                [0, 3, 0, 3, 5, 1, 0, 2, 1, 2],
-                [0, 3, 0, 3, 2, 1, 5, 2, 1, 2],
-                [1, 2, 2, 1, 5, 3, 2, 1, 0, 3],
-                [1, 2, 2, 1, 0, 3, 2, 1, 0, 3],
-                [1, 2, 2, 1, 0, 3, 2, 1, 0, 3],
+                [1, 4, 1, 4, 5, 2, 1, 3, 2, 3],
+                [1, 4, 1, 4, 3, 2, 5, 3, 2, 3],
+                [2, 3, 3, 2, 5, 4, 3, 2, 1, 4],
+                [2, 3, 3, 2, 1, 4, 3, 2, 1, 4],
+                [2, 3, 3, 2, 1, 4, 3, 2, 1, 4],
             ],
             dtype=np.int8,
         )
-
         result = self.encoder.genotypes_int
         np.testing.assert_array_equal(result, expected)
 
