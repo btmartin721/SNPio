@@ -485,134 +485,141 @@ class GenotypeEncoder:
         return np.array(decoded_outer_list)
 
     def decode_012(
-        self,
-        X: np.ndarray | pd.DataFrame | List[List[int]],
-        write_output: bool = True,
-        is_nuc: bool = False,
-    ):
-        """Decode 012 or 0-9 integer encodings back to STRUCTURE/PHYLIP/IUPAC.
+        self, X: np.ndarray | pd.DataFrame | List[List[int]], is_nuc: bool = False
+    ) -> np.ndarray:
+        """Decode 012 or 0-9 integer encodings to single-character IUPAC nucleotides.
 
-        For standard 012 decoding, we require per-locus REF/ALT from the backing
-        ``GenotypeData``. We output "ref/ref", "ref/alt", "alt/alt" (or their
-        IUPAC single-letter equivalents if PHYLIP/VCF-like output is requested).
+        Always returns single-character IUPAC codes: A, C, G, T for homozygotes; R, Y, S, W, K, M for heterozygotes; N for missing.
 
-        If ``is_nuc`` is True, treats inputs as 0-9 IUPAC integers instead
-        (A=0, C=1, G=2, T=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9).
+        Modes:
+        1) Standard 012 (0=REF, 1=HET, 2=ALT, -9=missing) using per-locus REF/ALT from GenotypeData.
+        2) IUPAC-integer mode (``is_nuc=True``) using SNPio's updated order:
+            A=0, C=1, G=2, T=3, W=4, R=5, M=6, K=7, Y=8, S=9, N=-9.
 
         Args:
-            X (np.ndarray | pd.DataFrame | List[List[int]]): Matrix of 012 or 0-9 integers.
-            write_output (bool): If True, write to disk using current filetype; else return decoded matrix.
-            is_nuc (bool): Decode using 0-9 IUPAC integer scheme instead of 012 scheme.
+            X: Matrix of 012 or 0-9 IUPAC integers.
+            is_nuc: If True, interpret inputs as 0-9 IUPAC integers (A=0, C=1, G=2, T=3, ...).
 
         Returns:
-            str | pd.DataFrame | np.ndarray:
-                - If ``write_output=True``: output filename (str).
-                - If ``write_output=False``: decoded data matrix (np.ndarray).
+            np.ndarray: Same shape as X, dtype '<U1', with single-character IUPAC codes.
 
         Raises:
-            ValueError: When REF/ALT are missing for 012 decoding.
+            ValueError: If REF/ALT metadata are unavailable for 012 decoding.
         """
         df = misc.validate_input_type(X, return_type="df")
-        ft = self.filetype.lower()
 
-        # Map diploid pairs --> IUPAC single letter for PHYLIP-like output
-        nuc = {
-            "A/A": "A",
-            "C/C": "C",
-            "G/G": "G",
-            "T/T": "T",
-            "A/G": "R",
-            "G/A": "R",
-            "C/T": "Y",
-            "T/C": "Y",
-            "G/C": "S",
-            "C/G": "S",
-            "A/T": "W",
-            "T/A": "W",
-            "G/T": "K",
-            "T/G": "K",
-            "A/C": "M",
-            "C/A": "M",
-            "N/N": "N",
+        # IUPAC ambiguity mapping (unordered pairs → code) for 012→IUPAC.
+        pair_to_iupac = {
+            frozenset(("A", "G")): "R",
+            frozenset(("C", "T")): "Y",
+            frozenset(("G", "C")): "S",
+            frozenset(("A", "T")): "W",
+            frozenset(("G", "T")): "K",
+            frozenset(("A", "C")): "M",
         }
-        is_phylip_like = ft in {"phylip", "phylip-relaxed", "vcf"}
-
-        df_decoded = df.copy().astype(object)
+        valid_bases = {"A", "C", "G", "T"}
 
         if is_nuc:
-            # 0–9 integer decoding (IUPAC integers)
-            classes_int = list(range(10)) + [-9]
-            if is_phylip_like:
-                gt = ["A", "C", "G", "T", "W", "R", "M", "K", "Y", "S", "N"]
-            else:
-                gt = [
-                    "1/1",  # A
-                    "2/2",  # C
-                    "3/3",  # G
-                    "4/4",  # T
-                    "1/4",  # A/T
-                    "1/3",  # A/G
-                    "1/2",  # A/C
-                    "3/4",  # G/T
-                    "2/4",  # C/T
-                    "2/3",  # C/G
-                    "-9/-9",  # N/N
-                ]
-            d = dict(zip(classes_int, gt)) | {
-                str(k): v for k, v in zip(classes_int, gt)
-            }
-            dreplace = {col: d for col in df_decoded.columns}
+            # UPDATED SNPio order: A=0, C=1, G=2, T=3, W=4, R=5, M=6, K=7, Y=8,
+            # S=9, N=-9
+            iupac_list = ["A", "C", "G", "T", "W", "R", "M", "K", "Y", "S"]
+            mapping = {i: iupac_list[i] for i in range(10)}
+            mapping[-9] = "N"
+            mapping[-1] = "N"
 
-        else:
-            # Standard 012 decoding using REF/ALT
-            ref_alleles = getattr(self.genotype_data, "ref", None)
-            alt_alleles = getattr(self.genotype_data, "alt", None)
-            if not ref_alleles or not alt_alleles:
-                msg = "Reference and alternate alleles are not available in GenotypeData; cannot decode 012 matrix."
-                self.logger.error(msg)
-                raise ValueError(msg)
+            # accept strings too
+            mapping.update({str(k): v for k, v in mapping.items()})
+            return df.replace(mapping).to_numpy(dtype="<U1")
 
-            dreplace = {}
-            for i, col in enumerate(df_decoded.columns):
-                ref = str(ref_alleles[i])
-                alt = alt_alleles[i]
-                # Some pipelines may carry None or multi-ALT; choose first ALT or fallback to REF
-                if isinstance(alt, (list, tuple)) and len(alt) > 0:
-                    alt = str(alt[0])
-                elif alt is None:
-                    alt = ref
-                else:
-                    alt = str(alt)
+        # ---- Standard 012 decoding using REF/ALT per column ----
+        ref_alleles = getattr(self.genotype_data, "ref", None)
+        alt_alleles = getattr(self.genotype_data, "alt", None)
 
-                ref2, alt2, het2 = f"{ref}/{ref}", f"{alt}/{alt}", f"{ref}/{alt}"
-                if is_phylip_like:
-                    ref2 = nuc.get(ref2, ref)  # if not A/C/G/T, keep token
-                    alt2 = nuc.get(alt2, alt)
-                    het2 = nuc.get(het2, "N")
+        if ref_alleles is None or alt_alleles is None:
+            msg = "Reference and alternate alleles are not available in GenotypeData; cannot decode 012 matrix."
+            self.logger.error(msg)
+            raise ValueError(msg)
 
-                d = {
-                    0: ref2,
-                    "0": ref2,
-                    1: het2,
-                    "1": het2,
-                    2: alt2,
-                    "2": alt2,
+        df_out = df.copy().astype(object)
+        for j, col in enumerate(df_out.columns):
+            ref = ref_alleles[j]
+            alt = alt_alleles[j]
+
+            if isinstance(alt, (list, tuple)):
+                alt = alt[0] if len(alt) > 0 else None
+
+            ref = "" if ref is None else str(ref).upper()
+            alt = ref if alt is None else str(alt).upper()
+
+            ref_is_std = ref in valid_bases
+            alt_is_std = alt in valid_bases
+
+            if ref_is_std and alt_is_std:
+                het_code = (
+                    ref if ref == alt else pair_to_iupac.get(frozenset((ref, alt)), "N")
+                )
+                col_map = {
+                    0: ref,
+                    "0": ref,
+                    1: het_code,
+                    "1": het_code,
+                    2: alt,
+                    "2": alt,
                     -9: "N",
                     "-9": "N",
+                    -1: "N",
+                    "-1": "N",
                 }
-                dreplace[col] = d
+            elif ref_is_std and not alt_is_std:
+                col_map = {
+                    0: ref,
+                    "0": ref,
+                    1: "N",
+                    "1": "N",
+                    2: "N",
+                    "2": "N",
+                    -9: "N",
+                    "-9": "N",
+                    -1: "N",
+                    "-1": "N",
+                }
+            elif not ref_is_std and alt_is_std:
+                col_map = {
+                    0: "N",
+                    "0": "N",
+                    1: "N",
+                    "1": "N",
+                    2: alt,
+                    "2": alt,
+                    -9: "N",
+                    "-9": "N",
+                    -1: "N",
+                    "-1": "N",
+                }
+            else:
+                col_map = {
+                    0: "N",
+                    "0": "N",
+                    1: "N",
+                    "1": "N",
+                    2: "N",
+                    "2": "N",
+                    -9: "N",
+                    "-9": "N",
+                    -1: "N",
+                    "-1": "N",
+                }
 
-        df_decoded = df_decoded.replace(dreplace)
-        return df_decoded.to_numpy()
+            df_out[col] = df_out[col].map(col_map)
+
+        return df_out.to_numpy(dtype="<U1")
 
     def encode_alleles_two_channel(
         self, snp_data: np.ndarray
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Convert IUPAC genotypes to two integer allele matrices.
 
-        This method encodes the SNP data into two separate matrices representing the two alleles for each sample and locus.
-
-        Each matrix will have shape (N_samples, N_loci), where each entry is an integer representing one of the two alleles (reference or alternate).
+        This method encodes the SNP data into two separate matrices representing the two alleles for each sample and locus. Each matrix will have shape (N_samples, N_loci), where each entry is an integer representing one of the two alleles (reference or alternate).
 
         Args:
             snp_data (np.ndarray): An (n_samples x n_loci) numpy array of IUPAC-encoded genotypes, where each entry is a single character string representing the genotype (e.g., "A", "C", "G", "T", "N", "-", etc.). Heterozygous genotypes are represented by ambiguity codes (e.g., "W", "S", "M", "K", "R", "Y").
