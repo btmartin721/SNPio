@@ -260,12 +260,7 @@ class GenotypeData(BaseGenotypeData):
             v: k for k, v in self.iupac_mapping.items()
         }
 
-        self.pop_state = PopState(
-            samples=self._samples,
-            populations=self._populations,
-            popmap=self._popmap,
-            popmap_inverse=self._popmap_inverse,
-        )
+        self.pop_state = PopState(samples=self._samples)
 
         if not hasattr(self, "iupac"):
             self.iupac = IUPAC(logger=self.logger)
@@ -367,6 +362,10 @@ class GenotypeData(BaseGenotypeData):
             self._popmap_inverse = {"NA": self.samples}
             self._populations = ["NA"] * self.num_inds
             self.sample_indices = np.ones(self.num_inds, dtype=bool)
+
+        self.pop_state.populations = self._populations
+        self.pop_state.popmap = self._popmap
+        self.pop_state.popmap_inverse = self._popmap_inverse
 
     def subset_with_popmap(
         self,
