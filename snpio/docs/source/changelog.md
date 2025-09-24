@@ -2,6 +2,10 @@
 
 This document outlines the changes made to the project with each release.
 
+## Version 1.6.7 (2025-09-25)
+
+No changes. Version bump issue.
+
 ## Version 1.6.6 (2025-09-24)
 
 ### Features - v1.6.6
