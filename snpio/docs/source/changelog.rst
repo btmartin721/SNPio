@@ -4,6 +4,51 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.6.6 (2025-09-24)
+--------------------------
+
+Features - v1.6.6
+~~~~~~~~~~~~~~~~~
+
+- Added several new properties to the `GenotypeData` class:
+    - `shape`: A tuple representing the alignment dimensions (n_samples, n_loci).
+    - `num_pops`: The total number of unique populations.
+    - `pop_sizes`: A dictionary mapping each population ID to its sample count.
+    - `pop_to_indices`: A dictionary mapping each population ID to a list of its sample row indices.
+    - `has_popmap`: A boolean indicating if population data is present.
+    - `locus_names`: A list of concrete names for each locus.
+    - `snpsdict`: A dictionary mapping sample IDs to their genotype sequences.
+    - `inputs`: A dictionary of the keyword arguments used to initialize the object.
+    - `is_empty`: A boolean that is `True` if the dataset has zero samples or loci.
+    - `output_dir`: The root output directory path for generated files.
+    - `plots_dir`: The dedicated directory path for plots.
+    - `reports_dir`: The dedicated directory path for reports.
+    - `missing_mask`: A boolean NumPy array where `True` marks a missing genotype.
+    - `valid_mask`: A boolean NumPy array where `True` marks a non-missing genotype.
+    - `het_mask`: A boolean NumPy array where `True` marks a heterozygous genotype.
+    - `missing_rate`: The overall proportion of missing data in the alignment.
+    - `per_locus_missing`: A pandas Series with the missing data proportion for each locus.
+    - `per_individual_missing`: A pandas Series with the missing data proportion for each individual.
+    - `per_locus_het_rate`: A pandas Series with the heterozygosity rate for each locus.
+    - `per_individual_het_rate`: A pandas Series with the heterozygosity rate for each individual.
+    - `is_missing_locus`: A boolean NumPy array that is `True` for loci missing in all samples.
+    - `nbytes`: The approximate memory footprint of the `snp_data` array in bytes.
+
+Enhancements - v1.6.6
+~~~~~~~~~~~~~~~~~~~~~
+
+- Improved the `GenotypeData` class by adding several new properties to enhance data accessibility and analysis capabilities. These properties provide quick access to key dataset characteristics, such as shape, population information, missing data metrics, and memory usage. This enhancement aims to streamline workflows and improve user experience when working with genotype data.
+- Added support for when there is no available population map file.
+- Added several new dataclasses to encapsulate related data and functionality, improving code organization and maintainability.
+
+Version 1.6.5 (2025-09-24)
+--------------------------
+
+Bug Fixes - v1.6.5
+~~~~~~~~~~~~~~~~~~
+
+- Minor bug fixes in `GenotypeEncoder`.
+
 Version 1.6.4 (2025-09-20)
 --------------------------
 
