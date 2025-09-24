@@ -433,6 +433,11 @@ class PopGenStatistics:
         )
         self.logger.info(f"Calculating Weir & Cockerham Fst (method: '{method}')...")
 
+        if len(list(set(self.populations))) < 2:
+            msg = "At least two populations are required to calculate Fst."
+            self.logger.error(msg)
+            raise exceptions.MissingPopulationMapError(msg)
+
         # Call the backend with the new, explicit API
         fst_results = fst.weir_cockerham_fst(
             method=method, n_reps=n_reps, n_jobs=n_jobs
@@ -544,6 +549,11 @@ class PopGenStatistics:
             self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
         )
         self.logger.info(f"Calculating Nei's genetic distance (method: '{method}')...")
+
+        if len(list(set(self.populations))) < 2:
+            msg = "At least two populations are required to calculate Nei's genetic distance."
+            self.logger.error(msg)
+            raise exceptions.MissingPopulationMapError(msg)
 
         # Call the backend with the new, explicit API
         nei_results = gd.nei_distance(method=method, n_reps=n_reps, n_jobs=n_jobs)

@@ -1401,9 +1401,14 @@ class Plotting:
         self._plot_summary_statistics_per_sample(
             summary_statistics["overall"], ax=axes[0]
         )
-        self._plot_summary_statistics_per_population(
-            summary_statistics["per_population"], ax=axes[1]
-        )
+
+        if (
+            self.genotype_data.has_popmap
+            and summary_statistics.get("per_population", None) is not None
+        ):
+            self._plot_summary_statistics_per_population(
+                summary_statistics["per_population"], ax=axes[1]
+            )
 
         fig.suptitle("Summary Statistics Overview", fontsize=16, y=1.05)
         fig.tight_layout()
@@ -1471,68 +1476,73 @@ class Plotting:
         else:
             marker_names = [f"locus_{i}" for i in range(self.genotype_data.num_snps)]
 
-        dflist = []
-        for pop_id, pop_data in summary_statistics["per_population"].items():
-            dftmp = pop_data.copy()
-            dftmp["Population ID"] = pop_id
-            dftmp = dftmp.rename_axis("Locus (CHROM:POS)")
-            dftmp.index = marker_names
-            dftmp = dftmp.set_index(["Population ID", dftmp.index])
-            dflist.append(dftmp)
+        if self.genotype_data.has_popmap:
+            dflist = []
+            for pop_id, pop_data in summary_statistics["per_population"].items():
+                dftmp = pop_data.copy()
+                dftmp["Population ID"] = pop_id
+                dftmp = dftmp.rename_axis("Locus (CHROM:POS)")
+                dftmp.index = marker_names
+                dftmp = dftmp.set_index(["Population ID", dftmp.index])
+                dflist.append(dftmp)
 
-        df_per_pop = pd.concat(dflist)
+            df_per_pop = pd.concat(dflist)
 
-        df_per_pop = df_per_pop.reset_index().rename(
-            columns={"level_1": "Locus (CHROM:POS)"}
-        )
+            df_per_pop = df_per_pop.reset_index().rename(
+                columns={"level_1": "Locus (CHROM:POS)"}
+            )
 
-        df_per_pop_pivot_ho = df_per_pop[
-            ["Locus (CHROM:POS)", "Population ID", "Ho"]
-        ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="Ho")
+            df_per_pop_pivot_ho = df_per_pop[
+                ["Locus (CHROM:POS)", "Population ID", "Ho"]
+            ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="Ho")
 
-        df_per_pop_pivot_he = df_per_pop[
-            ["Locus (CHROM:POS)", "Population ID", "He"]
-        ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="He")
+            df_per_pop_pivot_he = df_per_pop[
+                ["Locus (CHROM:POS)", "Population ID", "He"]
+            ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="He")
 
-        df_per_pop_pivot_pi = df_per_pop[
-            ["Locus (CHROM:POS)", "Population ID", "Pi"]
-        ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="Pi")
+            df_per_pop_pivot_pi = df_per_pop[
+                ["Locus (CHROM:POS)", "Population ID", "Pi"]
+            ].pivot(index="Locus (CHROM:POS)", columns="Population ID", values="Pi")
 
-        self.snpio_mqc.queue_custom_boxplot(
-            df=df_per_pop_pivot_pi,
-            panel_id="summary_statistics_per_population_pi",
-            section="detailed_statistics",
-            title="SNPio: Per-locus Nucleotide Diversity (Pi) for each Population",
-            index_label="Locus (CHROM:POS)",
-            description="This box plot displays the per-locus Nucleotide Diversity (Pi) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual diversity levels within a population.",
-        )
+            self.snpio_mqc.queue_custom_boxplot(
+                df=df_per_pop_pivot_pi,
+                panel_id="summary_statistics_per_population_pi",
+                section="detailed_statistics",
+                title="SNPio: Per-locus Nucleotide Diversity (Pi) for each Population",
+                index_label="Locus (CHROM:POS)",
+                description="This box plot displays the per-locus Nucleotide Diversity (Pi) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual diversity levels within a population.",
+            )
 
-        self.snpio_mqc.queue_custom_boxplot(
-            df=df_per_pop_pivot_he,
-            panel_id="summary_statistics_per_population_he",
-            section="detailed_statistics",
-            title="SNPio: Per-locus Expected Heterozygosity (He) for each Population",
-            index_label="Locus (CHROM:POS)",
-            description="This box plot shows the per-locus Expected Heterozygosity (He) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual expected heterozygosity levels within a population.",
-        )
+            self.snpio_mqc.queue_custom_boxplot(
+                df=df_per_pop_pivot_he,
+                panel_id="summary_statistics_per_population_he",
+                section="detailed_statistics",
+                title="SNPio: Per-locus Expected Heterozygosity (He) for each Population",
+                index_label="Locus (CHROM:POS)",
+                description="This box plot shows the per-locus Expected Heterozygosity (He) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual expected heterozygosity levels within a population.",
+            )
 
-        self.snpio_mqc.queue_custom_boxplot(
-            df=df_per_pop_pivot_ho,
-            panel_id="summary_statistics_per_population_ho",
-            section="detailed_statistics",
-            title="SNPio: Per-locus Observed Heterozygosity (Ho) for each Population",
-            index_label="Locus (CHROM:POS)",
-            description="This box plot presents the per-locus Observed Heterozygosity (Ho) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual observed heterozygosity levels within a population.",
-        )
+            self.snpio_mqc.queue_custom_boxplot(
+                df=df_per_pop_pivot_ho,
+                panel_id="summary_statistics_per_population_ho",
+                section="detailed_statistics",
+                title="SNPio: Per-locus Observed Heterozygosity (Ho) for each Population",
+                index_label="Locus (CHROM:POS)",
+                description="This box plot presents the per-locus Observed Heterozygosity (Ho) for each population. Points indicate outlier loci that fall outside the box whiskers, highlighting loci with unusual observed heterozygosity levels within a population.",
+            )
 
-        # Plot Fst heatmap
-        self._plot_fst_heatmap(
-            summary_statistics["Fst_between_populations_obs"],
-            df_fst_lower=summary_statistics["Fst_between_populations_lower"],
-            df_fst_upper=summary_statistics["Fst_between_populations_upper"],
-            df_fst_pvals=summary_statistics["Fst_between_populations_pvalues"],
-            use_pvalues=use_pvalues,
-        )
+            # Plot Fst heatmap
+            self._plot_fst_heatmap(
+                summary_statistics["Fst_between_populations_obs"],
+                df_fst_lower=summary_statistics["Fst_between_populations_lower"],
+                df_fst_upper=summary_statistics["Fst_between_populations_upper"],
+                df_fst_pvals=summary_statistics["Fst_between_populations_pvalues"],
+                use_pvalues=use_pvalues,
+            )
+        else:
+            self.logger.info(
+                "No population map provided; skipping per-population summary statistics plots."
+            )
 
     def _flatten_fst_data(self, fst_dict, stat_name):
         """Flatten the Fst data into a tidy DataFrame."""
@@ -2777,11 +2787,11 @@ class Plotting:
         if not isinstance(df, pd.DataFrame):
             df = misc.validate_input_type(df, return_type="df")
 
-        use_pops = False if self.genotype_data.popmapfile is None else True
-        stats = self.genotype_data.calc_missing(df, use_pops=use_pops)
+        has_popmap = self.genotype_data.has_popmap
+        stats = self.genotype_data.calc_missing(df, use_pops=has_popmap)
 
         ncol = 3
-        nrow = 1 if stats.per_population is None else 2
+        nrow = 2 if has_popmap else 1
 
         mpl.rcParams.update({"savefig.bbox": "standard"})
 
@@ -2794,7 +2804,7 @@ class Plotting:
         fig.suptitle("Missingness Report")
 
         # Plot 1: Per-Individual barplot
-        ax = axes[0, 0]
+        ax = axes[0, 0] if has_popmap else axes[0]
         ax.barh(stats.per_individual.index, stats.per_individual, color=bar_color)
         ax.set_xlim([0, 1] if not zoom else None)
         ax.set_xlabel("Missing Prop.")
@@ -2802,7 +2812,7 @@ class Plotting:
         ax.tick_params(axis="y", labelleft=False)
 
         # Plot 2: Per-Locus barplot
-        ax = axes[0, 1]
+        ax = axes[0, 1] if has_popmap else axes[1]
         ax.barh(stats.per_locus.index, stats.per_locus, color=bar_color)
         ax.set_xlim([0, 1] if not zoom else None)
         ax.set_xlabel("Missing Prop.")
@@ -2810,7 +2820,7 @@ class Plotting:
         ax.tick_params(axis="y", labelleft=False)
 
         # Plot 3: Per-Population totals (if available)
-        if stats.per_population is not None:
+        if has_popmap and stats.per_population is not None:
             ax = axes[0, 2]
             ax.barh(stats.per_population.index, stats.per_population, color=bar_color)
             ax.set_xlim([0, 1] if not zoom else None)
@@ -2836,43 +2846,45 @@ class Plotting:
             cbar.ax.yaxis.label.set_va("bottom")  # Align properly
 
         # Plot 5: Per-Individual heatmap (reshaped)
-        ax = axes[0, 2] if stats.per_population is None else axes[1, 1]
+        ax = axes[1, 1] if has_popmap else axes[2]
 
-        melt_df = stats.per_individual_population.reset_index()
-        melt_df = melt_df.melt(
-            id_vars=melt_df.columns[:2], var_name="Locus", value_name="Missing"
-        )
-        melt_df["Missing"] = melt_df["Missing"].replace(
-            {False: "Present", True: "Missing"}
-        )
+        if has_popmap:
+            melt_df = stats.per_individual_population.reset_index()
 
-        sns.histplot(
-            data=melt_df,
-            y="Locus",
-            hue="Missing",
-            hue_order=["Present", "Missing"],
-            multiple="fill",
-            ax=ax,
-        )
-        ax.tick_params(axis="y", labelleft=False)
-        ax.set_xlabel("Proportion")
-        ax.set_ylabel("Locus")
-        ax.get_legend().set_title(None)
+            melt_df = melt_df.melt(
+                id_vars=melt_df.columns[:2], var_name="Locus", value_name="Missing"
+            )
+            melt_df["Missing"] = melt_df["Missing"].replace(
+                {False: "Present", True: "Missing"}
+            )
 
-        # Plot 6: Per-Population heatmap (stacked)
-        if stats.per_population is not None:
-            ax = axes[1, 2]
             sns.histplot(
                 data=melt_df,
-                y="population",
+                y="Locus",
                 hue="Missing",
                 hue_order=["Present", "Missing"],
                 multiple="fill",
                 ax=ax,
             )
-
+            ax.tick_params(axis="y", labelleft=False)
             ax.set_xlabel("Proportion")
+            ax.set_ylabel("Locus")
             ax.get_legend().set_title(None)
+
+            # Plot 6: Per-Population heatmap (stacked)
+            if stats.per_population_locus is not None:
+                ax = axes[1, 2]
+                sns.histplot(
+                    data=melt_df,
+                    y="population",
+                    hue="Missing",
+                    hue_order=["Present", "Missing"],
+                    multiple="fill",
+                    ax=ax,
+                )
+
+                ax.set_xlabel("Proportion")
+                ax.get_legend().set_title(None)
 
         # Save figure
         out_path = self.output_dir_gd / f"missingness_report.{self.plot_format}"

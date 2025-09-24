@@ -88,7 +88,7 @@ Reading Genotype Data
 
 SNPio provides dedicated readers for each supported format. Each reader returns a `GenotypeData` object, which enables downstream filtering, encoding, and statistical analyses.
 
-Here’s a minimal VCF loading example:
+Here's a minimal VCF loading example:
 
 .. code-block:: python
 
@@ -103,6 +103,101 @@ Here’s a minimal VCF loading example:
       plot_format="png",
       verbose=True
   )
+
+The GenotypeData Object
+-----------------------
+
+All SNPio readers return a ``GenotypeData`` object, which serves as a central container for your genomic data and metadata. Once you load your data, you can access several useful attributes directly from this object.
+
+Key Public Attributes
+^^^^^^^^^^^^^^^^^^^^^
+
+.. list-table::
+  :header-rows: 1
+  :widths: 25 75
+
+  * - Attribute
+    - Description
+  * - ``snp_data``
+    - A NumPy array ``(n_samples, n_loci)`` of IUPAC-encoded genotypes.
+  * - ``samples``
+    - A list of sample (individual) IDs.
+  * - ``num_inds``
+    - The total number of individuals.
+  * - ``num_snps``
+    - The total number of SNPs (loci).
+  * - ``shape``
+    - A ``(n_samples, n_loci)`` tuple representing the alignment dimensions.
+  * - ``populations``
+    - A list of population IDs corresponding to each sample.
+  * - ``popmap``
+    - A dictionary mapping each sample ID to its population ID.
+  * - ``popmap_inverse``
+    - A dictionary mapping each population ID to a list of its member sample IDs.
+  * - ``num_pops``
+    - The total number of unique populations.
+  * - ``pop_sizes``
+    - A dictionary mapping each population ID to its sample count.
+  * - ``pop_to_indices``
+    - A dictionary mapping each population ID to a list of its sample row indices.
+  * - ``has_popmap``
+    - A boolean indicating if population data is present.
+  * - ``ref``
+    - A list of reference alleles for each locus (VCF-derived).
+  * - ``alt``
+    - A list of alternate alleles for each locus (VCF-derived).
+  * - ``locus_names``
+    - A list of concrete names for each locus (e.g., "chr1:1001").
+  * - ``snpsdict``
+    - A dictionary mapping sample IDs to their genotype sequences.
+  * - ``inputs``
+    - A dictionary of the keyword arguments used to initialize the object.
+  * - ``is_empty``
+    - A boolean that is ``True`` if the dataset has zero samples or loci.
+  * - ``output_dir``
+    - The root output directory path for generated files.
+  * - ``plots_dir``
+    - The dedicated directory path for plots.
+  * - ``reports_dir``
+    - The dedicated directory path for reports.
+  * - ``missing_mask``
+    - A boolean NumPy array where ``True`` marks a missing genotype.
+  * - ``valid_mask``
+    - A boolean NumPy array where ``True`` marks a non-missing genotype.
+  * - ``het_mask``
+    - A boolean NumPy array where ``True`` marks a heterozygous genotype.
+  * - ``missing_rate``
+    - The overall proportion of missing data in the alignment.
+  * - ``per_locus_missing``
+    - A pandas Series with the missing data proportion for each locus.
+  * - ``per_individual_missing``
+    - A pandas Series with the missing data proportion for each individual.
+  * - ``per_locus_het_rate``
+    - A pandas Series with the heterozygosity rate for each locus.
+  * - ``per_individual_het_rate``
+    - A pandas Series with the heterozygosity rate for each individual.
+  * - ``is_missing_locus``
+    - A boolean NumPy array that is ``True`` for loci missing in all samples.
+  * - ``nbytes``
+    - The approximate memory footprint of the ``snp_data`` array in bytes.
+  * - ``sample_indices``
+    - A boolean array indicating which samples are retained after filtering.
+  * - ``loci_indices``
+    - A boolean array indicating which loci are retained after filtering.
+
+You can use these attributes to inspect your data at any stage of your analysis pipeline. For example:
+
+.. code-block:: python
+
+  # Load data
+  gd = VCFReader(filename="my_data.vcf.gz", popmapfile="popmap.txt")
+
+  # Inspect the data
+  print(f"Loaded {gd.num_inds} individuals and {gd.num_snps} SNPs.")
+  print(f"Populations found: {list(gd.popmap_inverse.keys())}")
+  print(f"First 5 samples: {gd.samples[:5]}")
+  print(f"Genotype of first sample at first SNP: {gd.snp_data[0, 0]}")
+
 
 Specifying Populations
 ----------------------

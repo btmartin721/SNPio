@@ -1,6 +1,7 @@
 import copy
 import itertools
 import logging
+from functools import cached_property
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Literal, Tuple
 
@@ -13,6 +14,7 @@ import snpio.utils.custom_exceptions as exceptions
 from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data_base import BaseGenotypeData
 from snpio.read_input.popmap_file import ReadPopmap
+from snpio.utils.containers import IOConfig, PlotConfig, PopState
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
 from snpio.utils.missing_stats import MissingStats
@@ -207,15 +209,25 @@ class GenotypeData(BaseGenotypeData):
             "debug": debug,
         }
 
-        self.plot_kwargs = {
-            "plot_format": self.plot_format,
-            "plot_fontsize": self.plot_fontsize,
-            "dpi": self.plot_dpi,
-            "despine": self.plot_despine,
-            "show": self.show_plots,
-            "verbose": self.verbose,
-            "debug": self.debug,
-        }
+        self.plot_config = PlotConfig(
+            plot_format=self.plot_format,
+            plot_fontsize=self.plot_fontsize,
+            dpi=self.plot_dpi,
+            despine=self.plot_despine,
+            show=self.show_plots,
+            verbose=self.verbose,
+            debug=self.debug,
+        )
+
+        self.io_config = IOConfig(
+            prefix=self.prefix,
+            chunk_size=self.chunk_size,
+            force_popmap=self.force_popmap,
+            include_pops=self.include_pops,
+            exclude_pops=self.exclude_pops,
+            verbose=self.verbose,
+            debug=self.debug,
+        )
 
         self.missing_vals = ["N", "-", ".", "?"]
         self.replace_vals = [pd.NA] * len(self.missing_vals)
@@ -247,6 +259,13 @@ class GenotypeData(BaseGenotypeData):
         self.reverse_iupac_mapping: Dict[str, Tuple[str, str]] = {
             v: k for k, v in self.iupac_mapping.items()
         }
+
+        self.pop_state = PopState(
+            samples=self._samples,
+            populations=self._populations,
+            popmap=self._popmap,
+            popmap_inverse=self._popmap_inverse,
+        )
 
         if not hasattr(self, "iupac"):
             self.iupac = IUPAC(logger=self.logger)
@@ -793,7 +812,7 @@ class GenotypeData(BaseGenotypeData):
             elif hasattr(self, "marker_names") and self.marker_names:
                 marker_names_list = list(self.marker_names)
             else:
-                marker_names_list = [f"locus_{i}" for i in range(self.num_snps)]
+                marker_names_list = [f"locus_{i+1}" for i in range(self.num_snps)]
 
         if hasattr(self, "allele_start_col"):
             allele_start_col = self.allele_start_col
@@ -1273,10 +1292,15 @@ class GenotypeData(BaseGenotypeData):
             self, "vcf_attributes_fn", None
         ):
             hdf = Path(self.vcf_attributes_fn)
-            if hdf.is_file():
-                locus_names = []
 
-                # Read HDF5 attributes to get locus names
+            if not hdf.is_file():
+                msg = f"HDF5 file with VCF attributes not found: {hdf}"
+                self.logger.error(msg)
+                raise FileNotFoundError(msg)
+
+            locus_names = []
+
+            # Read HDF5 attributes to get locus names
             with h5py.File(hdf, "r") as h5:
                 # Read all locus metadata from HDF5
                 all_chroms = h5["chrom"][:].astype(str)
@@ -1299,7 +1323,6 @@ class GenotypeData(BaseGenotypeData):
                 ]
 
             df.columns = locus_names
-
         else:
             locus_names = [f"locus_{i+1}" for i in range(df.shape[1])]
 
@@ -1327,7 +1350,7 @@ class GenotypeData(BaseGenotypeData):
 
         poploc = poptot = indpop = None
 
-        if use_pops:
+        if self.has_popmap:
             # Boolean mask for missing values
             indpop = df.isna()
 
@@ -1402,14 +1425,17 @@ class GenotypeData(BaseGenotypeData):
         self.logger.error(msg)
         raise NotImplementedError(msg)
 
-    def get_population_indices(self) -> Dict[str, int]:
+    def get_population_indices(self) -> Dict[str, List[int]]:
         """Create a mapping from population IDs to sample indices.
 
         This method creates a dictionary with population IDs as keys and lists of sample indices as values. The sample indices are used to subset the genotype data by population.
 
         Returns:
-            Dict[str, int]: Dictionary with population IDs as keys and lists of sample indices as values.
+            Dict[str, List[int]]: Dictionary with population IDs as keys and lists of sample indices as values.
         """
+        if self.popmap_inverse is None or not self.popmap_inverse:
+            return {"NA": self.samples}
+
         sample_id_to_index = {
             sample_id: idx for idx, sample_id in enumerate(self.samples)
         }
@@ -1422,6 +1448,18 @@ class GenotypeData(BaseGenotypeData):
             ]
             pop_indices[pop_id] = indices
         return pop_indices
+
+    @property
+    def locus_names(self) -> list[str]:
+        """Concrete locus names, generating defaults if absent."""
+        if getattr(self, "marker_names", None) is not None:
+            return list(self.marker_names)
+        return [f"locus_{i+1}" for i in range(self.num_snps)]
+
+    @cached_property
+    def valid_mask(self) -> np.ndarray:
+        """Boolean mask [n_samples, n_loci] where True = non-missing genotype."""
+        return ~self.missing_mask
 
     @property
     def inputs(self) -> Dict[str, Any]:
@@ -1440,6 +1478,26 @@ class GenotypeData(BaseGenotypeData):
             value (Dict[str, Any]): Dictionary of keyword arguments.
         """
         self.kwargs = value
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        """(n_samples, n_loci) tuple.
+
+        Returns:
+            tuple[int, int]: Tuple with number of samples (individuals) and number of loci (SNPs).
+        """
+        return (self.num_inds, self.num_snps)
+
+    @cached_property
+    def nbytes(self) -> int:
+        """Approximate RAM footprint of snp_data (bytes).
+
+        Returns:
+            int: Approximate RAM footprint of snp_data (bytes).
+        """
+        arr = self.snp_data
+        # dtype "<U1" is variable-sized in NumPy; use itemsize * size as a lower bound
+        return arr.size * arr.dtype.itemsize
 
     @property
     def num_snps(self) -> int:
@@ -1495,7 +1553,7 @@ class GenotypeData(BaseGenotypeData):
             try:
                 value = int(value)
             except ValueError:
-                f"num_inds must be numeric, but got {type(value)}"
+                msg = f"num_inds must be numeric, but got {type(value)}"
                 self.logger.error(msg)
                 raise TypeError(msg)
         if value < 0:
@@ -1506,104 +1564,49 @@ class GenotypeData(BaseGenotypeData):
         self._num_inds = value
 
     @property
-    def populations(self) -> List[str | int]:
-        """Population IDs as a list of strings or integers.
+    def samples(self) -> list[str]:
+        return self.pop_state.samples
 
-        Returns:
-            List[str | int]: Population IDs.
-        """
-        return self._populations
+    @samples.setter
+    def samples(self, value: list[str]) -> None:
+        self.pop_state.samples = value
+        self._samples = value
+
+    @property
+    def populations(self) -> list[str | int]:
+        return self.pop_state.populations
 
     @populations.setter
-    def populations(self, value: List[str | int]) -> None:
-        """Set the population IDs.
-
-        Args:
-            value (List[str | int]): List of population IDs.
-        """
+    def populations(self, value: list[str | int]) -> None:
+        self.pop_state.populations = value
         self._populations = value
 
     @property
-    def popmap(self) -> Dict[str, str | int]:
-        """Dictionary object with SampleIDs as keys and popIDs as values.
-
-        Returns:
-            Dict[str, str | int]: Dictionary with SampleIDs as keys and popIDs as values
-        """
-        return self._popmap
+    def popmap(self) -> dict[str, str | int] | None:
+        return self.pop_state.popmap
 
     @popmap.setter
-    def popmap(self, value: Dict[str, str | int]) -> None:
-        """Dictionary with SampleIDs as keys and popIDs as values.
-
-        Args:
-            value (Dict[str, str | int]): Dictionary object with SampleIDs as keys and popIDs as values.
-
-        Raises:
-            TypeError: If the value is not a dictionary object.
-            TypeError: If the values are not strings or integers.
-        """
-        if not isinstance(value, dict):
-            msg = f"'popmap' must be a dict object: {type(value)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
-        if not all(isinstance(v, (str, int)) for v in value.values()):
-            msg = f"popmap values must be strings or integers"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
+    def popmap(self, value: dict[str, str | int] | None) -> None:
+        self.pop_state.popmap = value
         self._popmap = value
 
     @property
-    def popmap_inverse(self) -> Dict[str, List[str]]:
-        """Inverse popmap dictionary with populationIDs as keys and lists of sampleIDs as values.
-
-        Returns:
-            Dict[str, List[str]]: Inverse dictionary of popmap, where popIDs are keys and lists of sampleIDs are values.
-        """
-        return self._popmap_inverse
+    def popmap_inverse(self) -> dict[str, list[str]] | None:
+        return self.pop_state.popmap_inverse
 
     @popmap_inverse.setter
-    def popmap_inverse(self, value: Dict[str, List[str]]) -> None:
-        """Setter for popmap_inverse. Should have populationIDs as keys and lists of corresponding sampleIDs as values.
-
-        Args:
-            value (Dict[str, List[str]]): Inverse dictionary of popmap, where popIDs are keys and lists of sampleIDs are values.
-
-        Raises:
-            TypeError: If the value is not a dictionary object.
-            TypeError: If the values are not lists of sampleIDs.
-        """
-        if not isinstance(value, dict):
-            msg = f"'popmap_inverse' must be a dict object: {type(value)}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
-        if not all(isinstance(v, list) for v in value.values()):
-            msg = f"'popmap_inverse' values must be lists of sampleIDs per populationID key, but got: {[type(v) for v in value.values()]}"
-            self.logger.error(msg)
-            raise TypeError(msg)
-
+    def popmap_inverse(self, value: dict[str, list[str]] | None) -> None:
+        self.pop_state.popmap_inverse = value
         self._popmap_inverse = value
 
     @property
-    def samples(self) -> List[str]:
-        """List of sample IDs in input order.
+    def num_pops(self) -> int:
+        """Number of populations in the dataset.
 
         Returns:
-            List[str]: Sample IDs in input order.
+            int: Number of unique populations in the dataset.
         """
-        return self._samples
-
-    @samples.setter
-    def samples(self, value: List[str]) -> None:
-        """Get the sampleIDs as a list of strings.
-
-        Args:
-            value (List[str]): List of sample IDs.
-        """
-        self._samples = value
+        return len(set(self.populations))
 
     @property
     def snpsdict(self) -> Dict[str, List[str]]:
@@ -1648,7 +1651,7 @@ class GenotypeData(BaseGenotypeData):
             self._loci_indices = np.ones(self.num_snps, dtype=bool)
 
         else:
-            if not self._loci_indices.dtype is np.dtype(bool):
+            if self._loci_indices.dtype != bool:
                 msg = f"'loci_indices' must be numpy.dtype 'bool', but got: {self._loci_indices.dtype}"
                 self.logger.error(msg)
                 raise TypeError(msg)
@@ -1657,52 +1660,31 @@ class GenotypeData(BaseGenotypeData):
 
     @loci_indices.setter
     def loci_indices(self, value: np.ndarray | list) -> None:
-        """Column indices for retained loci in filtered alignment.
-
-        Args:
-            value (np.ndarray): Boolean array of loci indices, with True for retained loci and False for excluded loci.
-
-        Raises:
-            TypeError: If the loci_indices attribute is not a numpy.dtype 'bool'.
-        """
         if value is None:
             value = np.ones(self.num_snps, dtype=bool)
         if isinstance(value, list):
             value = np.array(value)
-        if not value.dtype is np.dtype(bool):
-            msg = f"Attempt to set 'loci_indices' to an unexpected np.dtype. Expected 'bool', but got: {value.dtype}"
+        if value.dtype != bool:
+            msg = f"Attempt to set 'loci_indices' to unexpected dtype. Expected bool, got: {value.dtype}"
             self.logger.error(msg)
             raise TypeError(msg)
         self._loci_indices = value
 
     @property
     def sample_indices(self) -> np.ndarray:
-        """Row indices for retained samples in alignment.
-
-        Returns:
-            np.ndarray: Boolean array of sample indices, with True for retained samples and False for excluded samples.
-
-        Raises:
-            TypeError: If the sample_indices attribute is not a numpy.ndarray or list.
-            TypeError: If the sample_indices attribute is not a numpy.dtype 'bool'.
-        """
-        if not isinstance(self._sample_indices, (np.ndarray, list)):
-            msg = f"'sample_indices' set to invalid type. Expected numpy.ndarray or list, but got: {type(self._sample_indices)}"
+        if not isinstance(self._sample_indices, (np.ndarray, list, type(None))):
+            msg = f"'sample_indices' set to invalid type. Expected numpy.ndarray, list, or None, but got: {type(self._sample_indices)}"
             self.logger.error(msg)
             raise TypeError(msg)
-
-        elif isinstance(self._sample_indices, list):
+        if isinstance(self._sample_indices, list):
             self._sample_indices = np.array(self._sample_indices)
-
-        if self._sample_indices is None or not self._sample_indices.size > 0:
-            self._sample_indices = np.ones_like(self.samples, dtype=bool)
-
+        if self._sample_indices is None or self._sample_indices.size == 0:
+            self._sample_indices = np.ones(len(self.samples), dtype=bool)
         else:
-            if not self._sample_indices.dtype is np.dtype(bool):
-                msg = f"'sample_indices' must be numpy.dtype 'bool', but got: {self._sample_indices.dtype}"
+            if self._sample_indices.dtype != bool:
+                msg = f"'sample_indices' must be dtype bool, but got: {self._sample_indices.dtype}"
                 self.logger.error(msg)
                 raise TypeError(msg)
-
         return self._sample_indices
 
     @sample_indices.setter
@@ -1819,11 +1801,222 @@ class GenotypeData(BaseGenotypeData):
                 value = value.astype("<U1")
             self._snp_data = value
             self._validate_seq_lengths()
+            self._invalidate_caches()
         else:
             msg = f"Attempt to set 'snp_data' to invalid type. Must be a list, numpy.ndarray, pandas.DataFrame, but got: {type(value)}"
             self.logger.debug(value)
             self.logger.error(msg)
             raise TypeError(msg)
+
+    @property
+    def output_dir(self) -> Path:
+        """Root output directory for this dataset.
+
+        Returns:
+            Path: Path to the root output directory.
+        """
+        return Path(f"{self.prefix}_output")
+
+    @property
+    def reports_dir(self) -> Path:
+        """Standardized location for reports (pre/post-filtering aware).
+
+        Returns:
+            Path: Path to the reports directory.
+        """
+        if self.was_filtered:
+            return self.output_dir / "nremover" / "gtdata" / "reports"
+        return self.output_dir / "gtdata" / "reports"
+
+    @property
+    def plot_kwargs(self) -> dict:
+        """Backwards compatibility; convert PlotConfig to the old dict shape.
+
+        Returns:
+            dict: Dictionary of plot configuration parameters.
+        """
+        return self.plot_config.to_dict()
+
+    @property
+    def plots_dir(self) -> Path:
+        """Standardized location for plots (pre/post-filtering aware).
+
+        Returns:
+            Path: Path to the plots directory.
+        """
+        if self.was_filtered:
+            return self.output_dir / "nremover" / "gtdata" / "plots"
+        return self.output_dir / "gtdata" / "plots"
+
+    @cached_property
+    def het_mask(self) -> np.ndarray:
+        """[n_samples, n_loci] True if genotype is heterozygous (IUPAC ambiguity codes).
+
+        Returns:
+            np.ndarray: Boolean mask where True indicates a heterozygous genotype.
+        """
+        ambig = np.array(list("WRMKYS"), dtype="<U1")
+        return np.isin(self.snp_data, ambig)
+
+    @cached_property
+    def per_locus_het_rate(self) -> pd.Series:
+        """Heterozygote proportion per locus (ignores missing).
+
+        Returns:
+            pd.Series: Heterozygote proportion per locus as a pandas Series indexed by locus name.
+        """
+        vm = self.valid_mask
+        hm = self.het_mask
+        denom = vm.sum(axis=0).clip(min=1)
+        vals = (hm & vm).sum(axis=0) / denom
+        return pd.Series(vals, index=self.locus_names, name="het_rate").round(4)
+
+    @cached_property
+    def per_individual_het_rate(self) -> pd.Series:
+        """Heterozygote proportion per individual (ignores missing).
+
+        Returns:
+            pd.Series: Heterozygote proportion per individual as a pandas Series indexed by sample name.
+        """
+        vm = self.valid_mask
+        hm = self.het_mask
+        denom = vm.sum(axis=1).clip(min=1)
+        vals = (hm & vm).sum(axis=1) / denom
+        return pd.Series(vals, index=self.samples, name="het_rate").round(4)
+
+    @cached_property
+    def missing_mask(self) -> np.ndarray:
+        """Boolean mask [n_samples, n_loci] where True indicates a missing genotype.
+
+        Returns:
+            np.ndarray: Boolean mask where True indicates a missing genotype.
+        """
+        # build a mask by multi-compare against the small missing set
+        arr = self.snp_data
+        misses = np.isin(arr, np.array(self.missing_vals, dtype=arr.dtype))
+        return misses
+
+    @property
+    def missing_rate(self) -> float:
+        """Overall missing proportion in the alignment.
+
+        Returns:
+            float: Overall missing proportion in the alignment.
+        """
+        mm = self.missing_mask
+        if mm.size == 0:
+            return 0.0
+        return float(mm.mean())
+
+    @property
+    def per_individual_missing(self) -> pd.Series:
+        """Missing proportion per sample as a pandas Series indexed by sample name.
+
+        Returns:
+            pd.Series: Missing proportion per sample as a pandas Series indexed by sample name.
+        """
+        mm = self.missing_mask
+        vals = mm.mean(axis=1)
+        return pd.Series(vals, index=self.samples, name="missing_prop").round(4)
+
+    @property
+    def per_locus_missing(self) -> pd.Series:
+        """Missing proportion per locus as a pandas Series; uses marker names if present.
+
+        Returns:
+            pd.Series: Missing proportion per locus as a pandas Series indexed by locus name.
+        """
+        mm = self.missing_mask
+        cols = (
+            self.marker_names
+            if getattr(self, "marker_names", None) is not None
+            else [f"locus_{i+1}" for i in range(mm.shape[1])]
+        )
+        vals = mm.mean(axis=0)
+        return pd.Series(vals, index=cols, name="missing_prop").round(4)
+
+    @property
+    def sample_index_map(self) -> Dict[str, int]:
+        """Map sample ID -> row index (useful for subsetting).
+
+        Returns:
+            Dict[str, int]: Mapping of sample IDs to their corresponding row indices.
+        """
+        return {s: i for i, s in enumerate(self.samples)}
+
+    @property
+    def pop_sizes(self) -> Dict[str, int]:
+        """Population -> sample count.
+
+        Returns:
+            Dict[str, int]: Mapping of population names to sample counts.
+        """
+        counts: Dict[str, int] = {}
+        for p in self.populations:
+            counts[p] = counts.get(p, 0) + 1
+        return counts
+
+    @property
+    def pop_to_indices(self) -> Dict[str, list[int]]:
+        """Population -> list of sample indices (built from current popmap_inverse).
+
+        Returns:
+            Dict[str, list[int]]: Mapping of population names to lists of sample indices.
+        """
+        out: Dict[str, list[int]] = {}
+        if self.popmap_inverse is None:
+            return out
+        idx_map = self.sample_index_map
+        for pop, ids in self.popmap_inverse.items():
+            out[pop] = [idx_map[s] for s in ids if s in idx_map]
+        return out
+
+    @property
+    def is_empty(self) -> bool:
+        """True if there are zero samples or loci.
+
+        Returns:
+            bool: True if there are zero samples or loci.
+        """
+        return self.num_inds == 0 or self.num_snps == 0
+
+    @property
+    def has_popmap(self) -> bool:
+        """True if population information is present.
+
+        Returns:
+            bool: True if population information is present.
+        """
+        return self.popmapfile is not None
+
+    @cached_property
+    def is_missing_locus(self) -> np.ndarray:
+        """[n_loci] True if an entire locus is missing across all samples."""
+        return (~self.valid_mask).all(axis=0)
+
+    @cached_property
+    def observed_iupac_per_locus(self) -> list[set[str]]:
+        """Observed IUPAC codes per locus (excluding missing)."""
+        arr = self.snp_data
+        vm = self.valid_mask
+        return [set(arr[vm[:, j], j]) for j in range(arr.shape[1])]
+
+    @cached_property
+    def biallelic_mask(self) -> np.ndarray:
+        """[n_loci] True where locus appears biallelic (A/C/G/T plus heterozygotes of those two)."""
+        obs = self.observed_iupac_per_locus
+
+        # Extract unambiguous nucleotides present
+        def nucs(s):
+            return {x for x in s if x in {"A", "C", "G", "T"}}
+
+        return np.array([len(nucs(s)) == 2 for s in obs], dtype=bool)
+
+    @property
+    def has_multiallelic(self) -> bool:
+        """True if any locus shows >2 unambiguous nucleotides."""
+        obs = self.observed_iupac_per_locus
+        return any(len({x for x in s if x in {"A", "C", "G", "T"}}) > 2 for s in obs)
 
     def _validate_seq_lengths(self) -> None:
         """Ensure that all SNP data rows have the same length.
@@ -1840,6 +2033,24 @@ class GenotypeData(BaseGenotypeData):
                     msg = f"Invalid sequence length for Sample {self.samples[i]}. Expected {n_snps}, but got: {len(row)}"
                     self.logger.error(msg)
                     raise exceptions.SequenceLengthError(self.samples[i])
+
+    def _invalidate_caches(self) -> None:
+        """Clear cached_property results after data changes."""
+        for attr in (
+            "valid_mask",
+            "is_missing_locus",
+            "observed_iupac_per_locus",
+            "biallelic_mask",
+            "per_locus_missing",
+            "per_individual_missing",
+            "het_mask",
+            "per_locus_het_rate",
+            "per_individual_het_rate",
+            "maf_per_locus",
+            "nbytes",
+        ):
+            if attr in self.__dict__:  # cached_property stores value here
+                self.__dict__.pop(attr, None)
 
     def set_alignment(
         self,
@@ -1897,6 +2108,8 @@ class GenotypeData(BaseGenotypeData):
                 loci_indices=self.loci_indices,
                 samples=self.samples,
             )
+
+        self._invalidate_caches()
 
     def __len__(self) -> int:
         """Return the number of individuals in the dataset.

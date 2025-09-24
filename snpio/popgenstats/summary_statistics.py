@@ -152,23 +152,27 @@ class SummaryStatistics:
         ho_overall = pd.Series(self.observed_heterozygosity())
         he_overall = pd.Series(self.expected_heterozygosity())
         pi_overall = pd.Series(self.nucleotide_diversity())
-        ho_per_population = self.observed_heterozygosity_per_population()
-        he_per_population = self.expected_heterozygosity_per_population()
-        pi_per_population = self.nucleotide_diversity_per_population()
+
         summary_stats = {
             "overall": pd.DataFrame(
                 {"Ho": ho_overall, "He": he_overall, "Pi": pi_overall}
             ),
             "per_population": {},
         }
-        for pop_id in ho_per_population.keys():
-            summary_stats["per_population"][pop_id] = pd.DataFrame(
-                {
-                    "Ho": ho_per_population[pop_id],
-                    "He": he_per_population[pop_id],
-                    "Pi": pi_per_population[pop_id],
-                }
-            )
+
+        if self.genotype_data.has_popmap:
+            ho_per_population = self.observed_heterozygosity_per_population()
+            he_per_population = self.expected_heterozygosity_per_population()
+            pi_per_population = self.nucleotide_diversity_per_population()
+
+            for pop_id in ho_per_population.keys():
+                summary_stats["per_population"][pop_id] = pd.DataFrame(
+                    {
+                        "Ho": ho_per_population[pop_id],
+                        "He": he_per_population[pop_id],
+                        "Pi": pi_per_population[pop_id],
+                    }
+                )
 
         self.logger.info(
             f"Calculating pairwise Weir & Cockerham Fst using method: '{fst_method}'..."
@@ -179,20 +183,26 @@ class SummaryStatistics:
             self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
         )
 
-        # Call the updated weir_cockerham_fst method with the new API
-        fst_results = fst.weir_cockerham_fst(
-            method=fst_method, n_reps=n_reps, n_jobs=n_jobs
-        )
+        if self.genotype_data.has_popmap:
+            # Call the updated weir_cockerham_fst method with the new API
+            fst_results = fst.weir_cockerham_fst(
+                method=fst_method, n_reps=n_reps, n_jobs=n_jobs
+            )
 
-        # The parser handles the output from any method
-        df_observed, df_lower, df_upper, df_pvals = fst.parse_wc_fst(
-            fst_results, alpha=0.05
-        )
+            # The parser handles the output from any method
+            df_observed, df_lower, df_upper, df_pvals = fst.parse_wc_fst(
+                fst_results, alpha=0.05
+            )
 
-        summary_stats["Fst_between_populations_obs"] = df_observed
-        summary_stats["Fst_between_populations_lower"] = df_lower
-        summary_stats["Fst_between_populations_upper"] = df_upper
-        summary_stats["Fst_between_populations_pvalues"] = df_pvals
+            summary_stats["Fst_between_populations_obs"] = df_observed
+            summary_stats["Fst_between_populations_lower"] = df_lower
+            summary_stats["Fst_between_populations_upper"] = df_upper
+            summary_stats["Fst_between_populations_pvalues"] = df_pvals
+
+        else:
+            self.logger.info(
+                "No population map provided; skipping Fst calculation between populations."
+            )
 
         if save_plots:
             # Pass whether p-values were generated to the plotter
