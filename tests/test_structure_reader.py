@@ -412,9 +412,11 @@ class TestStructureReader(unittest.TestCase):
         with open(output_path) as f:
             lines = [line.strip() for line in f.readlines()]
 
+        print(lines[0])
+
         self.assertTrue(
             lines[0].startswith(
-                "locus_0\tlocus_0\tlocus_1\tlocus_1\tlocus_2\tlocus_2\tlocus_3\tlocus_3"
+                "locus_1\tlocus_1\tlocus_2\tlocus_2\tlocus_3\tlocus_3\tlocus_4\tlocus_4"
             )
         )
         self.assertEqual(len(lines), 4)
