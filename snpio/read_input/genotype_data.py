@@ -342,9 +342,12 @@ class GenotypeData(BaseGenotypeData):
             pm.get_pop_counts(self)
 
         else:
-            msg = "Popmap file not provided but is required. Please provide a valid popmap file."
-            self.logger.error(msg)
-            raise exceptions.PopmapFileNotFoundError(msg)
+            msg = "No popmapfile provided. Skipping population map reading."
+            self.logger.info(msg)
+            self._popmap = dict(zip(self.samples, ["NA"] * self.num_inds))
+            self._popmap_inverse = {"NA": self.samples}
+            self._populations = ["NA"] * self.num_inds
+            self.sample_indices = np.ones(self.num_inds, dtype=bool)
 
     def subset_with_popmap(
         self,
