@@ -121,12 +121,6 @@ def main():
         # allele_encoding={"0": "A", "1": "C", "2": "G", "3": "T", "-9": "N"},
     )
 
-    genotype_data.write_vcf("test_vcf_ext/test.vcf.gz")
-
-    import sys
-
-    sys.exit()
-
     # Generate missingness reports before filtering
     genotype_data.missingness_reports(prefix=args.prefix)
 
