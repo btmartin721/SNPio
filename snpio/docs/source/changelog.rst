@@ -4,6 +4,14 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.6.8 (2025-10-03)
+--------------------------
+
+Bug Fixes - v1.6.8
+~~~~~~~~~~~~~~~~~~
+
+- Fixed bug where the ``write_vcf`` method did not include the parent path when writing the BGZipped output VCF file and associated Tabix index (.tbi). The method now correctly utilizes the full path, ensuring that the output file is saved in the intended directory.
+
 Version 1.6.7 (2025-09-25)
 --------------------------
 
