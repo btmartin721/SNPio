@@ -404,9 +404,12 @@ class BaseGenotypeData:
         bgzipped_path = self._ensure_file_ext(filepath)
 
         if bgzipped_path.resolve() == filepath.resolve():
-            msg = f"Output path {bgzipped_path} would overwrite input file."
-            self.logger.error(msg)
-            raise IOError(msg)
+            if not bgzipped_path.name.endswith(".gz"):
+                bgzipped_path = bgzipped_path.with_suffix(bgzipped_path.suffix + ".gz")
+            else:
+                msg = f"Output path {bgzipped_path} would overwrite input file."
+                self.logger.error(msg)
+                raise IOError(msg)
 
         bgzipped_path.parent.mkdir(parents=True, exist_ok=True)
 

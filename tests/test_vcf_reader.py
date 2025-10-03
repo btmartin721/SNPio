@@ -3,6 +3,8 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+import os
+import gzip
 
 import numpy as np
 
@@ -101,6 +103,30 @@ class TestVCFReader(unittest.TestCase):
         self.assertTrue(reader.snp_data.shape[0] == reader.num_inds)
         self.assertTrue(reader.snp_data.shape[1] == reader.num_snps)
 
+    def _open_text(self, path: str):
+        """Open a file in text mode, handling optional gzip."""
+        if os.path.exists(path):
+            return open(path, "rt", encoding="utf-8", newline="")
+        gz = path + ".gz"
+        if os.path.exists(gz):
+            # Properly decompress; do NOT read raw bytes.
+            return gzip.open(gz, "rt", encoding="utf-8", newline="")
+        self.fail(f"Neither {path} nor {gz} exists; VCF writing failed.")
+
+    def _iter_data_lines(self, path: str):
+        """Yield non-header, non-empty VCF data lines as text strings."""
+        with self._open_text(path) as fh:
+            for line in fh:
+                if not line:
+                    continue
+                if line.startswith("#"):
+                    # skips both '##' meta and '#CHROM' header
+                    continue
+                line = line.rstrip("\n\r")
+                if line.strip() == "":
+                    continue
+                yield line
+
     def test_write_vcf_without_format_fields(self):
         """Tests that VCF writing correctly excludes extra FORMAT fields when store_format_fields is False."""
         reader = VCFReader(
@@ -118,17 +144,28 @@ class TestVCFReader(unittest.TestCase):
         ) as temp_output_vcf:
             reader.write_vcf(temp_output_vcf.name, chunk_size=2)
 
-            with open(temp_output_vcf.name, "r") as f:
-                output_lines = [line.strip() for line in f if not line.startswith("##")]
+            try:
+                with open(temp_output_vcf.name, "r") as f:
+                    output_lines = [
+                        line.strip() for line in f if not line.startswith("##")
+                    ]
+            except FileNotFoundError:
+                with open(temp_output_vcf.name + ".gz", "rb") as f:
+                    output_lines = [
+                        line.strip() for line in f if not line.startswith(b"##")
+                    ]
 
             # Assertions for the "without" case
             for line in output_lines[1:]:
-                fields = line.split("\t")
+                try:
+                    fields = line.split("\t")
+                except TypeError:
+                    fields = line.split(b"\t")
                 format_field = fields[8]
                 self.assertEqual(format_field, "GT")
 
     def test_write_vcf_with_format_fields(self):
-        """Tests that VCF writing correctly includes extra FORMAT fields when store_format_fields is True."""
+        """Tests that VCF writing includes extra FORMAT fields when store_format_fields=True."""
         reader = VCFReader(
             filename=self.temp_vcf.name,
             popmapfile=self.temp_popmap.name,
@@ -139,20 +176,47 @@ class TestVCFReader(unittest.TestCase):
             prefix="test_write_vcf_with_format",
         )
 
-        with tempfile.NamedTemporaryFile(
-            delete=False, suffix=".vcf"
-        ) as temp_output_vcf:
-            reader.write_vcf(temp_output_vcf.name, chunk_size=2)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".vcf") as temp_out:
+            out_path = temp_out.name
 
-            with open(temp_output_vcf.name, "r") as f:
-                output_lines = [line.strip() for line in f if not line.startswith("##")]
+        # Write the VCF
+        # Some implementations may write out_path or out_path+'.gz'
+        reader.write_vcf(out_path, chunk_size=2)
 
-            # Assertions for the "with" case
-            for line in output_lines[1:]:
-                fields = line.split("\t")
-                format_field = fields[8]
-                self.assertIn(":", format_field)
-                self.assertGreaterEqual(len(format_field.split(":")), 2)
+        # Collect data lines (text, no headers)
+        data_lines = list(self._iter_data_lines(out_path))
+        self.assertGreater(len(data_lines), 0, "No variant lines found in output VCF.")
+
+        for i, line in enumerate(data_lines, start=1):
+            fields = line.split("\t")
+            self.assertGreaterEqual(
+                len(fields), 9, f"Variant line {i} has <9 fields: {line!r}"
+            )
+
+            format_field = fields[8]  # FORMAT column
+            # Basic structural checks
+            self.assertIn(
+                ":",
+                format_field,
+                f"FORMAT column missing ':' in line {i}: {format_field!r}",
+            )
+            self.assertGreaterEqual(
+                len(format_field.split(":")),
+                2,
+                f"FORMAT column should list ≥2 keys in line {i}: {format_field!r}",
+            )
+
+            # CONTENT sanity: GT should be present; at least one extra FORMAT key should appear
+            fmt_keys = set(format_field.split(":"))
+            self.assertIn(
+                "GT",
+                fmt_keys,
+                f"'GT' missing from FORMAT in line {i}: {format_field!r}",
+            )
+            self.assertTrue(
+                len(fmt_keys) >= 2,
+                f"Expected ≥2 FORMAT keys when store_format_fields=True, got {fmt_keys} on line {i}",
+            )
 
 
 if __name__ == "__main__":
