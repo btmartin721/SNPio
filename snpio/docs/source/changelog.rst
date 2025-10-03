@@ -11,6 +11,7 @@ Bug Fixes - v1.6.8
 ~~~~~~~~~~~~~~~~~~
 
 - Fixed bug where the ``write_vcf`` method did not include the parent path when writing the BGZipped output VCF file and associated Tabix index (.tbi). The method now correctly utilizes the full path, ensuring that the output file is saved in the intended directory.
+- Fixed bug where the ``write_vcf`` method was adding an extra `.gz` suffix to the output VCF filename when the provided filename already ended with `.gz`. The method now checks for the `.gz` suffix and removes duplicated `.gz` extensions, preventing issues with file naming and ensuring compatibility with downstream tools that expect standard VCF filenames.
 
 Version 1.6.7 (2025-09-25)
 --------------------------

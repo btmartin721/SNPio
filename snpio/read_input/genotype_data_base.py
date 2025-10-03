@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import shutil
 import tempfile
@@ -313,61 +314,109 @@ class BaseGenotypeData:
 
         return row
 
+    def _looks_like_bgzf(self, path: Path) -> bool:
+        """Best-effort check: can we open and read with BGZFile?
+
+        Args:
+            path (Path): Path to the file to check.
+
+        Returns:
+            bool: True if the file appears to be BGZF-compressed, False otherwise.
+        """
+        try:
+            with pysam.BGZFile(str(path), "rb") as f:
+                _ = f.read(1)
+            return True
+        except Exception:
+            return False
+
+    def _ensure_file_ext(self, filepath: Path) -> Path:
+        """Ensures the output file has a .vcf.gz extension.
+
+        Args:
+            filepath (Path): The original file path.
+
+        Returns:
+            Path: The path to the BGZipped output file.
+        """
+        tokens = filepath.name.split(".")
+        while tokens and tokens[-1] in {"vcf", "gz", "nremover"}:
+            tokens.pop()
+        base = ".".join(tokens) if tokens else filepath.stem
+        return filepath.parent / f"{base}.vcf"
+
     def bgzip_file(self, filepath: Path) -> Path:
         """BGZips a VCF file using pysam's BGZFile, preserving parent directories.
 
         Args:
-            filepath (Path): Path to the input (uncompressed) VCF file.
+            filepath (Path): Path to the input VCF file.
 
         Returns:
-            Path: Path to the bgzipped output file with a .vcf.gz suffix, in the same directory.
+            Path: Path to the BGZipped output file.
 
-        Raises:
-            FileNotFoundError: If the input file does not exist.
-            IOError: If the output path would overwrite the input file.
+        Notes:
+            - *.vcf      -> write sibling *.vcf.gz (as before)
+            - *.vcf.gz   -> if not BGZF, recompress *in place* atomically
+                        -> if already BGZF, return as-is
         """
+        filepath = Path(filepath) if not isinstance(filepath, Path) else filepath
+
         if not filepath.exists():
             msg = f"Input VCF file not found: {filepath}"
             self.logger.error(msg)
             raise FileNotFoundError(msg)
 
-        # If it's already *.vcf.gz, just return it
-        if filepath.name.endswith(".vcf.gz"):
-            self.logger.warning(f"File already appears bgzipped: {filepath}")
-            return filepath
+        suffixes = filepath.suffixes
+        is_vcfgz_name = len(suffixes) >= 2 and suffixes[-2:] == [".vcf", ".gz"]
+        is_gz_name = suffixes and suffixes[-1] == ".gz"
 
-        # Derive a clean base name by stripping trailing tokens like .vcf, .gz, .nremover
-        tokens = filepath.name.split(".")
-        while tokens and tokens[-1] in {"vcf", "gz", "nremover"}:
-            tokens.pop()
-        base = ".".join(tokens) if tokens else filepath.stem
+        # Case A: Caller passed *.vcf.gz
+        if is_vcfgz_name or is_gz_name and filepath.name.endswith(".vcf.gz"):
+            if self._looks_like_bgzf(filepath):
+                # Truly already BGZF-compressed
+                return self._ensure_file_ext(filepath)
 
-        # >>> Preserve parent directory here <<<
-        bgzipped_path = filepath.parent / f"{base}.vcf.gz"
+            # Not BGZF: recompress in place using a temp file + atomic replace
+            self.logger.info(f"Recompressing to BGZF in place: {filepath}")
 
-        # Safety: don't overwrite input file
+            tmpdir = filepath.parent
+            tmp_out = Path(
+                tempfile.mkstemp(dir=tmpdir, prefix=filepath.stem + ".", suffix=".bgz")[
+                    1
+                ]
+            )
+            try:
+                with (
+                    open(filepath, "rb") as f_in,
+                    pysam.BGZFile(str(tmp_out), "wb") as f_out,
+                ):
+                    shutil.copyfileobj(f_in, f_out, length=1024 * 1024)
+                os.replace(tmp_out, filepath)  # atomic swap
+            except Exception:
+                # Clean up tmp on failure
+                try:
+                    tmp_out.unlink(missing_ok=True)
+                finally:
+                    raise
+            return self._ensure_file_ext(filepath)
+
+        # Case B: Plain *.vcf -> produce sibling <base>.vcf.gz
+        bgzipped_path = self._ensure_file_ext(filepath)
+
         if bgzipped_path.resolve() == filepath.resolve():
             msg = f"Output path {bgzipped_path} would overwrite input file."
             self.logger.error(msg)
             raise IOError(msg)
 
-        # Ensure parent exists
         bgzipped_path.parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            # Stream in chunks to BGZF
-            with (
-                open(filepath, "rb") as f_in,
-                pysam.BGZFile(str(bgzipped_path), "wb") as f_out,
-            ):
-                # 1MB buffers
-                shutil.copyfileobj(f_in, f_out, length=1024 * 1024)
+        with (
+            open(filepath, "rb") as f_in,
+            pysam.BGZFile(str(bgzipped_path), "wb") as f_out,
+        ):
+            shutil.copyfileobj(f_in, f_out, length=1024 * 1024)
 
-            return bgzipped_path
-
-        except Exception as e:
-            self.logger.error(f"Error bgzipping file {filepath}: {e}")
-            raise
+        return bgzipped_path
 
     def _is_sorted(self, filepath: Path) -> bool:
         """Checks if the VCF file is sorted alphanumerically by chromosome and position.
@@ -442,11 +491,15 @@ class BaseGenotypeData:
             temp_vcf_path = Path(temp_vcf.name)
 
             # Compress and index
-            pysam.tabix_compress(str(temp_vcf_path), str(sorted_path), force=True)
-            pysam.tabix_index(str(sorted_path), preset="vcf", force=True)
+            pysam.tabix_compress(
+                str(temp_vcf_path), str(self._ensure_file_ext(sorted_path)), force=True
+            )
+            pysam.tabix_index(
+                str(self._ensure_file_ext(sorted_path)), preset="vcf", force=True
+            )
 
             temp_vcf_path.unlink()  # Clean up temp file
-            return sorted_path
+            return self._ensure_file_ext(sorted_path)
 
         except Exception as e:
             self.logger.error(f"Error sorting VCF file: {e}")

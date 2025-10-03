@@ -503,6 +503,12 @@ class GenotypeData(BaseGenotypeData):
         from_vcf = self.from_vcf
 
         of = Path(output_filename)
+        parent_pth = of.parent
+        if of.suffix == ".gz":
+            of = Path(of.stem)  # Remove .gz suffix; gets added back later
+
+        of = parent_pth / of
+        of.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             if from_vcf:
@@ -672,10 +678,11 @@ class GenotypeData(BaseGenotypeData):
         if not hasattr(self, "_is_bgzipped"):
             self._is_bgzipped = lambda x: False
 
-        # bgzip & tabix
-        bgz = of if self._is_bgzipped(of) else self.bgzip_file(of)
-        self.tabix_index(bgz)
-        self.logger.info(f"Indexed VCF file: {bgz}.tbi")
+        # bgzip the file if not already bgzipped and tabix index it.
+        # NOTE: This adds a .gz suffix to the output file.
+        self.tabix_index(of)
+
+        self.logger.info(f"Indexed VCF file: {of}.tbi")
         self.logger.info("Successfully wrote VCF file!")
 
     def write_phylip(

@@ -79,8 +79,7 @@ class TestGenePopReader(unittest.TestCase):
         tf = tempfile.NamedTemporaryFile(delete=False, mode="w", suffix=".gen")
         tf.write(content)
         tf.close()
-        if not hasattr(self, "temp_files"):
-            self.temp_files = []
+        self.temp_files = getattr(self, "temp_files", [])
         self.temp_files.append(tf.name)
         return tf.name
 
@@ -141,8 +140,7 @@ class TestGenePopReader(unittest.TestCase):
         )
 
         output_file = tempfile.NamedTemporaryFile(delete=False, suffix=".gen").name
-        if not hasattr(self, "temp_files"):
-            self.temp_files = []
+        self.temp_files = getattr(self, "temp_files", [])
         self.temp_files.append(output_file)
 
         reader.write_genepop(
@@ -168,18 +166,36 @@ class TestGenePopReader(unittest.TestCase):
             allele_encoding=self.allele_encoding,
         )
 
-        for ext, writer in zip(
-            [".str", ".vcf.gz", ".phy"],
-            [reader.write_structure, reader.write_vcf, reader.write_phylip],
-        ):
-            outfile = tempfile.NamedTemporaryFile(delete=False, suffix=ext).name
-            if not hasattr(self, "temp_files"):
-                self.temp_files = []
-            self.temp_files.append(outfile)
+        self.temp_files = getattr(self, "temp_files", [])
 
-            writer(outfile)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            outdir = Path(tmpdir)
+
+            # Structure
+            str_path = outdir / "interop.str"  # does NOT exist yet
+            reader.write_structure(str(str_path))
+            self.assertTrue(str_path.is_file(), f".str not written at {str_path}")
+            self.temp_files.append(str(str_path))
+
+            # Phylip
+            phy_path = outdir / "interop.phy"
+            reader.write_phylip(str(phy_path))
+            self.assertTrue(phy_path.is_file(), f".phy not written at {phy_path}")
+            self.temp_files.append(str(phy_path))
+
+            # VCF file.
+            vcfgz_path = outdir / "interop.vcf.gz"
+            reader.write_vcf(vcfgz_path)
+
+            # Assert exactly what you asked for
             self.assertTrue(
-                Path(outfile).is_file(), f"{ext} file not written correctly"
+                vcfgz_path.is_file(), f".vcf.gz not written at {vcfgz_path}"
+            )
+            self.temp_files.append(vcfgz_path)
+
+            self.assertTrue(
+                (vcfgz_path.parent / (vcfgz_path.name + ".tbi")).is_file(),
+                f".vcf.gz.tbi not written at {vcfgz_path}.tbi",
             )
 
 
