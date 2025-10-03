@@ -1,5 +1,6 @@
 import logging
 import re
+import shutil
 import tempfile
 import textwrap
 from collections import Counter
@@ -313,56 +314,60 @@ class BaseGenotypeData:
         return row
 
     def bgzip_file(self, filepath: Path) -> Path:
-        """BGZips a VCF file using pysam's BGZFile, avoiding overwriting the input file.
+        """BGZips a VCF file using pysam's BGZFile, preserving parent directories.
 
         Args:
-            filepath (Path): The path to the input VCF file (uncompressed).
+            filepath (Path): Path to the input (uncompressed) VCF file.
 
         Returns:
-            Path: The path to the bgzipped output VCF file with a .vcf.gz suffix.
+            Path: Path to the bgzipped output file with a .vcf.gz suffix, in the same directory.
+
+        Raises:
+            FileNotFoundError: If the input file does not exist.
+            IOError: If the output path would overwrite the input file.
         """
         if not filepath.exists():
             msg = f"Input VCF file not found: {filepath}"
             self.logger.error(msg)
             raise FileNotFoundError(msg)
 
-        # Skip if already has correct suffix
-        if filepath.name.endswith(".nremover.vcf.gz"):
-            self.logger.warning(
-                f"File already appears bgzipped with expected name: {filepath}"
-            )
+        # If it's already *.vcf.gz, just return it
+        if filepath.name.endswith(".vcf.gz"):
+            self.logger.warning(f"File already appears bgzipped: {filepath}")
             return filepath
 
-        name_parts = filepath.name.split(".")
-        while name_parts and name_parts[-1] in {"vcf", "gz", "nremover"}:
-            name_parts.pop()
-        base = ".".join(name_parts)
-        bgzipped_path = f"{base}.vcf.gz"
-        bgzipped_path = Path(bgzipped_path)
+        # Derive a clean base name by stripping trailing tokens like .vcf, .gz, .nremover
+        tokens = filepath.name.split(".")
+        while tokens and tokens[-1] in {"vcf", "gz", "nremover"}:
+            tokens.pop()
+        base = ".".join(tokens) if tokens else filepath.stem
 
-        # Safety check: don't overwrite input file
+        # >>> Preserve parent directory here <<<
+        bgzipped_path = filepath.parent / f"{base}.vcf.gz"
+
+        # Safety: don't overwrite input file
         if bgzipped_path.resolve() == filepath.resolve():
-            msg = f"Output path {bgzipped_path} would overwrite input file!"
+            msg = f"Output path {bgzipped_path} would overwrite input file."
             self.logger.error(msg)
-            raise ValueError(msg)
+            raise IOError(msg)
+
+        # Ensure parent exists
+        bgzipped_path.parent.mkdir(parents=True, exist_ok=True)
 
         try:
+            # Stream in chunks to BGZF
             with (
                 open(filepath, "rb") as f_in,
                 pysam.BGZFile(str(bgzipped_path), "wb") as f_out,
             ):
-                chunk_size = 1024 * 1024  # 1MB
-                while True:
-                    chunk = f_in.read(chunk_size)
-                    if not chunk:
-                        break
-                    f_out.write(chunk)
+                # 1MB buffers
+                shutil.copyfileobj(f_in, f_out, length=1024 * 1024)
 
             return bgzipped_path
 
         except Exception as e:
             self.logger.error(f"Error bgzipping file {filepath}: {e}")
-            raise e
+            raise
 
     def _is_sorted(self, filepath: Path) -> bool:
         """Checks if the VCF file is sorted alphanumerically by chromosome and position.
@@ -433,7 +438,7 @@ class BaseGenotypeData:
                 for line in header_lines:
                     temp_vcf.write(line + "\n")
                 for record in sorted_data_lines:
-                    temp_vcf.write(str(record))  # record already ends in newline
+                    temp_vcf.write(str(record))  # record already has newline
             temp_vcf_path = Path(temp_vcf.name)
 
             # Compress and index
@@ -466,6 +471,9 @@ class BaseGenotypeData:
 
         Args:
             filepath (Path): The path to the bgzipped VCF file.
+
+        Raises:
+            Exception: If there is an error during indexing.
         """
         try:
             pysam.tabix_index(str(filepath), preset="vcf", force=True)
