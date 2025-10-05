@@ -149,6 +149,7 @@ def main():
         .filter_missing_pop(0.75)
         .filter_singletons(exclude_heterozygous=True)
         .filter_missing_sample(0.8)
+        .filter_maf(0.05)
         .resolve()
     )
 
