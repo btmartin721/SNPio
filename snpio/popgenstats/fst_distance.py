@@ -17,6 +17,8 @@ if TYPE_CHECKING:
     from snpio.plotting.plotting import Plotting
     from snpio.read_input.genotype_data import GenotypeData
 
+phased_encoding = IUPAC().get_phased_encoding()
+
 
 class FstDistance:
     """Class for calculating Fst distance between populations using Weir and Cockerham's method.
@@ -57,7 +59,6 @@ class FstDistance:
         )
         self.logger = logman.get_logger()
         self.iupac = IUPAC(logger=self.logger)
-        self.phased_encoding = self.iupac.get_phased_encoding()
         self.snpio_mqc = SNPioMultiQC
 
     @staticmethod
@@ -65,9 +66,8 @@ class FstDistance:
         """Flattens a list of 'A/T' strings into a list of single alleles."""
         return [allele for genotype in phased_list for allele in genotype.split("/")]
 
-    def _get_het_from_phased(
-        self, allele: str, phased_list: list[str], count: bool = False
-    ):
+    @staticmethod
+    def _get_het_from_phased(allele: str, phased_list: list[str], count: bool = False):
         """Calculates observed heterozygosity for an allele from phased genotypes."""
         hets = 0.0
         for genotype in phased_list:
@@ -87,8 +87,8 @@ class FstDistance:
         missing_codes = {"N", "-", "?", "."}
         return [ind for ind in inds if ind not in missing_codes]
 
+    @staticmethod
     def _permutation_worker(
-        self,
         pop_pair_keys: tuple[str, str],
         pop_indices: dict[str, np.ndarray],
         full_matrix: np.ndarray,
@@ -111,50 +111,68 @@ class FstDistance:
         i1 = pop_indices[p1_key]
         i2 = pop_indices[p2_key]
 
-        obs, pval, dist = self._fst_permutation_pvalue(
+        obs, pval, dist = FstDistance._fst_permutation_pvalue(
             i1, i2, full_matrix, n_permutations=n_reps, seed=seed
         )
 
         # Return the key with the result to reassemble the final dictionary
         return (p1_key, p2_key), {"fst": obs, "pvalue": pval, "perm_dist": dist}
 
-    def _two_pop_weir_cockerham_fst_locus(self, s1: list[str], s2: list[str]):
+    @staticmethod
+    def _two_pop_weir_cockerham_fst_locus(s1: list[str], s2: list[str]):
         """Computes Weir & Cockerham's Fst components for a SINGLE locus."""
         if not s1 or not s2:
             return 0.0, 0.0
 
-        alleles1 = self._get_alleles(s1)
-        alleles2 = self._get_alleles(s2)
+        alleles1 = FstDistance._get_alleles(s1)
+        alleles2 = FstDistance._get_alleles(s2)
         unique_alleles = set(alleles1) | set(alleles2)
 
         r = 2.0
         n1, n2 = float(len(s1)), float(len(s2))
         n_bar = (n1 + n2) / r
-        nC = (1.0 / (r - 1.0)) * (n1 + n2 - (n1**2 + n2**2) / (n1 + n2))
+        nC = (
+            (1.0 / (r - 1.0)) * (n1 + n2 - (n1**2 + n2**2) / (n1 + n2))
+            if (n1 + n2) != 0
+            else 0
+        )
 
         num, denom = 0.0, 0.0
         for allele in unique_alleles:
-            p1 = alleles1.count(allele) / (2 * n1)
-            p2 = alleles2.count(allele) / (2 * n2)
-            p_bar = (n1 * p1 + n2 * p2) / (n1 + n2)
+            p1 = alleles1.count(allele) / (2 * n1) if n1 != 0 else 0
+            p2 = alleles2.count(allele) / (2 * n2) if n2 != 0 else 0
+            p_bar = (n1 * p1 + n2 * p2) / (n1 + n2) if (n1 + n2) != 0 else 0
 
-            h1 = self._get_het_from_phased(allele, s1, count=True) / n1
-            h2 = self._get_het_from_phased(allele, s2, count=True) / n2
-            h_bar = (n1 * h1 + n2 * h2) / (n1 + n2)
+            h1 = (
+                FstDistance._get_het_from_phased(allele, s1, count=True) / n1
+                if n1 != 0
+                else 0
+            )
+            h2 = (
+                FstDistance._get_het_from_phased(allele, s2, count=True) / n2
+                if n2 != 0
+                else 0
+            )
+            h_bar = (n1 * h1 + n2 * h2) / (n1 + n2) if (n1 + n2) != 0 else 0
 
-            s_squared = ((n1 * (p1 - p_bar) ** 2) + (n2 * (p2 - p_bar) ** 2)) / (
-                (r - 1) * n_bar
+            s_squared = (
+                ((n1 * (p1 - p_bar) ** 2) + (n2 * (p2 - p_bar) ** 2))
+                / ((r - 1) * n_bar)
+                if (r - 1) * n_bar != 0
+                else 0
             )
 
-            a = (n_bar / nC) * (
+            a = (n_bar / nC if nC != 0 else 0) * (
                 s_squared
-                - (1 / (n_bar - 1))
+                - (1 / (n_bar - 1) if n_bar - 1 != 0 else 0)
                 * (p_bar * (1 - p_bar) - ((r - 1) / r) * s_squared - h_bar / 4)
             )
-            b = (n_bar / (n_bar - 1)) * (
+            b = (n_bar / (n_bar - 1) if n_bar - 1 != 0 else 0) * (
                 p_bar * (1 - p_bar)
                 - ((r - 1) / r) * s_squared
                 - ((2 * n_bar - 1) / (4 * n_bar)) * h_bar
+                if n_bar != 0 and n_bar - 1 != 0
+                else 0
             )
             c = h_bar / 2
 
@@ -163,7 +181,8 @@ class FstDistance:
 
         return num, denom
 
-    def _compute_multilocus_fst(self, pop1_inds, pop2_inds, full_matrix):
+    @staticmethod
+    def _compute_multilocus_fst(pop1_inds, pop2_inds, full_matrix):
         """Computes the final Fst by summing single-locus components."""
         total_num, total_denom = 0.0, 0.0
         for loc in range(full_matrix.shape[1]):
@@ -172,15 +191,17 @@ class FstDistance:
             s2_iupac = full_matrix[pop2_inds, loc]
 
             # 2. Decode IUPAC to phased strings (e.g., 'R' -> 'A/G')
-            s1_phased = [self.phased_encoding.get(gt, "N/N") for gt in s1_iupac]
-            s2_phased = [self.phased_encoding.get(gt, "N/N") for gt in s2_iupac]
+            s1_phased = [phased_encoding.get(gt, "N/N") for gt in s1_iupac]
+            s2_phased = [phased_encoding.get(gt, "N/N") for gt in s2_iupac]
 
             # 3. Clean missing data
             s1_clean = [gt for gt in s1_phased if "N" not in gt]
             s2_clean = [gt for gt in s2_phased if "N" not in gt]
 
             # 4. Calculate components for this locus
-            num, denom = self._two_pop_weir_cockerham_fst_locus(s1_clean, s2_clean)
+            num, denom = FstDistance._two_pop_weir_cockerham_fst_locus(
+                s1_clean, s2_clean
+            )
 
             if not np.isnan(num) and not np.isnan(denom):
                 total_num += num
@@ -188,8 +209,8 @@ class FstDistance:
 
         return total_num / total_denom if total_denom != 0 else np.nan
 
+    @staticmethod
     def _fst_permutation_pvalue(
-        self,
         pop1_inds: np.ndarray,
         pop2_inds: np.ndarray,
         full_matrix: np.ndarray,
@@ -208,7 +229,7 @@ class FstDistance:
         Returns:
             Tuple[float, float, np.ndarray]: (observed Fst, p-value, permutation distribution array)
         """
-        obs_fst = self._compute_multilocus_fst(pop1_inds, pop2_inds, full_matrix)
+        obs_fst = FstDistance._compute_multilocus_fst(pop1_inds, pop2_inds, full_matrix)
 
         pooled_indices = np.concatenate((pop1_inds, pop2_inds))
         n1_size = len(pop1_inds)
@@ -219,16 +240,20 @@ class FstDistance:
             rng.shuffle(pooled_indices)
             perm_inds1 = pooled_indices[:n1_size]
             perm_inds2 = pooled_indices[n1_size:]
-            perm_dist[i] = self._compute_multilocus_fst(
+            perm_dist[i] = FstDistance._compute_multilocus_fst(
                 perm_inds1, perm_inds2, full_matrix
             )
 
         perm_dist = perm_dist[~np.isnan(perm_dist)]
-        p_value = (np.sum(perm_dist >= obs_fst) + 1) / (len(perm_dist) + 1)
+        p_value = (
+            (np.sum(perm_dist >= obs_fst) + 1) / (len(perm_dist) + 1)
+            if len(perm_dist) > 0
+            else np.nan
+        )
         return obs_fst, p_value, perm_dist
 
+    @staticmethod
     def _bootstrap_replicate(
-        self,
         seed: int,
         pop_indices: dict,
         pop_pairs: list,
@@ -242,7 +267,7 @@ class FstDistance:
         resampled_matrix = full_matrix[:, resampled_loci]
 
         for p1_key, p2_key in pop_pairs:
-            replicate[(p1_key, p2_key)] = self._compute_multilocus_fst(
+            replicate[(p1_key, p2_key)] = FstDistance._compute_multilocus_fst(
                 pop_indices[p1_key], pop_indices[p2_key], resampled_matrix
             )
         return replicate
@@ -304,7 +329,7 @@ class FstDistance:
 
             # Create a partial function with the arguments that are the same for all jobs
             worker_func = partial(
-                self._permutation_worker,
+                FstDistance._permutation_worker,
                 pop_indices=pop_indices,
                 full_matrix=full_matrix,
                 n_reps=n_reps,
@@ -341,7 +366,7 @@ class FstDistance:
 
             # Use functools.partial to create a pickleable worker function
             worker_func = partial(
-                self._bootstrap_replicate,
+                FstDistance._bootstrap_replicate,
                 pop_indices=pop_indices,
                 pop_pairs=pop_pairs,
                 full_matrix=full_matrix,
@@ -747,12 +772,11 @@ class FstDistance:
                 d_vals[loc] = np.nan
                 continue
 
-            phased_encoding = self.iupac.get_phased_encoding()
             s1 = [phased_encoding.get(x, x) for x in s1]
             s2 = [phased_encoding.get(x, x) for x in s2]
 
             try:
-                a, d = self._two_pop_weir_cockerham_fst_locus(s1, s2)
+                a, d = FstDistance._two_pop_weir_cockerham_fst_locus(s1, s2)
                 a_vals[loc] = a
                 d_vals[loc] = d
             except ValueError:
