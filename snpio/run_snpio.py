@@ -48,7 +48,8 @@ def parse_args():
     parser.add_argument(
         "--popmap",
         type=str,
-        required=True,
+        required=False,
+        default=None,
         help="Path to popmap file mapping samples to populations. Format: <sample>\t<population>",
     )
     parser.add_argument(
@@ -97,7 +98,7 @@ def main():
 
     # Validate paths
     validate_file(args.input, "Input")
-    validate_file(args.popmap, "Popmap")
+    # validate_file(args.popmap, "Popmap")
 
     print(f"🧬 Running SNPio version {version()} with the following arguments:")
     print(f"  📥 Input file:     {args.input}")
