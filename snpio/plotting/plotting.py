@@ -1697,13 +1697,14 @@ class Plotting:
 
         # Ensure correct data types
         # Round float columns to 2 or 3 decimal places.
-        df["Missing_Threshold"] = df["Missing_Threshold"].astype(float).round(3)
-        df["MAF_Threshold"] = df["MAF_Threshold"].astype(float).round(3)
+        df["Missing_Threshold"] = (
+            df["Missing_Threshold"].fillna(1.0).astype(float).round(3)
+        )
+        df["MAF_Threshold"] = df["MAF_Threshold"].fillna(0.0).astype(float).round(3)
         df["Kept_Prop"] = df["Kept_Prop"].astype(float).round(2)
         df["Removed_Prop"] = df["Removed_Prop"].astype(float).round(2)
-
-        df["MAC_Threshold"] = df["MAC_Threshold"].astype(int)
-        df["Bool_Threshold"] = df["Bool_Threshold"].astype(int)
+        df["MAC_Threshold"] = df["MAC_Threshold"].fillna(0).astype(int)
+        df["Bool_Threshold"] = df["Bool_Threshold"].fillna(False).astype(int)
         df["Removed_Count"] = df["Removed_Count"].astype(int)
         df["Kept_Count"] = df["Kept_Count"].astype(int)
         df["Total_Loci"] = df["Total_Loci"].astype(int)
