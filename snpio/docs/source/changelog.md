@@ -2,6 +2,13 @@
 
 This document outlines the changes made to the project with each release.
 
+## Version 1.6.10 (2025-10-05)
+
+### Bug Fixes - v1.6.10
+
+- Fixed bug where the `PopGenStatistics` class's `weir_cockerham_fst_between_populations` method could produce division by zero errors when populations had no samples. The method now includes checks to ensure that populations have samples before performing calculations, preventing division by zero errors and ensuring robust handling of edge cases.
+- Fixed bug with `_plot_sankey_filtering_report` function in the `Plotting` class where it could fail if there were missing thresholds for MAF or MAC. The function now correctly handles NaN values in the threshold columns, ensuring that the data types are consistent and preventing errors during plotting. This fix improves the robustness of the plotting functionality when dealing with incomplete data.
+
 ## Version 1.6.9 (2025-10-05)
 
 ### Bug Fixes - v1.6.9
