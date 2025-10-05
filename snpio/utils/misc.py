@@ -46,11 +46,6 @@ class IUPAC:
         Raises:
             ValueError: If `multilab_value` is not between 0 and 1.
         """
-        if logger is None:
-            msg = "Logger is a required argument for IUPAC class."
-            self.logger.error(msg)
-            raise TypeError(msg)
-
         self.multilab_value: float = multilab_value
         self.gt2iupac: Dict[str, str] = self.get_gt2iupac()
         self.iupac2gt: Dict[str, str] = self.get_iupac2gt()
@@ -58,13 +53,10 @@ class IUPAC:
         self.onehot_dict: Dict[str, List[float]] = self.get_onehot_dict()
         self.ambiguous_dna_values: Dict[str, str] = self.get_iupac_ambiguous()
 
-        self.logger = logger
-
         if multilab_value <= 0 or multilab_value > 1:
             msg: str = (
                 f"Invalid multilabel value: {multilab_value}. Must be > 0 and <= 1."
             )
-            self.logger.error(msg)
             raise ValueError(msg)
 
         # IUPAC ambiguity codes for unordered heterozygous pairs
@@ -183,8 +175,6 @@ class IUPAC:
         base2 = allele_map.get(allele2, "N")
 
         if base1 == "N" or base2 == "N":
-            if hasattr(self, "logger"):
-                self.logger.debug(f"Unknown alleles: {allele1}/{allele2} → N")
             return "N"
 
         if base1 == base2:
@@ -379,7 +369,6 @@ class IUPAC:
         if hasattr(self, key):
             return getattr(self, key)
         msg: str = f"{key} is not a valid attribute of IUPAC."
-        self.logger.error(msg)
         raise KeyError(msg)
 
     def __setitem__(self, key: str, value: str | List[float]) -> None:
@@ -400,7 +389,6 @@ class IUPAC:
             setattr(self, key, value)
         else:
             msg: str = f"{key} is not a valid attribute of IUPAC."
-            self.logger.error(msg)
             raise KeyError(msg)
 
     def __repr__(self) -> str:
