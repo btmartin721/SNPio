@@ -4,6 +4,14 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Version 1.6.9 (2025-10-05)
+--------------------------
+
+Bug Fixes - v1.6.9
+~~~~~~~~~~~~~~~~~~
+
+- Fixed bug with docker container where it was not correctly plotting the Sankey report if there were missing thresholds for MAF or MAC. The plotting function now correctly handles NaN values in the threshold columns, ensuring that the data types are consistent and preventing errors during plotting. This fix improves the robustness of the plotting functionality when dealing with incomplete data.
+
 Version 1.6.8 (2025-10-03)
 --------------------------
 
