@@ -2,6 +2,14 @@
 
 This document outlines the changes made to the project with each release.
 
+## Version 1.6.11 (2025-10-05)
+
+### Bug Fixes - v1.6.11
+
+- Fixed bug where the `PopGenStatistics` class's `weir_cockerham_fst_between_populations` method could produce division by zero errors when populations had no samples. The method now includes checks to ensure that populations have samples before performing calculations, preventing division by zero errors and ensuring robust handling of edge cases.
+- Fixed bug where the `PopGenStatistics` class's Nei distance calculations method could produce division by zero errors when populations had no samples. The method now includes checks to ensure that populations have samples before performing calculations, preventing division by zero errors and ensuring robust handling of edge cases.
+- Fixed issue with seeding when multiprocessing with Fst and Nei distances.
+
 ## Version 1.6.10 (2025-10-05)
 
 ### Bug Fixes - v1.6.10
