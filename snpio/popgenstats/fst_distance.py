@@ -120,7 +120,19 @@ class FstDistance:
 
     @staticmethod
     def _two_pop_weir_cockerham_fst_locus(s1: list[str], s2: list[str]):
-        """Computes Weir & Cockerham's Fst components for a SINGLE locus."""
+        """Computes Weir & Cockerham's Fst components for a SINGLE locus.
+
+        Edge-case guard:
+            - If either pop has <1 individual => (0,0)
+            - If n_bar <= 1 or nC == 0 (e.g., n1==n2==1) => (0,0)
+
+        Args:
+            s1 (list[str]): Phased genotypes for population 1.
+            s2 (list[str]): Phased genotypes for population 2.
+
+        Returns:
+            tuple: A tuple containing the Fst numerator and denominator.
+        """
         if not s1 or not s2:
             return 0.0, 0.0
 
@@ -130,51 +142,49 @@ class FstDistance:
 
         r = 2.0
         n1, n2 = float(len(s1)), float(len(s2))
+
+        if n1 < 1.0 or n2 < 1.0:
+            return 0.0, 0.0
+
         n_bar = (n1 + n2) / r
-        nC = (
-            (1.0 / (r - 1.0)) * (n1 + n2 - (n1**2 + n2**2) / (n1 + n2))
-            if (n1 + n2) != 0
-            else 0
-        )
+
+        if n_bar <= 1.0:
+            return 0.0, 0.0
+
+        denom_nc = n1 + n2
+        if denom_nc == 0.0:
+            return 0.0, 0.0
+
+        nC = (1.0 / (r - 1.0)) * (n1 + n2 - (n1**2 + n2**2) / denom_nc)
+
+        if nC == 0.0:
+            return 0.0, 0.0
 
         num, denom = 0.0, 0.0
         for allele in unique_alleles:
-            p1 = alleles1.count(allele) / (2 * n1) if n1 != 0 else 0
-            p2 = alleles2.count(allele) / (2 * n2) if n2 != 0 else 0
-            p_bar = (n1 * p1 + n2 * p2) / (n1 + n2) if (n1 + n2) != 0 else 0
+            p1 = alleles1.count(allele) / (2.0 * n1)
+            p2 = alleles2.count(allele) / (2.0 * n2)
+            p_bar = (n1 * p1 + n2 * p2) / (n1 + n2)
 
-            h1 = (
-                FstDistance._get_het_from_phased(allele, s1, count=True) / n1
-                if n1 != 0
-                else 0
-            )
-            h2 = (
-                FstDistance._get_het_from_phased(allele, s2, count=True) / n2
-                if n2 != 0
-                else 0
-            )
-            h_bar = (n1 * h1 + n2 * h2) / (n1 + n2) if (n1 + n2) != 0 else 0
+            h1 = FstDistance._get_het_from_phased(allele, s1, count=True) / n1
+            h2 = FstDistance._get_het_from_phased(allele, s2, count=True) / n2
+            h_bar = (n1 * h1 + n2 * h2) / (n1 + n2)
 
-            s_squared = (
-                ((n1 * (p1 - p_bar) ** 2) + (n2 * (p2 - p_bar) ** 2))
-                / ((r - 1) * n_bar)
-                if (r - 1) * n_bar != 0
-                else 0
+            s_squared = ((n1 * (p1 - p_bar) ** 2) + (n2 * (p2 - p_bar) ** 2)) / (
+                (r - 1.0) * n_bar
             )
 
-            a = (n_bar / nC if nC != 0 else 0) * (
+            a = (n_bar / nC) * (
                 s_squared
-                - (1 / (n_bar - 1) if n_bar - 1 != 0 else 0)
-                * (p_bar * (1 - p_bar) - ((r - 1) / r) * s_squared - h_bar / 4)
+                - (1.0 / (n_bar - 1.0))
+                * (p_bar * (1.0 - p_bar) - ((r - 1.0) / r) * s_squared - h_bar / 4.0)
             )
-            b = (n_bar / (n_bar - 1) if n_bar - 1 != 0 else 0) * (
-                p_bar * (1 - p_bar)
-                - ((r - 1) / r) * s_squared
-                - ((2 * n_bar - 1) / (4 * n_bar)) * h_bar
-                if n_bar != 0 and n_bar - 1 != 0
-                else 0
+            b = (n_bar / (n_bar - 1.0)) * (
+                p_bar * (1.0 - p_bar)
+                - ((r - 1.0) / r) * s_squared
+                - ((2.0 * n_bar - 1.0) / (4.0 * n_bar)) * h_bar
             )
-            c = h_bar / 2
+            c = h_bar / 2.0
 
             num += a
             denom += a + b + c
@@ -282,14 +292,16 @@ class FstDistance:
 
         Args:
             method (Literal["observed", "permutation", "bootstrap"]): The method to use for Fst calculation.
-            n_reps (int): The number of replicates for permutation/bootstrap methods.
+            n_reps (int): The number of replicates to use for permutation/bootstrap methods.
             n_jobs (int): The number of parallel jobs to run.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing pairwise Fst values.
         """
         self.logger.info(
             f"Calculating Fst using method='{method}' with {n_reps} replicates."
         )
 
-        # Create a master Random Number Generator from the instance seed
         rng = np.random.default_rng(self.seed)
 
         if n_jobs == 0 or n_jobs < -1:
@@ -327,27 +339,38 @@ class FstDistance:
             result = {}
             pop_pairs = list(itertools.combinations(pop_keys, 2))
 
-            # Create a partial function with the arguments that are the same for all jobs
-            worker_func = partial(
-                FstDistance._permutation_worker,
-                pop_indices=pop_indices,
-                full_matrix=full_matrix,
-                n_reps=n_reps,
-                seed=self.seed,
-            )
+            # --- per-pair independent seeds ---
+            seed_base = self.seed if self.seed is not None else 0
+            ss = np.random.SeedSequence(seed_base)
+            children = ss.spawn(len(pop_pairs))
+            pair_seeds = {
+                pair: int(child.entropy) & 0x7FFFFFFF  # stable 31-bit int
+                for pair, child in zip(pop_pairs, children)
+            }
 
-            # Run the jobs in parallel
-            with ProcessPoolExecutor(
-                max_workers=(mp.cpu_count() if n_jobs == -1 else n_jobs)
-            ) as pool:
-                # The result is an iterator of ((pop1, pop2), {results_dict})
-                res_iterator = pool.map(worker_func, pop_pairs)
-                for pop_pair, res_dict in tqdm(
-                    res_iterator, desc="Fst permutations", total=len(pop_pairs)
+            from concurrent.futures import (
+                as_completed,
+            )  # local import to keep top clean
+
+            max_workers = mp.cpu_count() if n_jobs == -1 else n_jobs
+            with ProcessPoolExecutor(max_workers=max_workers) as pool:
+                futures = [
+                    pool.submit(
+                        FstDistance._permutation_worker,
+                        pair,
+                        pop_indices,
+                        full_matrix,
+                        n_reps,
+                        pair_seeds[pair],
+                    )
+                    for pair in pop_pairs
+                ]
+                for fut in tqdm(
+                    as_completed(futures), desc="Fst permutations", total=len(futures)
                 ):
+                    pop_pair, res_dict = fut.result()
                     result[pop_pair] = res_dict
 
-            # Plotting must be done after all parallel results are collected
             for (p1_key, p2_key), res_dict in result.items():
                 self.plotter.plot_permutation_dist(
                     res_dict["fst"],
@@ -364,7 +387,6 @@ class FstDistance:
             pop_pairs = list(itertools.combinations(pop_keys, 2))
             result = {pair: np.zeros(n_reps, dtype=float) for pair in pop_pairs}
 
-            # Use functools.partial to create a pickleable worker function
             worker_func = partial(
                 FstDistance._bootstrap_replicate,
                 pop_indices=pop_indices,
@@ -378,7 +400,6 @@ class FstDistance:
             with ProcessPoolExecutor(
                 max_workers=(mp.cpu_count() if n_jobs == -1 else n_jobs)
             ) as pool:
-                # Map the new worker function over the seeds
                 reps = pool.map(worker_func, seeds)
                 for i, rep_data in tqdm(
                     enumerate(reps), desc="Fst bootstraps", total=n_reps
@@ -395,40 +416,16 @@ class FstDistance:
             raise ValueError(msg)
 
     def parse_wc_fst(self, result_dict, alpha: float = 0.05):
-        """Convert the output of `weir_cockerham_fst()` into DataFrames for:
-
-        - The mean Fst among permutations or bootstraps,
-        - The lower and upper confidence intervals,
-        - And the p-values (if return_pvalues=True).
-
-        This method auto-detects which case of result_dict it has:
-        1) A direct DataFrame (case: no bootstrap, no p-values).
-        2) A dict {(pop1, pop2): np.array([...])} for bootstrap replicates.
-        3) A dict {(pop1, pop2): {"fst": float, "pvalue": pd.Series, "perm_dist": np.array([...])} for permutation results with an optional distribution array.
+        """Convert the output of `weir_cockerham_fst()` into summary DataFrames.
 
         Args:
-            result_dict: The structure returned by `weir_cockerham_fst()`.
-            alpha (float): Significance level for CIs. Default 0.05 => 95% CIs.
+            result_dict (dict or pd.DataFrame): The output from `weir_cockerham_fst()`.
+            alpha (float): Significance level for confidence intervals (default: 0.05 for 95% CIs).
 
         Returns:
-            tuple: (df_mean, df_lower, df_upper, df_pval), where each is a
-            pandas DataFrame (or None if not applicable).
-            - df_mean: matrix of average Fst across replicates (or observed if no replicates).
-            - df_lower: matrix of lower CI bounds.
-            - df_upper: matrix of upper CI bounds.
-            - df_pval: matrix of p-values if p-values exist; otherwise None.
-
-        Notes:
-            - For bootstrap results, df_mean, df_lower, and df_upper are computed from the replicate arrays in result_dict.
-            - For permutation results, the method looks for "perm_dist" to compute a distribution-based mean and CIs. If "perm_dist" is missing, df_lower and df_upper will remain NaN.
-            - If result_dict is just a DataFrame, it returns that as df_mean  and None for the others, since no replicates/p-values exist.
+            tuple: (df_mean, df_lower, df_upper, df_pval).
         """
-        # ------------------------------------------------------------
-        # CASE 1: No permutations, no p-values
-        # Expected data structure (DataFrame): pairwise Fst matrix
-        # ------------------------------------------------------------
         if isinstance(result_dict, pd.DataFrame):
-            # No distribution or p-values to parse, just plot and return matrix
             self.snpio_mqc.queue_heatmap(
                 df=result_dict,
                 panel_id="wc_fst_observed",
@@ -451,42 +448,27 @@ class FstDistance:
             )
             return result_dict, None, None, None
 
-        # 2) Otherwise, we have a dictionary of some sort.
-        # Inspect the first value to detect the structure.
         first_val = next(iter(result_dict.values()))
 
-        # Helper function to get all populations in alphabetical order
         def all_populations_from_keys(dict_keys):
-            """Given dict keys like (pop1, pop2), return a sorted list of unique pops."""
             pop_set = set()
             for k in dict_keys:
-                pop_set.update(k)  # k is (pop1, pop2)
+                pop_set.update(k)
             return sorted(pop_set)
 
-        # Create empty DataFrames for storing results.
-        # Fill them if the dictionary structure allows it.
         df_mean, df_lower, df_upper, df_pval = None, None, None, None
 
-        # ---------------------------------------------------------------------
-        # CASE 2: With permutation replicates, but no P-value estimation
-        # Expected data structure (Dictionary): (pop1, pop2) -> np.array([...])
-        # ---------------------------------------------------------------------
         if isinstance(first_val, np.ndarray):
-            # This indicates we likely have arrays of replicate
-            # Fst values => permutation replicates.
             pop_pairs = list(result_dict.keys())
             pops = all_populations_from_keys(pop_pairs)
 
-            # Initialize empty dataframes
             df_mean = pd.DataFrame(np.nan, index=pops, columns=pops)
             df_lower = pd.DataFrame(np.nan, index=pops, columns=pops)
             df_upper = pd.DataFrame(np.nan, index=pops, columns=pops)
 
-            # Fill each pair from replicate distributions
             for (p1, p2), arr in result_dict.items():
                 arr_nonan = arr[~np.isnan(arr)]
                 if len(arr_nonan) == 0:
-                    # If everything is NaN or there's no data
                     mean_val = np.nan
                     lower_val = np.nan
                     upper_val = np.nan
@@ -495,24 +477,18 @@ class FstDistance:
                     lower_val = np.percentile(arr_nonan, 100 * alpha / 2)
                     upper_val = np.percentile(arr_nonan, 100 * (1 - alpha / 2))
 
-                df_mean.loc[p1, p2] = mean_val
-                df_mean.loc[p2, p1] = mean_val
-                df_lower.loc[p1, p2] = lower_val
-                df_lower.loc[p2, p1] = lower_val
-                df_upper.loc[p1, p2] = upper_val
-                df_upper.loc[p2, p1] = upper_val
+                df_mean.loc[p1, p2] = df_mean.loc[p2, p1] = mean_val
+                df_lower.loc[p1, p2] = df_lower.loc[p2, p1] = lower_val
+                df_upper.loc[p1, p2] = df_upper.loc[p2, p1] = upper_val
 
-            # Diagonal is typically 0 for self-Fst
             np.fill_diagonal(df_mean.values, 0.0)
             np.fill_diagonal(df_lower.values, 0.0)
             np.fill_diagonal(df_upper.values, 0.0)
 
-            # Write df_lower and df_upper to CSV
             df_ul_combined = self._combine_upper_lower_ci(
                 df_upper, df_lower, diagonal="zero"
             )
 
-            # Bootstrap mean heatmap
             self.snpio_mqc.queue_heatmap(
                 df=df_mean,
                 panel_id="wc_fst_bootstrap_mean",
@@ -535,7 +511,6 @@ class FstDistance:
                 },
             )
 
-            # Bootstrap 95% CI heatmap (upper triangle = upper CI, lower triangle = lower CI)
             self.snpio_mqc.queue_heatmap(
                 df=df_ul_combined,
                 panel_id="wc_fst_bootstrap_ci95",
@@ -560,47 +535,31 @@ class FstDistance:
 
             return df_mean, df_lower, df_upper, df_pval
 
-        # -----------------------------------------------------------------
-        # CASE 3: Fst estimation with permutations and P-values
-        # Expected data structure:
-        # (Permutation): (pop1, pop2) ->
-        # {"fst": float, "pvalue": pd.Series, "perm_dist": optional ...}
-        # -----------------------------------------------------------------
         if isinstance(first_val, dict) and "fst" in first_val and "pvalue" in first_val:
             pop_pairs = list(result_dict.keys())
             pops = all_populations_from_keys(pop_pairs)
 
-            # Observed Fst
             df_obs = pd.DataFrame(np.nan, index=pops, columns=pops)
-
-            # We store p-values in df_pval
             df_pval = pd.DataFrame(np.nan, index=pops, columns=pops)
-
-            # If there's a distribution, we can compute mean & CI
             df_mean = pd.DataFrame(np.nan, index=pops, columns=pops)
             df_lower = pd.DataFrame(np.nan, index=pops, columns=pops)
             df_upper = pd.DataFrame(np.nan, index=pops, columns=pops)
 
             for (p1, p2), subdict in result_dict.items():
                 obs_val = subdict["fst"]
-                pval_series = pd.Series(subdict["pvalue"])
+                # --- changed: treat pvalue as float directly ---
+                pv_raw = subdict["pvalue"]
+                p_value = (
+                    float(pv_raw)
+                    if pv_raw is not None and not np.isnan(pv_raw)
+                    else np.nan
+                )
 
-                # Check if we have a distribution of permuted Fst
-                # If not, we can still compute mean & CIs
                 dist = subdict.get("perm_dist", None)
 
-                # Fill in the observed Fst
-                df_obs.loc[p1, p2] = obs_val
-                df_obs.loc[p2, p1] = obs_val
+                df_obs.loc[p1, p2] = df_obs.loc[p2, p1] = obs_val
+                df_pval.loc[p1, p2] = df_pval.loc[p2, p1] = p_value
 
-                # Extract the p-value (one-tailed)
-                if not pval_series.empty:
-                    p_value = pval_series.mean()
-                    df_pval.loc[p1, p2] = p_value
-                    df_pval.loc[p2, p1] = p_value
-
-                # If we have a distribution of permuted Fst, compute its
-                # mean & CIs
                 if dist is not None and len(dist) > 0:
                     dist_nonan = dist[~np.isnan(dist)]
                     if len(dist_nonan) == 0:
@@ -612,21 +571,16 @@ class FstDistance:
                         lower_val = np.percentile(dist_nonan, 100 * alpha / 2)
                         upper_val = np.percentile(dist_nonan, 100 * (1 - alpha / 2))
 
-                    df_mean.loc[p1, p2] = mean_val
-                    df_mean.loc[p2, p1] = mean_val
-                    df_lower.loc[p1, p2] = lower_val
-                    df_lower.loc[p2, p1] = lower_val
-                    df_upper.loc[p1, p2] = upper_val
-                    df_upper.loc[p2, p1] = upper_val
+                    df_mean.loc[p1, p2] = df_mean.loc[p2, p1] = mean_val
+                    df_lower.loc[p1, p2] = df_lower.loc[p2, p1] = lower_val
+                    df_upper.loc[p1, p2] = df_upper.loc[p2, p1] = upper_val
 
-            # Fill diagonals with typical defaults
             np.fill_diagonal(df_obs.values, 0.0)
             np.fill_diagonal(df_pval.values, 1.0)
             np.fill_diagonal(df_mean.values, 0.0)
             np.fill_diagonal(df_lower.values, 0.0)
             np.fill_diagonal(df_upper.values, 0.0)
 
-            # Observed matrix (Permutation context)
             self.snpio_mqc.queue_heatmap(
                 df=df_obs,
                 panel_id="wc_fst_permutation_observed",
@@ -649,7 +603,6 @@ class FstDistance:
                 },
             )
 
-            # P-values heatmap
             self.snpio_mqc.queue_heatmap(
                 df=df_pval,
                 panel_id="wc_fst_permutation_pvalues",
@@ -674,9 +627,6 @@ class FstDistance:
 
             return df_obs, df_lower, df_upper, df_pval
 
-        # --------------------------------------------------------
-        # Else: If none of the above conditions match, raise error
-        # --------------------------------------------------------
         msg = "Unrecognized structure in result_dict when estimating Fst. Expected either a DataFrame or a dictionary with specific keys and structures."
         self.logger.error(msg)
         raise ValueError(msg)
