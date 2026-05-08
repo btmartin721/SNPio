@@ -286,3 +286,4 @@ full_test*_output/
 multiqc_report.html
 fy25.intersection.vcf.gz
 wtd/
+snpio/selected/
