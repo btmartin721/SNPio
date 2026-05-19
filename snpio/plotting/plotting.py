@@ -11,13 +11,15 @@ import plotly.express as px
 mpl.use("Agg")
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+
 import numpy as np
 import pandas as pd
 import seaborn as sns
 from holoviews import opts
 from mpl_toolkits.mplot3d import Axes3D  # Don't remove this import.
 
-hv.extension("bokeh")
+hv.extension("bokeh")  # type: ignore
 
 from snpio.utils import misc
 from snpio.utils.logging import LoggerManager
@@ -69,14 +71,14 @@ class Plotting:
     def __init__(
         self,
         genotype_data: "GenotypeData",
-        show: bool | None = None,
-        plot_format: str | None = None,
-        dpi: int | None = None,
-        plot_fontsize: int | None = None,
-        plot_title_fontsize: int | None = None,
-        despine: bool | None = None,
-        verbose: bool | None = None,
-        debug: bool | None = None,
+        show: bool = False,
+        plot_format: str = "png",
+        dpi: int = 300,
+        plot_fontsize: int = 18,
+        plot_title_fontsize: int = 22,
+        despine: bool = True,
+        verbose: bool = False,
+        debug: bool = False,
     ) -> None:
         """Initialize the Plotting class.
 
@@ -84,14 +86,14 @@ class Plotting:
 
         Args:
             genotype_data (GenotypeData): Initialized GenotypeData object containing necessary data.
-            show (bool | None): Whether to display the plots. Defaults to `genotype_data.show` if available, otherwise `False`.
-            plot_format (str | None): The format in which to save the plots (e.g., 'png', 'svg'). Defaults to `genotype_data.plot_format` if available, otherwise `'png'`.
-            dpi (int | None): The resolution of the saved plots. Unused for vector `plot_format` types. Defaults to `genotype_data.dpi` if available, otherwise `300`.
-            plot_fontsize (int | None): The font size for the plot labels. Defaults to `genotype_data.plot_fontsize` if available, otherwise `18`.
-            plot_title_fontsize (int | None): The font size for the plot titles. Defaults to `genotype_data.plot_title_fontsize` if available, otherwise `22`.
-            despine (bool | None): Whether to remove the top and right plot axis spines. Defaults to `genotype_data.despine` if available, otherwise `True`.
-            verbose (bool | None): Whether to enable verbose logging. Defaults to `genotype_data.verbose` if available, otherwise `False`.
-            debug (bool | None): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
+            show (bool): Whether to display the plots. Defaults to `genotype_data.show` if available, otherwise `False`.
+            plot_format (str): The format in which to save the plots (e.g., 'png', 'svg'). Defaults to `genotype_data.plot_format` if available, otherwise `'png'`.
+            dpi (int): The resolution of the saved plots. Unused for vector `plot_format` types. Defaults to `genotype_data.dpi` if available, otherwise `300`.
+            plot_fontsize (int): The font size for the plot labels. Defaults to `genotype_data.plot_fontsize` if available, otherwise `18`.
+            plot_title_fontsize (int): The font size for the plot titles. Defaults to `genotype_data.plot_title_fontsize` if available, otherwise `22`.
+            despine (bool): Whether to remove the top and right plot axis spines. Defaults to `genotype_data.despine` if available, otherwise `True`.
+            verbose (bool): Whether to enable verbose logging. Defaults to `genotype_data.verbose` if available, otherwise `False`.
+            debug (bool): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
 
         Note:
             - The `show`, `plot_format`, `dpi`, `plot_fontsize`, `plot_title_fontsize`, `despine`, `verbose`, and `debug` attributes are set based on the provided values, the `genotype_data` object, or default values.
@@ -119,19 +121,27 @@ class Plotting:
         self.report_dir_gd.mkdir(parents=True, exist_ok=True)
         self.report_dir_analysis.mkdir(parents=True, exist_ok=True)
 
-        self.verbose: bool | None = verbose
-        self.debug: bool | None = debug
+        self.verbose: bool = (
+            verbose if verbose is not None else getattr(genotype_data, "verbose", False)
+        )
+        self.debug: bool = (
+            debug if debug is not None else getattr(genotype_data, "debug", False)
+        )
+
+        self.show = show
 
         prefix: str = genotype_data.prefix
 
-        logman = LoggerManager(__name__, prefix=prefix, debug=debug, verbose=verbose)
+        logman = LoggerManager(
+            __name__, prefix=prefix, debug=self.debug, verbose=self.verbose
+        )
 
         self.logger: Logger = logman.get_logger()
 
         self.iupac = IUPAC(logger=self.logger)
 
         # Define default values for attributes
-        self._defaults: Dict[str, bool | str | int | float] = {
+        self._defaults: Dict[str, bool | str | int | float | None] = {
             "show": False,
             "plot_format": "png",
             "dpi": 300,
@@ -187,28 +197,47 @@ class Plotting:
 
         self.maf_filter_methods: List[str] = ["filter_maf", "filter_mac"]
 
+        if self._provided_values.get("plot_format") is not None:
+            if self.plot_format.strip().lower() == "svg":
+                msg = "SVG format is not currently supported for plotting. Defaulting to PNG format."
+                self.logger.warning(msg)
+                self.plot_format = "png"
+
+        plot_fontsize = self._provided_values.get(
+            "plot_fontsize", self._defaults["plot_fontsize"]
+        )
+        title_fontsize = self._provided_values.get(
+            "plot_title_fontsize", self._defaults["plot_title_fontsize"]
+        )
+        dpi = self._provided_values.get("dpi", self._defaults["dpi"])
+        self.plot_fontsize = plot_fontsize
+        self.plot_title_fontsize = title_fontsize
+        self.dpi = dpi
+
+        despine = self._provided_values.get("despine", self._defaults["despine"])
+
         self.mpl_params = {
-            "xtick.labelsize": self.plot_fontsize,
-            "ytick.labelsize": self.plot_fontsize,
-            "legend.fontsize": self.plot_fontsize,
+            "xtick.labelsize": plot_fontsize,
+            "ytick.labelsize": plot_fontsize,
+            "legend.fontsize": plot_fontsize,
             "legend.fancybox": True,
             "legend.shadow": True,
-            "figure.titlesize": self.plot_title_fontsize,
+            "figure.titlesize": title_fontsize,
             "figure.facecolor": "white",
-            "figure.dpi": self.dpi,
-            "font.size": self.plot_fontsize,
-            "axes.titlesize": self.plot_title_fontsize,
-            "axes.labelsize": self.plot_fontsize,
+            "figure.dpi": dpi,
+            "font.size": plot_fontsize,
+            "axes.titlesize": title_fontsize,
+            "axes.labelsize": plot_fontsize,
             "axes.grid": False,
             "axes.edgecolor": "black",
             "axes.facecolor": "white",
             "axes.spines.left": True,
             "axes.spines.bottom": True,
-            "axes.spines.top": False if self.despine else True,
-            "axes.spines.right": False if self.despine else True,
+            "axes.spines.top": False if despine else True,
+            "axes.spines.right": False if despine else True,
             "axes.facecolor": "white",
             "savefig.facecolor": "white",
-            "savefig.dpi": self.dpi,
+            "savefig.dpi": dpi,
             "savefig.bbox": "tight",
             "pdf.fonttype": 42,
             "ps.fonttype": 42,
@@ -248,8 +277,8 @@ class Plotting:
 
     def _plot_summary_statistics_per_sample(
         self,
-        summary_stats: pd.DataFrame,
-        ax: plt.Axes | None = None,
+        summary_stats: pd.DataFrame | pd.Series,
+        ax=None,
         window: int = 5,
         subsample_rate: int = 50,
     ) -> None:
@@ -270,7 +299,7 @@ class Plotting:
         summary_stats = summary_stats.dropna()
 
         # Interpolate remaining NaNs (if any) for smoother lines
-        interpolated_stats: pd.DataFrame = summary_stats[
+        interpolated_stats: pd.DataFrame | pd.Series = summary_stats[
             ["Ho", "He", "Pi"]
         ].interpolate(method="linear")
 
@@ -306,7 +335,7 @@ class Plotting:
         plt.tight_layout()
 
     def _plot_summary_statistics_per_population(
-        self, per_population_stats: dict, ax: plt.Axes | None = None
+        self, per_population_stats: dict, ax=None
     ) -> None:
         """Plot mean summary statistics per population as grouped bar chart.
 
@@ -481,6 +510,12 @@ class Plotting:
         """
         if isinstance(df_fst_mean, pd.DataFrame):
             df_fst_mean = df_fst_mean.copy()
+        elif isinstance(df_fst_mean, dict):
+            df_fst_mean = pd.DataFrame.from_dict(df_fst_mean, orient="index")
+        else:
+            msg = "df_fst_mean must be a pandas DataFrame or a dictionary that can be converted to a DataFrame."
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         if df_fst_lower is not None and isinstance(df_fst_lower, pd.DataFrame):
             df_fst_lower = df_fst_lower.copy()
@@ -499,7 +534,11 @@ class Plotting:
 
         # Create a mask for the upper triangle
         mask = np.triu(np.ones_like(df_fst_mean, dtype=bool))
-        np.fill_diagonal(df_fst_mean.values, np.nan)
+        df_fst_mean_arr = df_fst_mean.to_numpy(copy=True)
+        np.fill_diagonal(df_fst_mean_arr, np.nan)
+        df_fst_mean = pd.DataFrame(
+            df_fst_mean_arr, index=df_fst_mean.index, columns=df_fst_mean.columns
+        )
         df_fst_mean = df_fst_mean.mask(mask)  # Mask upper triangle
         df_fst_mean = df_fst_mean.round(3)
 
@@ -525,15 +564,27 @@ class Plotting:
             )
 
             # Set the diagonal to NaN to avoid displaying self-comparisons
-            np.fill_diagonal(df_fst_lower.values, np.nan)
-            np.fill_diagonal(df_fst_upper.values, np.nan)
+            df_fst_lower_arr = df_fst_lower.to_numpy(copy=True)
+            df_fst_upper_arr = df_fst_upper.to_numpy(copy=True)
+            np.fill_diagonal(df_fst_lower_arr, np.nan)
+            np.fill_diagonal(df_fst_upper_arr, np.nan)
+            df_fst_lower = pd.DataFrame(
+                df_fst_lower_arr, index=df_fst_lower.index, columns=df_fst_lower.columns
+            )
+            df_fst_upper = pd.DataFrame(
+                df_fst_upper_arr, index=df_fst_upper.index, columns=df_fst_upper.columns
+            )
             df_fst_lower = df_fst_lower.mask(mask)  # Mask upper triangle
             df_fst_upper = df_fst_upper.mask(mask)  # Mask upper triangle
             mode = "bootstrap"
 
         if df_fst_pvals is not None:
             # Set the diagonal to NaN to avoid displaying self-comparisons
-            np.fill_diagonal(df_fst_pvals.values, np.nan)
+            df_fst_pvals_arr = df_fst_pvals.to_numpy(copy=True)
+            np.fill_diagonal(df_fst_pvals_arr, np.nan)
+            df_fst_pvals = pd.DataFrame(
+                df_fst_pvals_arr, index=df_fst_pvals.index, columns=df_fst_pvals.columns
+            )
             df_fst_pvals = df_fst_pvals.mask(mask)
             mode = "bootstrap_with_p"
 
@@ -587,8 +638,10 @@ class Plotting:
         )
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0, fontsize=tick_fontsize)
         cbar = ax.collections[0].colorbar
-        cbar.ax.tick_params(labelsize=cbar_fontsize)
-        cbar.set_label(cbar_label, fontsize=cbar_fontsize)
+
+        if cbar is not None:
+            cbar.ax.tick_params(labelsize=cbar_fontsize)
+            cbar.set_label(cbar_label, fontsize=cbar_fontsize)
 
         out_file = f"{dist_type}_between_populations_heatmap.{self.plot_format}"
         plt.savefig(self.output_dir_analysis / out_file)
@@ -596,73 +649,58 @@ class Plotting:
             plt.show()
         plt.close()
 
-    def _prepare_d_stats_plotting_df(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Prepares the D-stats DataFrame for plotting: ensure 'Sample Combo' exists, drop non-finite values in key columns, and de-duplicate by (Method, Sample Combo)."""
-        # Normalize index -> column if needed
-        if df.index.name is not None and df.index.name.lower() in [
-            "quartet",
-            "quintet",
-            "sample combo",
-        ]:
-            df = df.reset_index().rename(columns={df.index.name: "Sample Combo"})
-
-        # Key stat columns (present ones only)
-        key_stat_cols = [c for c in df.columns if c.startswith(("Z_", "P_", "D", "X2"))]
-
-        # Remove infs/nans from key columns
-        df_clean = df.replace([np.inf, -np.inf], np.nan).dropna(subset=key_stat_cols)
-        if len(df_clean) < len(df):
-            self.logger.warning(
-                f"Removed {len(df) - len(df_clean)} rows with NaN/Inf values before plotting."
-            )
-
-        # De-duplicate (common source of "plotted twice" symptoms)
-        if "Method" in df_clean.columns:
-            sample_key = (
-                "Sample Combo"
-                if "Sample Combo" in df_clean.columns
-                else ("Quartet" if "Quartet" in df_clean.columns else None)
-            )
-            if sample_key is not None:
-                before = len(df_clean)
-                df_clean = df_clean.drop_duplicates(subset=["Method", sample_key])
-                if len(df_clean) < before:
-                    self.logger.warning(
-                        f"Removed {before - len(df_clean)} duplicate rows."
-                    )
-
-        return df_clean
-
     def _get_significance_counts_df(
         self,
         df: pd.DataFrame,
         d_stats: list[str],
         method_name: Literal["patterson", "partitioned", "dfoil"],
     ) -> pd.DataFrame:
-        """Calculates significance counts for different correction levels."""
-        rows = []
-        for stat in d_stats:
-            stat_key = {"D-statistic": "D"}.get(stat, stat)
-            sig_col_raw = f"Significant (Raw){'' if method_name == 'patterson' else f' {stat_key}'}"
-            sig_col_bonf = f"Significant (Bonferroni){'' if method_name == 'patterson' else f' {stat_key}'}"
-            sig_col_fdr = f"Significant (FDR-BH){'' if method_name == 'patterson' else f' {stat_key}'}"
+        """Calculate significance counts for different correction levels.
 
-            for corr_name, sig_col_name in [
-                ("Uncorrected", sig_col_raw),
-                ("Bonferroni", sig_col_bonf),
-                ("FDR-BH", sig_col_fdr),
-            ]:
-                if sig_col_name in df.columns:
-                    sig = df[sig_col_name].sum()
-                    ns = len(df) - sig
-                    rows.append(
-                        {
-                            "Statistic": stat,
-                            "Correction": corr_name,
-                            "Significant": sig,
-                            "Not Significant": ns,
-                        }
-                    )
+        Args:
+            df (pd.DataFrame): D-statistics results DataFrame.
+            d_stats (list[str]): D-statistic column names.
+            method_name (Literal["patterson", "partitioned", "dfoil"]): Method name.
+
+        Returns:
+            pd.DataFrame: Long-format significance count table.
+        """
+        rows = []
+
+        for stat in d_stats:
+            suffix = "" if method_name == "patterson" else f" {stat}"
+
+            sig_cols = {
+                "Uncorrected": f"Significant (Raw){suffix}",
+                "Bonferroni": f"Significant (Bonferroni){suffix}",
+                "FDR-BH": f"Significant (FDR-BH){suffix}",
+            }
+
+            for corr_name, sig_col_name in sig_cols.items():
+                if sig_col_name not in df.columns:
+                    continue
+
+                sig = df[sig_col_name].fillna(False).astype(bool).sum()
+                ns = len(df) - sig
+
+                rows.append(
+                    {
+                        "Statistic": stat,
+                        "Correction": corr_name,
+                        "Significant": int(sig),
+                        "Not Significant": int(ns),
+                    }
+                )
+
+        if not rows:
+            self.logger.warning(
+                "No significance columns found for %s D-statistics. "
+                "Skipping significance-count plot/table.",
+                method_name,
+            )
+            return pd.DataFrame(
+                columns=["Statistic", "Correction", "Significance", "Count"]
+            )
 
         return pd.DataFrame(rows).melt(
             id_vars=["Statistic", "Correction"],
@@ -671,28 +709,265 @@ class Plotting:
             value_name="Count",
         )
 
-    def plot_d_statistics(
-        self, df: pd.DataFrame, method: Literal["patterson", "partitioned", "dfoil"]
-    ) -> None:
+    def _normalize_d_stats_method_name(self, value: Any) -> str:
+        """Normalize D-statistic method names to canonical internal labels.
+
+        Args:
+            value (Any): Raw method label.
+
+        Returns:
+            str: One of ``"patterson"``, ``"partitioned"``, or ``"dfoil"`` when recognized.
         """
-        Main controller for creating and saving a suite of plots and reports for D-statistics results.
+        method = str(value).strip().lower()
+        method = (
+            method.replace("'", "").replace("’", "").replace("-", "_").replace(" ", "_")
+        )
+
+        aliases = {
+            "patterson": "patterson",
+            "patterson_d": "patterson",
+            "pattersons_d": "patterson",
+            "patterson_d_statistic": "patterson",
+            "pattersons_4_taxon_d_statistic": "patterson",
+            "4_taxon_d": "patterson",
+            "partitioned": "partitioned",
+            "partitioned_d": "partitioned",
+            "partitioned_d_statistic": "partitioned",
+            "dfoil": "dfoil",
+            "d_foil": "dfoil",
+            "dfoil_d": "dfoil",
+            "dfoil_d_statistic": "dfoil",
+        }
+
+        return aliases.get(method, method)
+
+    def _get_d_stats_plot_schema(
+        self, method_name: Literal["patterson", "partitioned", "dfoil"]
+    ) -> dict[str, list[str]]:
+        """Return expected plotting columns for a D-statistic method.
+
+        Args:
+            method_name (Literal["patterson", "partitioned", "dfoil"]): D-statistic method.
+
+        Returns:
+            dict[str, list[str]]: Expected D, Z, P, X2, and X2 P-value columns.
         """
-        if df.empty:
+        method = self._normalize_d_stats_method_name(method_name)
+
+        if method == "patterson":
+            return {
+                "d_cols": ["D"],
+                "z_cols": ["Z"],
+                "p_cols": ["P"],
+                "x2_cols": ["X2"],
+                "px2_cols": ["P_X2"],
+            }
+
+        if method == "partitioned":
+            return {
+                "d_cols": ["D1", "D2", "D12"],
+                "z_cols": ["Z_D1", "Z_D2", "Z_D12"],
+                "p_cols": ["P_D1", "P_D2", "P_D12"],
+                "x2_cols": ["X2_D1", "X2_D2", "X2_D12"],
+                "px2_cols": ["P_X2_D1", "P_X2_D2", "P_X2_D12"],
+            }
+
+        if method == "dfoil":
+            return {
+                "d_cols": ["DFO", "DFI", "DOL", "DIL"],
+                "z_cols": ["Z_DFO", "Z_DFI", "Z_DOL", "Z_DIL"],
+                "p_cols": ["P_DFO", "P_DFI", "P_DOL", "P_DIL"],
+                "x2_cols": ["X2_DFO", "X2_DFI", "X2_DOL", "X2_DIL"],
+                "px2_cols": ["P_X2_DFO", "P_X2_DFI", "P_X2_DOL", "P_X2_DIL"],
+            }
+
+        msg = f"Unsupported D-statistic method: {method_name}"
+        self.logger.error(msg)
+        raise ValueError(msg)
+
+    def _prepare_d_stats_plotting_df(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"] | None = None,
+    ) -> pd.DataFrame:
+        """Prepare a D-statistics DataFrame for plotting.
+
+        This method normalizes method labels, standardizes sample-combination labels, coerces numeric statistic columns, removes rows with no usable statistic values, and de-duplicates repeated method/sample-combination rows.
+
+        Args:
+            df (pd.DataFrame): Input D-statistics results DataFrame.
+            method_name (Literal["patterson", "partitioned", "dfoil"] | None): Method to retain.
+
+        Returns:
+            pd.DataFrame: Cleaned plotting DataFrame.
+        """
+        if df is None:
             self.logger.warning(
-                "Input DataFrame for plotting is empty. Skipping all D-statistic plots."
+                "D-statistics plotting received None instead of a DataFrame."
+            )
+            return pd.DataFrame()
+
+        if not isinstance(df, pd.DataFrame):
+            try:
+                df = pd.DataFrame(df)
+            except Exception as exc:
+                msg = (
+                    f"Could not convert D-statistics plotting input to DataFrame: {exc}"
+                )
+                self.logger.error(msg)
+                raise TypeError(msg) from exc
+
+        if df.empty:
+            return df.copy()
+
+        df = df.copy()
+
+        # Normalize index labels into a column when the combo labels live in
+        # the index.
+        if df.index.name is not None and str(df.index.name).lower() in {
+            "quartet",
+            "quintet",
+            "sample combo",
+            "sample_combo",
+        }:
+            index_name = df.index.name
+            df = df.reset_index().rename(columns={index_name: "Sample Combo"})
+
+        # Normalize common sample-combination column names.
+        rename_map = {}
+        if "Sample_Combo" in df.columns and "Sample Combo" not in df.columns:
+            rename_map["Sample_Combo"] = "Sample Combo"
+        if "Quartet" in df.columns and "Sample Combo" not in df.columns:
+            rename_map["Quartet"] = "Sample Combo"
+        if "Quintet" in df.columns and "Sample Combo" not in df.columns:
+            rename_map["Quintet"] = "Sample Combo"
+        if rename_map:
+            df = df.rename(columns=rename_map)
+
+        method_key = (
+            self._normalize_d_stats_method_name(method_name)
+            if method_name is not None
+            else None
+        )
+
+        # Normalize or create Method column.
+        if "Method" not in df.columns:
+            if method_key is None:
+                self.logger.warning(
+                    "D-statistics DataFrame has no 'Method' column; retaining all rows."
+                )
+                df["Method"] = "unknown"
+            else:
+                df["Method"] = method_key
+        else:
+            df["Method"] = df["Method"].apply(
+                lambda x: (
+                    method_key
+                    if pd.isna(x) and method_key is not None
+                    else self._normalize_d_stats_method_name(x)
+                )
+            )
+
+        # Filter once, centrally.
+        if method_key is not None:
+            method_mask = df["Method"].eq(method_key)
+            if not method_mask.any():
+                self.logger.warning(
+                    "No D-statistics rows matched method='%s'. Available Method values: %s",
+                    method_key,
+                    sorted(df["Method"].dropna().astype(str).unique().tolist()),
+                )
+                return df.iloc[0:0].copy()
+
+            df = df.loc[method_mask].copy()
+
+        # Select method-specific numeric columns.
+        if method_key is not None:
+            schema = self._get_d_stats_plot_schema(method_key)  # type: ignore[arg-type]
+            numeric_cols = [
+                col for group in schema.values() for col in group if col in df.columns
+            ]
+        else:
+            numeric_cols = [
+                col for col in df.columns if col.startswith(("D", "Z", "P", "X2"))
+            ]
+
+        if not numeric_cols:
+            self.logger.warning(
+                "No recognizable D-statistic numeric columns found. Columns present: %s",
+                df.columns.tolist(),
+            )
+            return df.iloc[0:0].copy()
+
+        for col in numeric_cols:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        before = len(df)
+        df = df.replace([np.inf, -np.inf], np.nan)
+
+        # Keep rows that have at least one usable statistic.
+        # Do NOT require every possible D/Z/P/X2 column to be populated.
+        df_clean = df.dropna(how="all", subset=numeric_cols)
+
+        removed = before - len(df_clean)
+        if removed:
+            self.logger.warning(
+                "Removed %d D-statistics rows with no finite plotting values.",
+                removed,
+            )
+
+        sample_key = "Sample Combo" if "Sample Combo" in df_clean.columns else None
+        if sample_key is not None and "Method" in df_clean.columns:
+            before = len(df_clean)
+            df_clean = df_clean.drop_duplicates(subset=["Method", sample_key])
+            removed = before - len(df_clean)
+            if removed:
+                self.logger.warning("Removed %d duplicate D-statistics rows.", removed)
+
+        return df_clean
+
+    def plot_d_statistics(
+        self,
+        df: pd.DataFrame,
+        method: Literal["patterson", "partitioned", "dfoil"],
+    ) -> None:
+        """Create and save D-statistics plots and MultiQC reports.
+
+        Args:
+            df (pd.DataFrame): D-statistics results DataFrame.
+            method (Literal["patterson", "partitioned", "dfoil"]): D-statistic method.
+        """
+        method_key = self._normalize_d_stats_method_name(method)
+
+        if df is None or not isinstance(df, pd.DataFrame):
+            self.logger.warning(
+                f"D-statistics plotting expected a pandas DataFrame, but received {type(df).__name__}."
             )
             return
 
-        # 1. Clean data ONCE at the beginning.
-        df_clean = self._prepare_d_stats_plotting_df(df)
+        if df.empty:
+            self.logger.warning(
+                f"Input DataFrame for {method_key} D-statistics plotting is empty. This means the results were empty before plotting was called."
+            )
+            return
+
+        self.logger.debug(
+            f"D-statistics plotting input: shape={df.shape}, columns={df.columns.tolist()}"
+        )
+
+        if "Method" in df.columns:
+            self.logger.debug(
+                f"D-statistics Method values before normalization: {df['Method'].dropna().astype(str).unique().tolist()}"
+            )
+
+        df_clean = self._prepare_d_stats_plotting_df(df, method_name=method)
 
         if df_clean.empty:
             self.logger.warning(
-                "No finite data remains after cleaning. Skipping all D-statistic plots."
+                f"No usable {method_key} D-statistics rows remain after method filtering/cleaning. Original shape={df.shape}; original columns={df.columns.tolist()}"
             )
             return
 
-        # 2. Call individual plotting and reporting methods with the CLEAN data
         self.plot_d_statistics_heatmap(df_clean, method_name=method)
         self.plot_dstat_significance_counts(df_clean, method_name=method)
         self.plot_dstat_chi_square_distribution(df_clean, method_name=method)
@@ -712,7 +987,10 @@ class Plotting:
             return
 
         map_info = {
-            "patterson": {"d_cols": ["D-statistic"], "pval_map": {"D-statistic": "P"}},
+            "patterson": {
+                "d_cols": ["D"],
+                "pval_map": {"D": "P"},
+            },
             "partitioned": {
                 "d_cols": ["D1", "D2", "D12"],
                 "pval_map": {d: f"P_{d}" for d in ["D1", "D2", "D12"]},
@@ -847,10 +1125,14 @@ class Plotting:
             )
             self._queued_panels.add(panel_id)
 
-    def plot_dstat_significance_counts(self, df: pd.DataFrame, method_name: str):
+    def plot_dstat_significance_counts(
+        self,
+        df: pd.DataFrame,
+        method_name: Literal["patterson", "partitioned", "dfoil"],
+    ):
         """Plots the number of significant results per D-statistic."""
         d_stats = {
-            "patterson": ["D-statistic"],
+            "patterson": ["D"],
             "partitioned": ["D1", "D2", "D12"],
             "dfoil": ["DFO", "DFI", "DOL", "DIL"],
         }[method_name]
@@ -878,7 +1160,7 @@ class Plotting:
                 sharey=False,
             )
             g.fig.suptitle(f"{method_title} D-Statistics Significance Counts", y=1.03)
-            g.set_axis_labels("Statistic", "Count").tight_layout(rect=[0, 0, 1, 0.97])
+            g.set_axis_labels("Statistic", "Count").tight_layout(rect=[0, 0, 1, 0.97])  # type: ignore
             fig = g.fig  # unify handle
 
         output_path = (
@@ -1020,7 +1302,8 @@ class Plotting:
             else:
                 self.logger.warning("MultiQC interface not available; skipping queue.")
         except Exception as e:
-            self.logger.warning(f"Could not queue p-value distribution plot: {e}")
+            msg = f"Could not queue p-value distribution plot: {e}"
+            self.logger.warning(msg)
 
     def plot_stacked_significance_barplot(self, df: pd.DataFrame, method_name: str):
         """Creates a stacked bar plot of significance categories."""
@@ -1091,7 +1374,8 @@ class Plotting:
             else:
                 self.logger.warning("MultiQC interface not available; skipping queue.")
         except Exception as e:
-            self.logger.warning(f"Could not queue stacked significance barplot: {e}")
+            msg = f"Could not queue stacked significance barplot: {e}"
+            self.logger.warning(msg)
 
     def _format_significance_labels(self, df: pd.DataFrame) -> pd.DataFrame:
         """Helper to format labels for MultiQC tables."""
@@ -1104,7 +1388,9 @@ class Plotting:
         )
         return df.set_index("Significance (Correction)")
 
-    def _queue_d_stats_multiqc_reports(self, df: pd.DataFrame, method: str):
+    def _queue_d_stats_multiqc_reports(
+        self, df: pd.DataFrame, method: Literal["patterson", "partitioned", "dfoil"]
+    ):
         """Queues all D-statistics reports for MultiQC using a clean DataFrame."""
         if method == "patterson":
             method_name_pretty = "Patterson's 4-taxon D-statistic"
@@ -1312,8 +1598,6 @@ class Plotting:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
 
-        method = method.lower()
-
         if method not in {"dbscan", "permutation"}:
             msg = f"Method must be either 'dbscan' or 'permutation', but got: {method}"
             self.logger.error(msg)
@@ -1398,16 +1682,32 @@ class Plotting:
         """
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=False)
 
+        if isinstance(summary_statistics["overall"], dict):
+            summary_statistics["overall"] = pd.DataFrame(summary_statistics["overall"])
+
         self._plot_summary_statistics_per_sample(
             summary_statistics["overall"], ax=axes[0]
         )
 
-        if (
-            self.genotype_data.has_popmap
-            and summary_statistics.get("per_population", None) is not None
-        ):
+        per_pop_vals = summary_statistics.get("per_population", None)
+
+        if self.genotype_data.has_popmap and per_pop_vals is not None:
+            sumstats = {}
+            if isinstance(
+                summary_statistics["per_population"], (pd.DataFrame, pd.Series)
+            ):
+                sumstats["per_population"] = summary_statistics[
+                    "per_population"
+                ].to_dict()
+            elif isinstance(summary_statistics["per_population"], dict):
+                sumstats["per_population"] = summary_statistics["per_population"]
+            else:
+                msg = f"Unexpected data type for 'per_population' summary statistics: {type(summary_statistics['per_population'])}. Expected dict, DataFrame, or Series."
+                self.logger.error(msg)
+                raise TypeError(msg)
+
             self._plot_summary_statistics_per_population(
-                summary_statistics["per_population"], ax=axes[1]
+                sumstats["per_population"], ax=axes[1]
             )
 
         fig.suptitle("Summary Statistics Overview", fontsize=16, y=1.05)
@@ -1445,14 +1745,6 @@ class Plotting:
             }
         )
 
-        d = df_sumstats[
-            [
-                "Observed Heterozygosity (Ho)",
-                "Expected Heterozygosity (He)",
-                "Nucleotide Diversity (Pi)",
-            ]
-        ].to_dict(orient="list")
-
         # 2) Pass them into pconfig when queueing the box plot
         self.snpio_mqc.queue_custom_boxplot(
             df=df_sumstats,
@@ -1479,11 +1771,23 @@ class Plotting:
         if self.genotype_data.has_popmap:
             dflist = []
             for pop_id, pop_data in summary_statistics["per_population"].items():
-                dftmp = pop_data.copy()
-                dftmp["Population ID"] = pop_id
-                dftmp = dftmp.rename_axis("Locus (CHROM:POS)")
+                dftmp: pd.DataFrame
+                if isinstance(pop_data, dict):
+                    dftmp = pd.DataFrame(pop_data)
+                elif isinstance(pop_data, pd.Series):
+                    dftmp = pop_data.to_frame()
+                elif isinstance(pop_data, pd.DataFrame):
+                    dftmp = pop_data.copy()
+                else:
+                    msg = f"Unexpected data type for population '{pop_id}': {type(pop_data)}. Expected dict, DataFrame, or Series."
+                    self.logger.error(msg)
+                    raise TypeError(msg)
+
+                dftmp["Population ID"] = str(pop_id)
                 dftmp.index = marker_names
-                dftmp = dftmp.set_index(["Population ID", dftmp.index])
+                dftmp = dftmp.reset_index()
+                dftmp = dftmp.rename(columns={"index": "Locus (CHROM:POS)"})
+                dftmp = dftmp.set_index(["Population ID", "Locus (CHROM:POS)"])
                 dflist.append(dftmp)
 
             df_per_pop = pd.concat(dflist)
@@ -1541,7 +1845,7 @@ class Plotting:
             )
         else:
             self.logger.info(
-                "No population map provided; skipping per-population summary statistics plots."
+                "No popmap provided; skipping per-population summary statistics plots."
             )
 
     def _flatten_fst_data(self, fst_dict, stat_name):
@@ -1568,7 +1872,9 @@ class Plotting:
             "data": df.to_dict(orient="records"),
         }
 
-    def _flatten_per_population(self, per_pop_dict: Dict[str, Any]) -> pd.DataFrame:
+    def _flatten_per_population(
+        self, per_pop_dict: Dict[str, Any]
+    ) -> Dict[str, Dict[str, Any]]:
         """Turn the nested 'per_population' block into a tidy DataFrame.
 
         The function is resilient to either dicts OR pandas objects at the
@@ -1579,9 +1885,9 @@ class Plotting:
             per_pop_dict (Dict[str, Any]): A dictionary where keys are population identifiers and values are either dicts, DataFrames, or Series containing statistics.
 
         Returns:
-            pd.DataFrame: A tidy DataFrame with the following columns: population: Population identifier, locus: Locus index, He: Expected heterozygosity, Ho: Observed heterozygosity
+            Dict[str, Dict[str, Any]]: A dictionary where keys are locus identifiers and values are dictionaries containing population and locus-specific statistics.
         """
-        rows: Dict[Dict[str, Any]] = {}
+        rows: Dict[str, Dict[str, Any]] = {}
 
         for pop, stats in per_pop_dict.items():
 
@@ -1608,6 +1914,15 @@ class Plotting:
                         "locus_index": locus,
                     }
                     for stat_name, values in stats.items():
+                        if not isinstance(stat_name, str):
+                            try:
+                                stat_name = str(stat_name)
+                            except Exception:
+                                self.logger.warning(
+                                    f"Could not convert stat_name {stat_name} to string; using original type as key."
+                                )
+                                stat_name = str(locus)
+
                         row[stat_name] = values[locus]
                     rows[self.genotype_data.marker_names[locus]] = row
             else:
@@ -1618,6 +1933,15 @@ class Plotting:
                 for locus in range(n_loci):
                     row = {"population": pop, "locus_index": locus}
                     for stat_name, values in stats.items():
+                        if not isinstance(stat_name, str):
+                            try:
+                                stat_name = str(stat_name)
+                            except Exception:
+                                self.logger.warning(
+                                    f"Could not convert stat_name {stat_name} to string; using original type as key."
+                                )
+                                stat_name = str(locus)
+
                         row[stat_name] = values[locus]
                     rows[f"locus_{locus}"] = row
         return rows
@@ -1638,14 +1962,13 @@ class Plotting:
             if isinstance(value, pd.DataFrame):
                 d[key] = value.to_dict(orient="list")
             elif isinstance(value, dict):
-                d[key] = {
-                    k: (
-                        v.to_dict(orient="list")
-                        if isinstance(v, (pd.DataFrame, pd.Series))
-                        else v
-                    )
-                    for k, v in value.items()
-                }
+                for k, v in value.items():
+                    if isinstance(v, pd.DataFrame):
+                        value[k] = v.to_dict(orient="list")
+                    elif isinstance(v, pd.Series):
+                        value[k] = list(v.values)
+                    else:
+                        value[k] = v
             else:
                 d[key] = value
 
@@ -1679,7 +2002,7 @@ class Plotting:
         """
         with warnings.catch_warnings(action="ignore"):
             # Import Holoviews and Bokeh
-            hv.extension("bokeh")
+            hv.extension("bokeh")  # type: ignore
 
         plot_dir: Path = self.output_dir_gd / "sankey_plots"
         plot_dir.mkdir(exist_ok=True, parents=True)
@@ -1786,7 +2109,7 @@ class Plotting:
                     "Target": removed_target,
                     "Count": removed_count,
                     "LinkColor": link_color_removed,
-                    "EdgeLabel": f"{target.replace('_', ' ').title()} Removed",
+                    "EdgeLabel": f"{str(target).replace('_', ' ').title()} Removed",
                 }
             )
 
@@ -1797,7 +2120,7 @@ class Plotting:
                     "Target": target,
                     "Count": kept_count,
                     "LinkColor": link_color_kept,
-                    "EdgeLabel": f"{target.replace('_', ' ').title()} Kept",
+                    "EdgeLabel": f"{str(target).replace('_', ' ').title()} Kept",
                 }
             )
 
@@ -1914,7 +2237,25 @@ class Plotting:
             The input dataframe must contain the genotype counts.
         """
         # Validate the input dataframe
-        df = misc.validate_input_type(df, return_type="df")
+        if isinstance(df, pd.DataFrame):
+            if df.empty:
+                msg = "No data to plot. Please check the genotype counts."
+                self.logger.error(msg)
+                raise ValueError(msg)
+        elif isinstance(df, pd.Series):
+            if df.empty:
+                msg = "No data to plot. Please check the genotype counts."
+                self.logger.error(msg)
+                raise ValueError(msg)
+            df = df.to_frame()
+        elif isinstance(df, dict):
+            df = pd.DataFrame.from_dict(df)
+        else:
+            msg = (
+                f"Input data must be a DataFrame, Series, or dict, but got: {type(df)}"
+            )
+            self.logger.error(msg)
+            raise TypeError(msg)
 
         df_melt: pd.DataFrame = pd.melt(df, value_name="Count")
         cnts = df_melt["Count"].value_counts()
@@ -1929,22 +2270,23 @@ class Plotting:
         cnts.columns = [col[0].upper() + col[1:] for col in cnts.columns]
 
         fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        g: plt.Axes = sns.barplot(
-            x="Genotype", y="Count", data=cnts, ax=ax, color="orange"
-        )
+        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax, color="orange")
         g.set_xlabel("Genotype")
         g.set_ylabel("Count")
         g.set_title("Genotype Counts")
-        g.tick_params(axis="both", labelsize=self.ticksize)
+        g.tick_params(axis="both", labelsize=self.plot_fontsize)
         for p in g.patches:
-            g.annotate(
-                f"{int(p.get_height())}",
-                (p.get_x() + 0.075, p.get_height() + 0.01),
-                xytext=(0, 1),
-                textcoords="offset points",
-                va="bottom",
-                fontsize=annotation_size,
-            )
+            # Type narrowing for the linter
+            if isinstance(p, Rectangle):
+                height = p.get_height()
+                g.annotate(
+                    f"{int(height)}",
+                    (p.get_x() + 0.075, height + 0.01),
+                    xytext=(0, 1),
+                    textcoords="offset points",
+                    va="bottom",
+                    fontsize=annotation_size,
+                )
 
         of: str = f"genotype_distribution.{self.plot_format}"
         outpath: Path = self.output_dir_gd / of
@@ -2050,7 +2392,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
             for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax: plt.Axes = sns.lineplot(
+                ax = sns.lineplot(
                     x="Missing_Threshold",
                     y=ycol,
                     hue="Filter_Method",
@@ -2221,7 +2563,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
             for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax: plt.Axes = sns.lineplot(
+                ax = sns.lineplot(
                     x="Missing_Threshold",
                     y=ycol,
                     data=df,
@@ -2349,7 +2691,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
             for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax: plt.Axes = sns.lineplot(
+                ax = sns.lineplot(
                     x="MAF_Threshold",
                     y=ycol,
                     data=df,
@@ -2551,7 +2893,7 @@ class Plotting:
             fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
             for ax, ycol in zip(axs, ["Kept_Prop", "Removed_Prop"]):
-                ax: plt.Axes = sns.lineplot(
+                ax = sns.lineplot(
                     x="Bool_Threshold",
                     y=ycol,
                     data=df,
@@ -2662,19 +3004,19 @@ class Plotting:
         fig.write_html(str(outpath), include_plotlyjs="cdn")
         return outpath
 
-    def plot_pop_counts(self, populations: pd.Series) -> None:
+    def plot_pop_counts(self, populations: pd.Series | list[str | int]) -> None:
         """Plot the population counts.
 
         This function takes a series of population data and plots the counts and proportions of each population ID. The resulting plot is saved to a file of the specified format. The plot shows the counts and proportions of each population ID. The plot is colored based on the median count and proportion.
 
         Args:
-            populations (pd.Series): The series containing population data.
+            populations (pd.Series | list[str | int]): The series or list containing population data.
 
         Returns:
             None: A plot is saved to a file.
 
         Raises:
-            ValueError: Raised if the input data is not a pandas Series.
+            ValueError: Raised if the input data is not a pandas Series or list.
         """
         # Create the countplot
         fig, axs = plt.subplots(1, 2, figsize=(16, 9))
@@ -2739,10 +3081,8 @@ class Plotting:
             [colors[1], colors[0]],
             [colors[0], colors[1]],
         ):
-            ax: plt.Axes = sns.barplot(x=data.index, y=data.values, color=color, ax=ax)
-            median_line: plt.Line2D = ax.axhline(
-                median, color=median_color, linestyle="--"
-            )
+            ax = sns.barplot(x=data.index, y=data.values, color=color, ax=ax)
+            median_line = ax.axhline(median, color=median_color, linestyle="--")
 
             ax.set_xticks(ax.get_xticks())
             ax.set_xticklabels(labels=ax.get_xticklabels(), minor=False, rotation=90)
@@ -2831,29 +3171,41 @@ class Plotting:
             # Plot 4: Heatmap of Pop x Locus missingness
             ax = axes[1, 0]
             vmax = None if zoom else 1.0
-            sns.heatmap(
-                stats.per_population_locus,
-                vmin=0.0,
-                vmax=vmax,
-                cmap=sns.color_palette(heatmap_palette, as_cmap=True),
-                yticklabels=False,
-                cbar_kws={"label": "Missing Prop."},
-                ax=ax,
-            )
-            ax.set_xlabel("Population")
-            ax.set_ylabel("Locus")
 
-            cbar = ax.collections[0].colorbar
-            cbar.ax.yaxis.label.set_va("bottom")  # Align properly
+            if (
+                stats.per_population_locus is not None
+                and not stats.per_population_locus.empty
+            ):
+                sns.heatmap(
+                    stats.per_population_locus,
+                    vmin=0.0,
+                    vmax=vmax,
+                    cmap=sns.color_palette(heatmap_palette, as_cmap=True),
+                    yticklabels=False,
+                    cbar_kws={"label": "Missing Prop."},
+                    ax=ax,
+                )
+                ax.set_xlabel("Population")
+                ax.set_ylabel("Locus")
+
+                cbar = ax.collections[0].colorbar
+                cbar.ax.yaxis.label.set_va("bottom")  # Align properly
+
+            else:
+                self.logger.warning(
+                    "Per-population locus missingness data is not available. Skipping heatmap."
+                )
 
         # Plot 5: Per-Individual heatmap (reshaped)
         ax = axes[1, 1] if has_popmap else axes[2]
 
-        if has_popmap:
+        if has_popmap and stats.per_individual_population is not None:
             melt_df = stats.per_individual_population.reset_index()
 
             melt_df = melt_df.melt(
-                id_vars=melt_df.columns[:2], var_name="Locus", value_name="Missing"
+                id_vars=list(melt_df.columns[:2]),
+                var_name="Locus",
+                value_name="Missing",
             )
             melt_df["Missing"] = melt_df["Missing"].replace(
                 {False: "Present", True: "Missing"}
