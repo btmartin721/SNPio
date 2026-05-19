@@ -1957,22 +1957,17 @@ class Plotting:
         Returns:
             dict: The converted object in a JSON-serializable format.
         """
-        d = {}
-        for key, value in obj.items():
-            if isinstance(value, pd.DataFrame):
-                d[key] = value.to_dict(orient="list")
-            elif isinstance(value, dict):
-                for k, v in value.items():
-                    if isinstance(v, pd.DataFrame):
-                        value[k] = v.to_dict(orient="list")
-                    elif isinstance(v, pd.Series):
-                        value[k] = list(v.values)
-                    else:
-                        value[k] = v
-            else:
-                d[key] = value
 
-        return d
+        def _convert(value: Any):
+            if isinstance(value, pd.DataFrame):
+                return value.to_dict(orient="list")
+            if isinstance(value, pd.Series):
+                return list(value.values)
+            if isinstance(value, dict):
+                return {k: _convert(v) for k, v in value.items()}
+            return value
+
+        return {key: _convert(value) for key, value in obj.items()}
 
     def _plot_sankey_filtering_report(
         self, df: pd.DataFrame, search_mode: bool = False, fn: str | None = None
