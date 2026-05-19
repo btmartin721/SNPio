@@ -27,7 +27,7 @@ jobs:
         run: |
           delimiter="EOF_$(date +%s)_$RANDOM"
           echo "messages<<${delimiter}" >> $GITHUB_OUTPUT
-          git log origin/${{ github.base_ref }}..HEAD --pretty=format:%s >> $GITHUB_OUTPUT
+          git log origin/${{ github.base_ref }}..HEAD --pretty=format:%s%n >> $GITHUB_OUTPUT
           echo "${delimiter}" >> $GITHUB_OUTPUT
 
       - name: Lint commit messages
