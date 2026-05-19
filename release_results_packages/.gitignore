@@ -1,0 +1,14 @@
+*
+!.gitignore
+!README.md
+!benchmarking_results_package/
+!validation_results_package/
+
+# Keep only package documentation files in git.
+benchmarking_results_package/*
+!benchmarking_results_package/README.md
+!benchmarking_results_package/STRUCTURE.md
+
+validation_results_package/*
+!validation_results_package/README.md
+!validation_results_package/STRUCTURE.md
