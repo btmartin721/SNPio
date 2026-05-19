@@ -2,6 +2,17 @@
 
 This document outlines the changes made to the project with each release.
 
+## Unreleased
+
+### Data Packaging
+
+- Reorganized validation artifacts in `Validations/validation_results_package/` to keep Fst, Nei, and D-statistics outputs and figures consistently separated and documented.
+- Refreshed `README.md` and `STRUCTURE.md` in the validation results package with verified paths and current file-count summaries.
+- Added a consolidated root-level parent directory, `release_results_packages/`, containing:
+  - `release_results_packages/validation_results_package/`
+  - `release_results_packages/benchmarking_results_package/`
+  for easier repository packaging, versioning, and reviewer/data-repository handoff.
+
 ## Version 1.6.11 (2025-10-05)
 
 ### Bug Fixes - v1.6.11

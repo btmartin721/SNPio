@@ -25,14 +25,16 @@ jobs:
       - name: Get commit messages
         id: commits
         run: |
-          echo "messages<<EOF" >> $GITHUB_OUTPUT
-          git log origin/${{ github.base_ref }}..HEAD --pretty=format:%s >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          delimiter="EOF_$(date +%s)_$RANDOM"
+          echo "messages<<${delimiter}" >> $GITHUB_OUTPUT
+          git log origin/${{ github.base_ref }}..HEAD --pretty=format:%s%n >> $GITHUB_OUTPUT
+          echo "${delimiter}" >> $GITHUB_OUTPUT
 
       - name: Lint commit messages
         run: |
           echo "Checking commit messages..."
-          echo "${{ steps.commits.outputs.messages }}" | while read -r line; do
+          while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
             echo "Validating: $line"
             if ! echo "$line" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?(!)?: .+'; then
               echo "❌ Invalid commit message: $line"
@@ -40,5 +42,5 @@ jobs:
               echo "📖 See https://www.conventionalcommits.org/en/v1.0.0/"
               exit 1
             fi
-          done
+          done <<< "${{ steps.commits.outputs.messages }}"
         shell: bash
