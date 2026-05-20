@@ -4,7 +4,7 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
-Version 1.6.13 (2026-05-20)
+Version 1.6.14 (2026-05-20)
 ---------------------------
 
 Data Packaging
