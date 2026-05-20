@@ -2,6 +2,12 @@
 
 This document outlines the changes made to the project with each release.
 
+## Version 1.6.16 (2026-05-20)
+
+### Packaging
+
+- Created a final manuscript/reviewer archive release for GitHub and Zenodo synchronization.
+
 ## Version 1.6.15 (2026-05-20)
 
 ### Packaging
