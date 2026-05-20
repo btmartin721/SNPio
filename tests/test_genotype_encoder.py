@@ -6,29 +6,40 @@ from pathlib import Path
 
 import numpy as np
 
-from snpio import GenotypeEncoder, PhylipReader
+from snpio import GenotypeEncoder, PhylipReader, VCFReader
 
 
 class TestGenotypeEncoder(unittest.TestCase):
     def setUp(self):
-
         self.tmp_phy_file = tempfile.NamedTemporaryFile(
             delete=False, suffix=".phy", mode="w"
         )
         self.tmp_popmap_file = tempfile.NamedTemporaryFile(
             delete=False, suffix=".popmap", mode="w"
         )
+        self.tmp_vcf_file = tempfile.NamedTemporaryFile(
+            delete=False, suffix=".vcf", mode="w"
+        )
 
-        self.phylip_data_biallelic = textwrap.dedent(
-            """\
+        self.phylip_data_biallelic = textwrap.dedent("""\
             5 10
             Sample1\tACACRTAGTG
             Sample2\tACACGTRGTG
             Sample3\tTGGTRCGTAC
             Sample4\tTGGTACGTAC
             Sample5\tTGGTACGTAC
-            """
-        )
+            """)
+
+        self.vcf_data = textwrap.dedent("""\
+            ##fileformat=VCFv4.2
+            ##contig=<ID=chr1>
+            ##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">
+            #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample1\tSample2\tSample3\tSample4\tSample5
+            chr1\t1\tref_a_alt_g\tA\tG\t.\tPASS\t.\tGT\t0/0\t0/1\t1/1\t./.\t0|1
+            chr1\t2\tref_g_alt_a\tG\tA\t.\tPASS\t.\tGT\t1/1\t0/1\t0/0\t./.\t1|0
+            chr1\t3\tmulti_alt\tA\tC,G\t.\tPASS\t.\tGT\t0/0\t0/1\t0/2\t1/2\t2/2
+            chr1\t4\tvcf_ref_is_minor\tA\tG\t.\tPASS\t.\tGT\t0/0\t1/1\t1/1\t1/1\t0/1
+            """)
 
         self.test_popmap_content = [
             "Sample1\tpop1",
@@ -44,26 +55,25 @@ class TestGenotypeEncoder(unittest.TestCase):
         with open(self.tmp_popmap_file.name, "w") as f:
             f.write("\n".join(self.test_popmap_content))
 
+        with open(self.tmp_vcf_file.name, "w") as f:
+            f.write(self.vcf_data)
+
         self.genotype_data = PhylipReader(
             filename=self.tmp_phy_file.name,
             popmapfile=self.tmp_popmap_file.name,
             prefix="test_read_phylip",
             verbose=False,
         )
-        with open(self.tmp_phy_file.name, "w") as f:
-            f.write(self.phylip_data_biallelic)
 
-        with open(self.tmp_popmap_file.name, "w") as f:
-            f.write("\n".join(self.test_popmap_content))
-
-        self.genotype_data = PhylipReader(
-            filename=self.tmp_phy_file.name,
+        self.vcf_genotype_data = VCFReader(
+            filename=self.tmp_vcf_file.name,
             popmapfile=self.tmp_popmap_file.name,
-            prefix="test_read_phylip",
+            prefix="test_read_vcf",
             verbose=False,
         )
 
         self.encoder = GenotypeEncoder(self.genotype_data)
+        self.vcf_encoder = GenotypeEncoder(self.vcf_genotype_data)
 
     def test_convert_012(self):
         expected = np.array(
@@ -78,6 +88,31 @@ class TestGenotypeEncoder(unittest.TestCase):
         )
 
         result = self.encoder.genotypes_012
+        np.testing.assert_array_equal(result, expected)
+
+    def test_convert_012_from_vcf(self):
+        """Test VCF-backed 012 encoding for REF/ALT, phased, missing, and multi-ALT calls.
+
+        Expected VCF 012 semantics:
+            0 = homozygous REF
+            1 = heterozygous REF/ALT
+            2 = homozygous ALT or two non-REF alleles
+            -9 = missing
+
+        The final locus intentionally makes the VCF REF allele the minor allele. This verifies that VCF REF/ALT metadata, not inferred major/minor allele logic, controls the 012 orientation.
+        """
+        expected = np.array(
+            [
+                [0, 2, 0, 0],  # Sample1: 0/0, 1/1, 0/0, 0/0
+                [1, 1, 1, 2],  # Sample2: 0/1, 0/1, 0/1, 1/1
+                [2, 0, 1, 2],  # Sample3: 1/1, 0/0, 0/2, 1/1
+                [-9, -9, 2, 2],  # Sample4: ./., ./., 1/2, 1/1
+                [1, 1, 2, 1],  # Sample5: 0|1, 1|0, 2/2, 0/1
+            ],
+            dtype=np.int8,
+        )
+
+        result = self.vcf_encoder.genotypes_012
         np.testing.assert_array_equal(result, expected)
 
     def test_convert_onehot(self):
@@ -168,22 +203,23 @@ class TestGenotypeEncoder(unittest.TestCase):
         np.testing.assert_array_equal(result, expected)
 
     def tearDown(self):
-        # Clean up temporary files
-        for f in [self.tmp_phy_file, self.tmp_popmap_file]:
+        # Clean up temporary files.
+        for f in [self.tmp_phy_file, self.tmp_popmap_file, self.tmp_vcf_file]:
             Path(f.name).unlink(missing_ok=True)
 
-        # Clean up the output directory if it exists
-        output_dir = Path("test_read_phylip_output")
-        if output_dir.is_dir():
-            shutil.rmtree(output_dir)
-        # Clean up the temporary files
-        for f in Path(".").glob("tmp*.phy"):
-            if f.is_file():
-                f.unlink(missing_ok=True)
+        # Clean up output directories if they exist.
+        for output_dir in [
+            Path("test_read_phylip_output"),
+            Path("test_read_vcf_output"),
+        ]:
+            if output_dir.is_dir():
+                shutil.rmtree(output_dir)
 
-        for f in Path(".").glob("tmp*.popmap"):
-            if f.is_file():
-                f.unlink(missing_ok=True)
+        # Clean up any temporary files left in the current working directory.
+        for pattern in ["tmp*.phy", "tmp*.popmap", "tmp*.vcf"]:
+            for f in Path(".").glob(pattern):
+                if f.is_file():
+                    f.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

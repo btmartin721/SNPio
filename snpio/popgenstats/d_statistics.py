@@ -1,7 +1,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,6 @@ from statsmodels.stats.multitest import multipletests
 from tqdm.contrib.itertools import product
 
 from snpio.analysis.genotype_encoder import GenotypeEncoder
-from snpio.plotting.plotting import Plotting
 from snpio.popgenstats.dfoil import DfoilStats
 from snpio.popgenstats.dstat import PattersonDStats
 from snpio.popgenstats.partd import PartitionedDStats
@@ -101,39 +100,37 @@ class DStatistics:
         outgroup: str | List[str] | None = None,
         num_bootstraps: int = 1000,
         max_individuals_per_pop: int | None = None,
-        individual_selection: str | Dict[str, List[str]] = "random",
+        individual_selection: Literal["random"] | Dict[str, List[str]] = "random",
         seed: int | None = None,
         per_combination: bool = True,
         calc_overall: bool = True,
-        use_jackknife=False,
+        use_jackknife: bool = False,
         block_size: int = 500,
     ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
-        """Wrapper that returns both per-quartet and overall D-stats.
-
-        This method calculates D-statistics for the specified populations and returns both per-quartet and overall statistics. It supports various methods (Patterson's D, Partitioned D, D-FOIL) and can handle bootstrapping for statistical inference.
+        """Wrapper that returns per-combination and/or overall D-statistics.
 
         Args:
-            method (Literal["patterson", "partitioned", "dfoil"]): The D-statistics method to use.
-            population1 (str | List[str]): The first population to compare.
-            population2 (str | List[str]): The second population to compare.
-            population3 (str | List[str]): The third population to compare.
-            population4 (str | List[str] | None): The fourth population to compare (optional).
-            outgroup (str | List[str]): The outgroup population.
-            num_bootstraps (int): Number of bootstrap replicates. Ignored if `use_jackknife` is True.
-            max_individuals_per_pop (int | None): Maximum individuals to sample per population (optional).
-            individual_selection (str | Dict[str, List[str]]): Method for individual selection (random or specific).
-            seed (int | None): Random seed for reproducibility (optional).
-            per_combination (bool): Whether to calculate D-statistics for each combination of populations.
-            calc_overall (bool): Whether to calculate overall D-statistics.
-            use_jackknife (bool): If True, uses jackknife resampling instead of bootstrapping. Use this if you have possible linkage disequilibrium (LD) issues.
-            block_size (int): Block size for jackknife resampling. Defaults to 500.
+            method (Literal["patterson", "partitioned", "dfoil"]): D-statistics method.
+            population1 (str | List[str]): First population.
+            population2 (str | List[str]): Second population.
+            population3 (str | List[str]): Third population.
+            population4 (str | List[str] | None): Fourth population. Required for
+                partitioned D and DFOIL.
+            outgroup (str | List[str] | None): Outgroup population.
+            num_bootstraps (int): Number of bootstrap replicates.
+            max_individuals_per_pop (int | None): Maximum individuals per population.
+            individual_selection (Literal["random"] | Dict[str, List[str]]): Individual selection mode.
+            seed (int | None): Random seed.
+            per_combination (bool): Whether to calculate per-combination statistics.
+            calc_overall (bool): Whether to calculate overall statistics.
+            use_jackknife (bool): Whether to use jackknife instead of bootstrap.
+            block_size (int): Jackknife block size.
 
         Returns:
-            Tuple[pd.DataFrame, Dict[str, float | int | str]]: DataFrame of per-quartet D-statistics and a dictionary of overall statistics.
+            Tuple[pd.DataFrame, Dict[str, Any]]: Per-combination DataFrame and overall statistics dictionary.
 
         Raises:
-            ValueError: If `method` is not one of the valid methods or if neither `calc_overall` nor `per_combination` is True.
-            TypeError: If any of the population arguments are not strings or lists of strings.
+            ValueError: If required inputs are missing.
         """
         method = self._validate_d_statistics_method(method)
 
@@ -142,7 +139,25 @@ class DStatistics:
             self.logger.error(msg)
             raise ValueError(msg)
 
-        # 1) --- Get population indices -----------------------------
+        if outgroup is None:
+            msg = f"`outgroup` is required for method='{method}'."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if method in {"partitioned", "dfoil"} and population4 is None:
+            msg = f"`population4` is required for method='{method}'."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        overall_stats: Dict[str, Any] = {}
+        df = pd.DataFrame()
+
+        self.logger.warning(
+            f"D-stat run settings: method={method}, "
+            f"per_combination={per_combination}, calc_overall={calc_overall}, "
+            f"use_jackknife={use_jackknife}, block_size={block_size}"
+        )
+
         pops = (population1, population2, population3, population4, outgroup)
 
         ds = self._get_all_pop_indices(
@@ -152,29 +167,44 @@ class DStatistics:
             seed=seed,
         )
 
+        ds_lengths = [None if x is None else len(x) for x in ds]
+        self.logger.warning(f"D-stat population index lengths: {ds_lengths}")
+
         args = (method, self.geno012, *ds, num_bootstraps, seed)
         kwargs = {"use_jackknife": use_jackknife, "block_size": block_size}
 
         if calc_overall:
-            # 5) --- Overall mode -----------------------------------
             self.logger.info("Calculating overall D-statistics...")
-
             overall_stats, bootstats = self._d_stats_overall(*args, **kwargs)
-
             self.logger.info("Overall D-statistics calculation completed.")
 
         if per_combination:
-            # 2a) --- Per-combination mode -----------------------------
             self.logger.info("Calculating per-combination D-statistics...")
-
             df = self._d_stats_per_combination(*args, **kwargs)
-
+            self.logger.warning(
+                f"Raw per-combination D-stat output: shape={df.shape}, "
+                f"columns={df.columns.tolist()}"
+            )
             self.logger.info("Per-combination D-statistics calculation completed.")
         else:
-            df = pd.DataFrame()
+            self.logger.warning(
+                "per_combination=False, so no per-combination D-statistics "
+                "DataFrame will be generated."
+            )
 
         df, overall_stats = self._proc_all_dstat_results(
-            method, num_bootstraps, per_combination, calc_overall, df, overall_stats
+            method,
+            num_bootstraps,
+            per_combination,
+            calc_overall,
+            df,
+            overall_stats,
+        )
+
+        self.logger.warning(
+            f"Processed D-stat output: shape={df.shape}, "
+            f"columns={df.columns.tolist()}, "
+            f"overall_keys={list(overall_stats.keys()) if isinstance(overall_stats, dict) else 'NA'}"
         )
 
         return df, overall_stats
@@ -183,11 +213,11 @@ class DStatistics:
         self,
         method: Literal["patterson", "partitioned", "dfoil"],
         geno012: np.ndarray,
-        population1: List[int],
-        population2: List[int],
-        population3: List[int],
-        population4: List[int] | None = None,
-        outgroup: List[int] | None = None,
+        population1: np.ndarray,
+        population2: np.ndarray,
+        population3: np.ndarray,
+        population4: np.ndarray | None = None,
+        outgroup: np.ndarray | None = None,
         num_bootstraps: int = 1000,
         seed: int | None = None,
         use_jackknife: bool = False,
@@ -198,11 +228,11 @@ class DStatistics:
         Args:
             method (Literal["patterson", "partitioned", "dfoil"]): The D-statistics method to use.
             geno012 (np.ndarray): Genotype matrix in 0/1/2 format.
-            population1 (List[int]): List of indices for the first population.
-            population2 (List[int]): List of indices for the second population.
-            population3 (List[int]): List of indices for the third population.
-            population4 (List[int] | None): List of indices for the fourth population (optional).
-            outgroup (List[int] | None): List of indices for the outgroup population (optional).
+            population1 (np.ndarray): Array of indices for the first population.
+            population2 (np.ndarray): Array of indices for the second population.
+            population3 (np.ndarray): Array of indices for the third population.
+            population4 (np.ndarray | None): Array of indices for the fourth population (optional).
+            outgroup (np.ndarray | None): Array of indices for the outgroup population (optional).
             num_bootstraps (int): Number of bootstrap replicates. Ignored if `use_jackknife` is True.
             seed (int | None): Random seed for reproducibility (optional).
             use_jackknife (bool): If True, uses jackknife resampling instead of bootstrapping. Use this if you have possible linkage disequilibrium (LD) issues.
@@ -223,19 +253,58 @@ class DStatistics:
         results_list = []
         sample_ids = self.genotype_data.samples
 
-        # Prepare the population lists for itertools.product
-        # For patterson's D, pop4 is not used, so we use a placeholder.
-        pop4_iterable = population4 if method != "patterson" else [None]
+        required_pops = {
+            "population1": population1,
+            "population2": population2,
+            "population3": population3,
+            "outgroup": outgroup,
+        }
 
-        all_pop_combinations = product(
-            population1,
-            population2,
-            population3,
-            pop4_iterable,
-            outgroup,
-            desc=f"{method.capitalize()} D-stats",
-            unit=" quartets",
-        )
+        if method in {"partitioned", "dfoil"}:
+            required_pops["population4"] = population4
+
+        for pop_name, pop_indices in required_pops.items():
+            if pop_indices is None:
+                msg = f"{pop_name} is required for method='{method}', but got None."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            if len(pop_indices) == 0:
+                msg = f"{pop_name} has zero selected individuals for method='{method}'. Check population names, popmap labels, max_individuals_per_pop, and individual_selection."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+        if outgroup is None:
+            msg = f"`outgroup` is required for method='{method}', but got None."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if method == "patterson":
+            all_pop_combinations = product(
+                population1,
+                population2,
+                population3,
+                [None],
+                outgroup,
+                desc=f"{method.capitalize()} D-stats",
+                unit=" quartets",
+            )
+        else:
+            if population4 is None:
+                msg = f"`population4` is required for method='{method}', but got None."
+                self.logger.error(msg)
+                raise ValueError(msg)
+            # Prepare the population lists for itertools.product
+            # For patterson's D, pop4 is not used, so we use a placeholder.
+            all_pop_combinations = product(
+                population1,
+                population2,
+                population3,
+                population4,
+                outgroup,
+                desc=f"{method.capitalize()} D-stats",
+                unit=" quintets",
+            )
 
         for i1, i2, i3, i4, out in all_pop_combinations:
             if method == "patterson":
@@ -404,15 +473,19 @@ class DStatistics:
                 "Seed",
             ]
 
-        results_list = [
-            x[0] if isinstance(x, (tuple, list, np.ndarray)) and len(x) == 1 else x
-            for x in results_list
-        ]
-
-        # 5. Return DataFrame with combination results
-        # Create DataFrame with Quartet as index
         df = pd.DataFrame(results_list, columns=columns).set_index("Quartet")
-        self.logger.info(f"Calculated {len(df)} per-combination D-statistics.")
+
+        if df.empty:
+            self.logger.warning(
+                f"No per-combination {method} D-statistics were calculated. "
+                f"Input population sizes were: "
+                f"P1={len(population1)}, P2={len(population2)}, P3={len(population3)}, "
+                f"P4={None if population4 is None else len(population4)}, "
+                f"outgroup={None if outgroup is None else len(outgroup)}."
+            )
+        else:
+            self.logger.info(f"Calculated {len(df)} per-combination D-statistics.")
+
         return df
 
     def _proc_all_dstat_results(
@@ -422,8 +495,8 @@ class DStatistics:
         per_combination: bool,
         overall: bool,
         df: pd.DataFrame,
-        overall_stats: dict[str, float] | None = None,
-    ):
+        overall_stats: dict[str, float | tuple | list | str | int] | None = None,
+    ) -> Tuple[pd.DataFrame, dict[str, float | tuple | list | str | int]]:
         """Process and save D-statistics results.
 
         This method processes the calculated D-statistics, saves them to a JSON file, and returns the DataFrame of per-combination D-statistics and overall statistics.
@@ -434,10 +507,10 @@ class DStatistics:
             per_combination (bool): Whether to compute per-combination D-statistics.
             overall (bool): Whether to compute overall D-statistics.
             df (pd.DataFrame): The DataFrame of per-combination D-statistics to process.
-            overall_stats (dict[str, float]): The overall statistics to process.
+            overall_stats (dict[str, float | tuple | list | str | int] | None): The overall statistics to process.
 
         Returns:
-            Tuple[pd.DataFrame, dict[str, float | tuple | list]]: DataFrame of per-combination D-statistics and a dictionary of overall statistics.
+            Tuple[pd.DataFrame, dict[str, float | tuple | list | str | int]]: DataFrame of per-combination D-statistics and a dictionary of overall statistics.
         """
 
         base = self._make_results_dir()
@@ -462,21 +535,38 @@ class DStatistics:
             df = pd.DataFrame()
 
         if overall:
-            overall_stats.update({"Method": method, "Bootstraps": num_bootstraps})
-            overall_stats = {
-                k: (
-                    v[0]
-                    if isinstance(v, (tuple, list, np.ndarray)) and len(v) == 1
-                    else v
-                )
-                for k, v in overall_stats.items()
-            }
+            if overall_stats is None:
+                msg = "Overall statistics were requested but not calculated. Returning empty overall_stats."
+                self.logger.warning(msg)
+                overall_stats = {}
+            else:
+                overall_stats = {
+                    **overall_stats,
+                    "Method": method,
+                    "Bootstraps": num_bootstraps,
+                }
+                overall_stats = {
+                    k: (
+                        v[0]
+                        if isinstance(v, (tuple, list, np.ndarray)) and len(v) == 1
+                        else v
+                    )
+                    for k, v in overall_stats.items()
+                }
 
             # Save overall results to JSON
             output_file = base / f"dstats_{method}_overall.json"
 
             with open(output_file, "w") as f:
                 json.dump(overall_stats, f, indent=4)
+
+        if overall_stats is not None and df.empty:
+            self.logger.warning(
+                f"Overall D-statistics were calculated but no per-combination statistics were generated. Overall stats keys: {list(overall_stats.keys())}"
+            )
+
+        if overall_stats is None:
+            return df, {}
 
         return df, overall_stats
 
@@ -636,7 +726,7 @@ class DStatistics:
         seed: int | None = None,
         use_jackknife: bool = False,
         block_size: int = 500,
-    ) -> Dict[str, Any]:
+    ) -> Tuple[Dict[str, float | int | str], np.ndarray | None]:
         """Calculate overall Patterson's (4-taxon) D-statistics.
 
         This method computes overall D-statistics based on the specified method (Patterson's D or Partitioned D). It uses bootstrapping to estimate the distribution of the D-statistic and calculates z-scores and p-values.
@@ -656,7 +746,7 @@ class DStatistics:
             block_size (int): Block size for jackknife resampling. Defaults to 500.
 
         Returns:
-            Dict[str, Any]: A dictionary containing the overall D-statistics, z-scores, and p-values.
+            Tuple[Dict[str, float | int | str], np.ndarray | None]: A tuple containing a dictionary with the overall D-statistics, z-scores, and p-values, and an optional array of bootstrap replicates.
         """
         if method == "patterson":
             return self._patterson_d_overall(
@@ -671,6 +761,11 @@ class DStatistics:
             )
 
         elif method == "partitioned":
+            if d4 is None:
+                msg = "Population 4 indices (d4) are required for partitioned D-statistics."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
             return self._part_d_overall(
                 d1,
                 d2,
@@ -684,6 +779,11 @@ class DStatistics:
             )
 
         else:  # D-FOIL
+            if d4 is None:
+                msg = "Population 4 indices (d4) are required for D-FOIL D-statistics."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
             return self._dfoil_overall(
                 d1,
                 d2,
@@ -754,7 +854,7 @@ class DStatistics:
         seed: int | None = None,
         use_jackknife: bool = False,
         block_size: int = 500,
-    ) -> Dict[str, float | int | str]:
+    ) -> Tuple[Dict[str, float | int | str], np.ndarray | None]:
         """Calculate overall Partitioned D-statistics.
 
         This method computes overall Partitioned D-statistics (D1, D2, D12) using bootstrapping. It calculates the observed D-statistics and their z-scores and p-values.
@@ -771,7 +871,7 @@ class DStatistics:
             block_size (int): Block size for jackknife resampling. Defaults to 500.
 
         Returns:
-            Dict[str, float | int | str]: A dictionary containing the overall Partitioned D-statistics, z-scores, and p-values.
+            Tuple[Dict[str, float | int | str], np.ndarray | None]: A tuple containing a dictionary with the overall Partitioned D-statistics, z-scores, and p-values, and an optional array of bootstrap replicates.
         """
         self.logger.info("Calculating overall Partitioned D-statistics...")
 
@@ -800,7 +900,7 @@ class DStatistics:
         seed: int | None = None,
         use_jackknife: bool = False,
         block_size: int = 500,
-    ) -> Dict[str, float | int | str]:
+    ) -> Tuple[Dict[str, float | int | str], np.ndarray | None]:
         """Calculate overall Patterson's D-statistics.
 
         This method computes overall Patterson's D-statistics using bootstrapping. It calculates the observed D-statistic and its z-score and p-value.
@@ -816,7 +916,7 @@ class DStatistics:
             block_size (int): Block size for jackknife resampling. Defaults to 500.
 
         Returns:
-            Dict[str, float | int | str]: A dictionary containing the overall Patterson's D-statistic, z-score, and p-value.
+            Tuple[Dict[str, float | int | str], np.ndarray | None]: A tuple containing a dictionary with the overall Patterson's D-statistic, z-score, and p-value, and an optional array of bootstrap replicates.
         """
         self.logger.info("Calculating overall Patterson's D-statistics...")
 
@@ -836,7 +936,7 @@ class DStatistics:
 
     def _validate_d_statistics_method(
         self, method: Literal["patterson", "partitioned", "dfoil"]
-    ):
+    ) -> Literal["patterson", "partitioned", "dfoil"]:
         """Validate the D-statistics method.
 
         This method checks if the provided method is a valid D-statistics method. It raises an error if the method is not recognized.
@@ -856,14 +956,15 @@ class DStatistics:
             self.logger.error(msg)
             raise TypeError(msg)
 
-        method = method.lower()
+        mthd = cast(str, method)  # for type checking
+        mthd = mthd.lower()
 
-        if method not in self.valid_methods:
-            msg = f"Unsupported D-statistics method '{method}'. Valid methods are: {self.valid_methods}"
+        if mthd not in self.valid_methods:
+            msg = f"Unsupported D-statistics method '{mthd}'. Valid methods are: {self.valid_methods}"
             self.logger.error(msg)
             raise ValueError(msg)
 
-        return method
+        return cast(Literal["patterson", "partitioned", "dfoil"], mthd)
 
     def _get_single_pop_indices(
         self,
@@ -895,12 +996,20 @@ class DStatistics:
 
         pops = [pop] if isinstance(pop, str) else pop
         selected = []
+
+        if self.genotype_data.popmap_inverse is None:
+            msg = "Population map inverse is not available. Ensure that the genotype data has a valid population map."
+            self.logger.error(msg)
+            raise TypeError(msg)
+
         for p in pops:
             if p not in self.genotype_data.popmap_inverse:
                 msg = f"Population '{p}' not found in popmap"
                 self.logger.error(msg)
                 raise KeyError(msg)
+
             samples = self.genotype_data.popmap_inverse[p]
+
             if (
                 max_individuals_per_pop is not None
                 and len(samples) > max_individuals_per_pop
@@ -933,12 +1042,12 @@ class DStatistics:
         population1: str | List[str],
         population2: str | List[str],
         population3: str | List[str],
-        population4: str | List[str],
+        population4: str | List[str] | None,
         outgroup: str | List[str],
         max_individuals_per_pop: int | None = None,
         individual_selection: Literal["random"] | Dict[str, List[str]] = "random",
         seed: int | None = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray]:
         """Get population index arrays in Comp-D partitioned D-statistics order using user-defined labels.
 
         Args:
@@ -952,7 +1061,7 @@ class DStatistics:
             seed (int | None): Optional seed for reproducibility.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]: (p1_inds, p2_inds, p3a_inds, p3b_inds, out_inds)
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray]: (p1_inds, p2_inds, p3a_inds, p3b_inds, out_inds)
         """
         out_inds = np.array(
             self._get_single_pop_indices(

@@ -144,23 +144,11 @@ class TestVCFReader(unittest.TestCase):
         ) as temp_output_vcf:
             reader.write_vcf(temp_output_vcf.name, chunk_size=2)
 
-            try:
-                with open(temp_output_vcf.name, "r") as f:
-                    output_lines = [
-                        line.strip() for line in f if not line.startswith("##")
-                    ]
-            except FileNotFoundError:
-                with open(temp_output_vcf.name + ".gz", "rb") as f:
-                    output_lines = [
-                        line.strip() for line in f if not line.startswith(b"##")
-                    ]
+            output_lines = list(self._iter_data_lines(temp_output_vcf.name))
 
             # Assertions for the "without" case
-            for line in output_lines[1:]:
-                try:
-                    fields = line.split("\t")
-                except TypeError:
-                    fields = line.split(b"\t")
+            for line in output_lines:
+                fields = line.split("\t")
                 format_field = fields[8]
                 self.assertEqual(format_field, "GT")
 

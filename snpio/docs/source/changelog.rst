@@ -4,8 +4,8 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
-Unreleased
-----------
+Version 1.6.13 (2026-05-20)
+---------------------------
 
 Data Packaging
 ~~~~~~~~~~~~~~
@@ -18,6 +18,12 @@ Data Packaging
     - ``release_results_packages/benchmarking_results_package/``
 
     for easier repository packaging, versioning, and reviewer/data-repository handoff.
+
+Packaging
+~~~~~~~~~
+
+- Fixed the conda publishing workflow to call ``conda-build`` directly so the build does not depend on the ``conda build`` subcommand being registered.
+- Kept conda build and upload tooling in CI instead of the conda package recipe build requirements.
 
 Version 1.6.11 (2025-10-05)
 ---------------------------

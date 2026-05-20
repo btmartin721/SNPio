@@ -38,7 +38,7 @@ class LoggerManager:
         debug: bool = False,
         verbose: bool = True,
         log_file: str | Path | None = None,
-        level: int | None = None,
+        level: str | None = None,
         to_console: bool = True,
         to_file: bool = True,
         log_format: str = "%(asctime)s - %(levelname)s - %(name)s - %(funcName)s - %(message)s",
@@ -54,7 +54,7 @@ class LoggerManager:
             debug (bool, optional): If True, sets log level to DEBUG.
             verbose (bool, optional): If False, suppresses INFO and WARNING messages.
             log_file (str or Path, optional): Path to the log file.
-            level (int, optional): Explicit logging level (overrides debug and verbose).
+            level (str, optional): Explicit logging level (overrides debug and verbose).
             to_console (bool, optional): Whether to log to console. Defaults to True.
             to_file (bool, optional): Whether to log to file. Defaults to True.
             log_format (str, optional): Format of the log messages.

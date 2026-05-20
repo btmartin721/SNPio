@@ -18,60 +18,6 @@ from snpio.utils.plot_queue import queued_plots
 LOG = logging.getLogger("snpio.multiqc")
 
 
-def custom_linegraph_kde_plot(
-    zscores: pd.Series,
-    *,
-    title: str = "Distribution of Observed Z-Scores for D-Statistics",
-    xlabel: str = "Z-Score",
-    ylabel: str = "Estimated Density",
-    kde_bw: float = None,
-    x_range: tuple[float, float] = (-3.5, 4.5),
-    resolution: int = 500,
-) -> str:
-    """
-    Creates a smoothed KDE line plot of Z-scores using Plotly Express.
-
-    Args:
-        zscores (pd.Series): 1D series of Z-score values.
-        title (str): Plot title.
-        xlabel (str): Label for the x-axis.
-        ylabel (str): Label for the y-axis.
-        kde_bw (float, optional): Bandwidth override for KDE.
-        x_range (tuple): Range of x-axis (Z-score values).
-        resolution (int): Number of points to evaluate KDE.
-
-    Returns:
-        str: HTML div of the Plotly plot (can be returned by custom_linegraph).
-    """
-    # Drop missing values
-    z = zscores.dropna().values
-
-    # Perform KDE
-    kde = gaussian_kde(z, bw_method=kde_bw)
-    x_vals = np.linspace(x_range[0], x_range[1], resolution)
-    y_vals = kde(x_vals)
-
-    # Create DataFrame for Plotly
-    df = pd.DataFrame({"Z-Score": x_vals, "Density": y_vals})
-
-    # Create the plot
-    fig = px.line(
-        df,
-        x="Z-Score",
-        y="Density",
-        title=title,
-    )
-    fig.update_layout(
-        xaxis_title=xlabel,
-        yaxis_title=ylabel,
-        template="plotly_white",
-        hovermode="x unified",
-    )
-
-    # Return the HTML string (for MultiQC custom report section)
-    return fig.to_html(full_html=False, include_plotlyjs="cdn")
-
-
 def custom_box(plotdata: pd.DataFrame, pconfig: dict) -> str:
     """Generate a custom Plotly box plot with locus-level tooltips for MultiQC.
 
@@ -116,13 +62,7 @@ def custom_box(plotdata: pd.DataFrame, pconfig: dict) -> str:
         template="plotly_white",
     )
 
-    return pio.to_html(fig, include_plotlyjs="cdn", full_html=False)
-
-
-import numpy as np
-import pandas as pd
-import plotly.express as px
-from scipy.stats import gaussian_kde
+    return pio.to_html(fig, include_plotlyjs="cdn", full_html=False)  # type: ignore
 
 
 def custom_linegraph_kde_plot(
@@ -131,7 +71,7 @@ def custom_linegraph_kde_plot(
     title: str = "Distribution of Observed Z-Scores for D-Statistics",
     xlabel: str = "Z-Score",
     ylabel: str = "Estimated Density",
-    kde_bw: float = None,
+    kde_bw: float | None = None,
     x_range: tuple[float, float] = (-3.5, 4.5),
     resolution: int = 500,
 ) -> str:
@@ -198,9 +138,7 @@ def _build_snpio_report(
         FileNotFoundError: If the custom logo is not found.
         ValueError: If the output directory is not specified.
     """
-    # ------------------------------------------------------------------ #
     # 1. Resolve core locations                                          #
-    # ------------------------------------------------------------------ #
     prefix = Path(prefix).expanduser().resolve()
     report_dir = (
         Path(output_dir).expanduser()
@@ -209,10 +147,14 @@ def _build_snpio_report(
     )
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    # ------------------------------------------------------------------ #
-    # 2. Make the logo path absolute and patch MultiQC’s config          #
-    # ------------------------------------------------------------------ #
-    pkg_root = Path(importlib.import_module("snpio").__file__).parent
+    # 2. Make the logo path absolute and patch MultiQC’s config
+    fp = importlib.import_module("snpio").__file__
+
+    if fp is None:
+        msg = "Could not resolve the path to the snpio package."
+        raise FileNotFoundError(msg)
+
+    pkg_root = Path(fp).parent
     logo_path = (pkg_root / "img" / "snpio_logo.png").resolve()
 
     if not logo_path.exists() or not logo_path.is_file():
@@ -225,9 +167,7 @@ def _build_snpio_report(
     # with open(report_dir / "multiqc_config.yaml", "w") as f:
     #     yaml.safe_dump({"custom_logo": str(logo_path)}, f)
 
-    # ------------------------------------------------------------------ #
     # 3. Register the SNPio module and write the report                  #
-    # ------------------------------------------------------------------ #
     module = SNPioMultiQC()  # triggers __init__ & parse_logs()
     multiqc.report.modules.append(module)
 
@@ -244,9 +184,7 @@ def _build_snpio_report(
     return html
 
 
-# --------------------------------------------------------------------------- #
-# 1.                   SNPio MultiQC module                                 #
-# --------------------------------------------------------------------------- #
+# SNPio MultiQC module
 class SNPioMultiQC(BaseMultiqcModule):
     """A MultiQC module and an in-process builder.
 
@@ -274,7 +212,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     @classmethod
     def queue_table(
         cls,
-        df: pd.DataFrame | pd.Series,
+        df: pd.DataFrame | pd.Series | dict,
         *,
         panel_id: str,
         section: str,
@@ -326,7 +264,7 @@ class SNPioMultiQC(BaseMultiqcModule):
         panel_id: str,
         section: str,
         title: str,
-        index_label: str,
+        index_label: str | None,
         description: str | None = None,
     ) -> None:
         """Queue an HTML snippet for rendering in the MultiQC report.
@@ -357,7 +295,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     @classmethod
     def queue_heatmap(
         cls,
-        df: pd.DataFrame | pd.Series,
+        df: pd.DataFrame | pd.Series | dict,
         *,
         panel_id: str,
         section: str,
@@ -400,7 +338,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     @classmethod
     def queue_barplot(
         cls,
-        df: pd.Series | pd.DataFrame,
+        df: pd.Series | pd.DataFrame | list[pd.DataFrame | pd.Series] | dict,
         *,
         panel_id: str,
         section: str,
@@ -456,7 +394,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     @classmethod
     def queue_violin(
         cls,
-        df: pd.DataFrame | pd.Series,
+        df: pd.DataFrame | pd.Series | dict,
         *,
         panel_id: str,
         section: str,
@@ -507,7 +445,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     ) -> None:
         """Queue a custom line plot for rendering in the MultiQC report."""
 
-        if not pd.isnull(df).all():
+        if not pd.isnull(df).all().all():
             queued_plots.append(
                 {
                     "kind": "custom_line",
@@ -556,7 +494,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     @classmethod
     def queue_boxplot(
         cls,
-        df: pd.DataFrame | pd.Series,
+        df: pd.DataFrame | pd.Series | dict,
         *,
         panel_id: str,
         section: str,
@@ -568,7 +506,7 @@ class SNPioMultiQC(BaseMultiqcModule):
         """Queue a box plot for rendering in the MultiQC report.
 
         Args:
-            df (pd.DataFrame | pd.Series): DataFrame or Series containing the data to plot.
+            df (pd.DataFrame | pd.Series | dict): DataFrame, Series, or dictionary containing the data to plot.
             panel_id (str): Unique identifier for the plot panel.
             section (str): Section name in the MultiQC report.
             title (str): Title of the plot.
@@ -635,7 +573,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     @classmethod
     def queue_scatterplot(
         cls,
-        df: pd.DataFrame | pd.Series,
+        df: pd.DataFrame | pd.Series | dict,
         *,
         panel_id: str,
         section: str,
@@ -647,7 +585,7 @@ class SNPioMultiQC(BaseMultiqcModule):
         """Queue a scatter plot for rendering in the MultiQC report.
 
         Args:
-            df (pd.DataFrame | pd.Series): DataFrame or Series containing the data to plot.
+            df (pd.DataFrame | pd.Series | dict): DataFrame, Series, or dictionary containing the data to plot.
             panel_id (str): Unique identifier for the plot panel.
             section (str): Section name in the MultiQC report.
             title (str): Title of the plot.
@@ -673,18 +611,20 @@ class SNPioMultiQC(BaseMultiqcModule):
         )
 
     @classmethod
-    def _series_to_dataframe(cls, df, index_label, value_label):
+    def _series_to_dataframe(
+        cls, df: pd.Series | pd.DataFrame | dict, index_label: str, value_label: str
+    ) -> pd.DataFrame | dict:
         """Convert a Series to a DataFrame with specified index and value labels.
 
-        This method converts a Series or DataFrame into a DataFrame with specified index and value labels.
+        This method converts a Series, DataFrame, or dictionary into a DataFrame with specified index and value labels.
 
         Args:
-            df (pd.Series | pd.DataFrame): Series or DataFrame to convert.
+            df (pd.Series | pd.DataFrame | dict): Series, DataFrame, or dictionary to convert.
             index_label (str): Label for the index column.
             value_label (str): Label for the value column.
 
         Returns:
-            pd.DataFrame: DataFrame with the specified index and value labels.
+            pd.DataFrame | dict: DataFrame or dictionary with the specified index and value labels.
         """
         if isinstance(df, pd.Series):
             df = df.to_frame(name=value_label).reset_index()
@@ -717,6 +657,10 @@ class SNPioMultiQC(BaseMultiqcModule):
         try:
             for entry in queued_plots:
                 kind = entry["kind"].lower()
+
+                d = {}
+                plot_obj: Any | str | None = None
+
                 if kind == "table":
                     plot_obj = self._add_table(entry)
                 elif kind == "heatmap":
@@ -742,7 +686,14 @@ class SNPioMultiQC(BaseMultiqcModule):
 
                 if kind == "html":
                     plot_obj = None
+
+                    if "html_content" not in d:
+                        LOG.error(f"HTML content missing for entry: {entry}")
+                        continue
+
                     content = d["html_content"]
+
+                    c = "" if content is None else content
 
                     self.add_section(
                         plot=plot_obj,
@@ -750,7 +701,7 @@ class SNPioMultiQC(BaseMultiqcModule):
                         anchor=entry["panel_id"],
                         description=entry.get("description", ""),
                         helptext=entry.get("helptext", ""),
-                        content=content,
+                        content=c,
                     )
 
                 else:
@@ -763,7 +714,7 @@ class SNPioMultiQC(BaseMultiqcModule):
                     )
 
         except Exception as e:
-            LOG.error(f"Failed to render plot: '{entry['panel_id']}': {e}")
+            LOG.error(f"Failed to render queued MultiQC plots: {e}")
             raise
 
         # Clear the queue after processing
@@ -807,12 +758,12 @@ class SNPioMultiQC(BaseMultiqcModule):
                 html_content = f.read()
         else:
             msg = "Invalid HTML path."
-            self.logger.error(msg)
+            LOG.error(msg)
             raise IOError(msg)
 
         return {"html_content": html_content, "plot": None}
 
-    def _add_table(self, p: Dict[str, Any]) -> None:
+    def _add_table(self, p: Dict[str, Any]) -> Any | str | None:
         """Render a table plot in the MultiQC report.
 
         Args:
@@ -823,7 +774,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             data=data, headers=data.get("headers", None), pconfig=p.get("pconfig", None)
         )
 
-    def _add_heatmap(self, p: Dict[str, Any]) -> None:
+    def _add_heatmap(self, p: Dict[str, Any]) -> Any | str | None:
         """Render a heatmap plot in the MultiQC report.
 
         Args:
@@ -838,7 +789,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             pconfig=p.get("pconfig", None),
         )
 
-    def _add_barplot(self, p: Dict[str, Any]) -> None:
+    def _add_barplot(self, p: Dict[str, Any]) -> Any | str | None:
         """Render a bar plot in the MultiQC report.
 
         Args:
@@ -850,7 +801,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             data=data, cats=p.get("cats", None), pconfig=p.get("pconfig", None)
         )
 
-    def _add_scatterplot(self, p: Dict[str, Any]) -> None:
+    def _add_scatterplot(self, p: Dict[str, Any]) -> Any | str | None:
         """Render a scatter plot in the MultiQC report.
 
         Args:
@@ -859,7 +810,7 @@ class SNPioMultiQC(BaseMultiqcModule):
         data = p["data"]
         return scatter.plot(data=data, pconfig=p.get("pconfig", None))
 
-    def _add_violinplot(self, p: Dict[str, Any]) -> None:
+    def _add_violinplot(self, p: Dict[str, Any]) -> Any | str | None:
         """Render a violin plot in the MultiQC report.
 
         Args:
@@ -870,37 +821,37 @@ class SNPioMultiQC(BaseMultiqcModule):
             data=data, headers=p.get("headers", None), pconfig=p.get("pconfig", None)
         )
 
-    def _add_boxplot(self, p: pd.DataFrame | pd.Series) -> None:
+    def _add_boxplot(self, p: pd.DataFrame | pd.Series | dict) -> Any:
         """Render a box plot in the MultiQC report.
 
         Args:
-            p (pd.DataFrame | pd.Series): Plot parameters including data and metadata.
+            p (pd.DataFrame | pd.Series | dict): Plot parameters including data and metadata.
         """
         data = p["data"]
-        return box.plot(list_of_data_by_sample=data, pconfig=p.get("pconfig", None))
+        return box.plot(list_of_data_by_sample=data, pconfig=p.get("pconfig", None))  # type: ignore
 
-    def _add_custom_boxplot(self, p: pd.DataFrame | pd.Series) -> None:
+    def _add_custom_boxplot(self, p: pd.DataFrame | pd.Series | dict) -> Any:
         """Render a custom box plot in the MultiQC report.
 
         Args:
-            p (pd.DataFrame | pd.Series): Plot parameters including data and metadata.
+            p (pd.DataFrame | pd.Series | dict): Plot parameters including data and metadata.
         """
         data = p["data"]
-        return custom_box(plotdata=data, pconfig=p.get("pconfig", None))
+        return custom_box(plotdata=data, pconfig=p.get("pconfig", None))  # type: ignore
 
-    def _add_linegraph(self, p: pd.DataFrame | pd.Series) -> None:
+    def _add_linegraph(self, p: pd.DataFrame | pd.Series | dict) -> Any:
         """Render a line graph in the MultiQC report.
 
         Args:
-            p (pd.DataFrame | pd.Series): Plot parameters including data and metadata.
+            p (pd.DataFrame | pd.Series | dict): Plot parameters including data and metadata.
         """
         data = p["data"]
-        return linegraph.plot(data=data, pconfig=p.get("pconfig", None))
+        return linegraph.plot(data=data, pconfig=p.get("pconfig", None))  # type: ignore
 
     @staticmethod
     def _df_to_plot_data(
         df: pd.DataFrame | Dict[str, Any], index_label: str | None = None
-    ) -> Dict[str, Any]:
+    ) -> dict:
         """Convert a DataFrame to a dictionary suitable for MultiQC plots.
 
         This method converts a DataFrame into a dictionary with 'headers' and 'data' keys, where 'headers' contains the column names and 'data' contains the rows as dictionaries. If an `index_label` is provided, the index will be reset and added as a named column.
@@ -910,7 +861,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             index_label (str | None): Optional name for the index column. If provided, the index will be reset and added as a named column.
 
         Returns:
-            Dict[str, Any]: Dictionary with 'data' key for use in plots.
+            dict: Dictionary with 'data' key for use in plots.
 
         Example:
             >>> df = pd.DataFrame({

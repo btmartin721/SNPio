@@ -51,7 +51,9 @@ class IUPAC:
         self.iupac2gt: Dict[str, str] = self.get_iupac2gt()
         self.int_iupac_dict: Dict[str, int] = self.get_int_iupac_dict()
         self.onehot_dict: Dict[str, List[float]] = self.get_onehot_dict()
-        self.ambiguous_dna_values: Dict[str, str] = self.get_iupac_ambiguous()
+        self.ambiguous_dna_values: Dict[str, str | tuple[str, ...]] = (
+            self.get_iupac_ambiguous()
+        )
 
         if multilab_value <= 0 or multilab_value > 1:
             msg: str = (
@@ -125,13 +127,13 @@ class IUPAC:
 
         return phased_encoding
 
-    def get_tuple_to_iupac(self) -> dict[tuple[str, str], str]:
+    def get_tuple_to_iupac(self) -> dict[tuple[str, ...], str]:
         """Return a dictionary mapping base tuples to IUPAC codes.
 
         The IUPAC codes are used to represent ambiguous bases in DNA sequences.
 
         Returns:
-            dict[tuple[str, str], str]: A dictionary mapping base tuples to IUPAC codes.
+            dict[tuple[str, ...], str]: A dictionary mapping base tuples to IUPAC codes.
         """
         iupac_base_map = {
             frozenset(["A", "G"]): "R",
@@ -216,13 +218,13 @@ class IUPAC:
             ".": 16,
         }
 
-    def get_iupac_ambiguous(self) -> Dict[str, str]:
+    def get_iupac_ambiguous(self) -> Dict[str, str | tuple[str, ...]]:
         """Get a dictionary of IUPAC ambiguity values.
 
         This dictionary contains the IUPAC ambiguity values for DNA sequences. The keys are the IUPAC ambiguity codes and the values are the corresponding DNA bases or ambiguity codes as strings with no delimiter.
 
         Returns:
-            Dict[str, str]: A dictionary of IUPAC ambiguity values with no delimiter.
+            Dict[str, str | tuple[str, ...]]: A dictionary of IUPAC ambiguity values with no delimiter.
 
 
         Example:

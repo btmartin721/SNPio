@@ -51,34 +51,99 @@ class GeneticDistance:
 
     @staticmethod
     def _clean_inds(inds: list[str]) -> list[str]:
-        """Filters out IUPAC genotypes that are missing data codes."""
-        missing_codes = {"N", "-", "?", "."}
-        return [ind for ind in inds if ind not in missing_codes]
+        """Filter out missing genotype codes.
+
+        Args:
+            inds (list[str]): Genotype codes.
+
+        Returns:
+            list[str]: Non-missing genotype codes.
+        """
+        missing_codes = {
+            "",
+            ".",
+            "./.",
+            ".|.",
+            "N",
+            "N/N",
+            "N|N",
+            "-",
+            "?",
+            "NA",
+            "NAN",
+            "NONE",
+        }
+
+        clean: list[str] = []
+
+        for ind in inds:
+            if ind is None:
+                continue
+
+            code = str(ind).strip().upper()
+
+            if code in missing_codes:
+                continue
+
+            clean.append(code)
+
+        return clean
 
     @staticmethod
     def _get_alleles(
-        iupac_decoder: dict[str, tuple[str, str]], iupac_list: list[str]
+        iupac_decoder: dict[str, tuple[str, ...]], iupac_list: list[str]
     ) -> list[str]:
-        """Decodes a list of IUPAC codes into a flat list of alleles.
+        """Decode IUPAC genotype codes into diploid allele calls.
 
         Args:
-            iupac_decoder: Mapping like {'R': ('A','G'), ...}.
-            iupac_list: List of IUPAC genotype codes (string) per individual.
+            iupac_decoder: Mapping from IUPAC genotype codes to allele tuples.
+            iupac_list: List of IUPAC genotype codes.
 
         Returns:
-            Flat list of single-letter alleles for the input list.
+            Flat list of alleles.
+
+        Notes:
+            Unambiguous bases are treated as diploid homozygotes. For example,
+            "A" is decoded as ("A", "A"), not ("A",).
         """
         alleles: list[str] = []
+        homozygous_bases = {"A", "C", "G", "T"}
+
         for iupac_code in iupac_list:
-            decoded_pair = iupac_decoder.get(iupac_code, ())
-            alleles.extend(decoded_pair)
+            code = str(iupac_code).strip().upper()
+
+            if code in homozygous_bases:
+                alleles.extend((code, code))
+                continue
+
+            decoded = iupac_decoder.get(code)
+
+            if decoded is None:
+                if "/" in code or "|" in code:
+                    sep = "/" if "/" in code else "|"
+                    parts = tuple(part.strip().upper() for part in code.split(sep))
+
+                    if len(parts) == 2 and all(
+                        part in homozygous_bases for part in parts
+                    ):
+                        alleles.extend(parts)
+
+                continue
+
+            decoded_tuple = tuple(str(allele).strip().upper() for allele in decoded)
+
+            if len(decoded_tuple) == 1 and decoded_tuple[0] in homozygous_bases:
+                alleles.extend((decoded_tuple[0], decoded_tuple[0]))
+            elif len(decoded_tuple) == 2:
+                alleles.extend(decoded_tuple)
+
         return alleles
 
     @staticmethod
     def _calculate_allele_freqs(
         matrix: np.ndarray,
         indices: list[int],
-        iupac_decoder: dict[str, tuple[str, str]],
+        iupac_decoder: dict[str, tuple[str, ...]],
     ) -> dict[int, dict[str, float]]:
         """Compute per-locus allele frequencies for a subset of individuals.
 
@@ -117,35 +182,68 @@ class GeneticDistance:
     def _neis_distance(
         f1: dict[int, dict[str, float]], f2: dict[int, dict[str, float]]
     ) -> float:
-        """Calculate Nei's genetic distance (Nei 1972) across all loci using global sums."""
+        """Calculate Nei's genetic distance using multilocus genetic identity.
+
+        Args:
+            f1: Locus-indexed allele frequencies for population 1.
+            f2: Locus-indexed allele frequencies for population 2.
+
+        Returns:
+            Nei's genetic distance, calculated as -log(I), where I is Nei's
+            normalized genetic identity.
+
+        Notes:
+            Loci where both populations have valid allele frequencies are included.
+            Loci with no shared alleles contribute zero to the numerator but still
+            contribute to the denominator. This is essential; skipping no-shared-
+            allele loci artificially deflates genetic distance.
+        """
         total_num = 0.0
         total_denom1 = 0.0
         total_denom2 = 0.0
+        n_valid_loci = 0
 
-        # Iterate only over loci present in both dicts
-        for locus, p1 in f1.items():
-            p2 = f2.get(locus)
-            if not p2:
-                continue
-            shared = set(p1) & set(p2)
-            if not shared:
-                continue
-            total_num += sum(p1[a] * p2[a] for a in shared)
-            total_denom1 += sum(freq * freq for freq in p1.values())
-            total_denom2 += sum(freq * freq for freq in p2.values())
+        for locus in sorted(set(f1) & set(f2)):
+            p1 = f1.get(locus, {})
+            p2 = f2.get(locus, {})
 
-        if total_num == 0.0 or total_denom1 == 0.0 or total_denom2 == 0.0:
+            if not p1 or not p2:
+                continue
+
+            alleles = set(p1) | set(p2)
+
+            locus_num = sum(
+                p1.get(allele, 0.0) * p2.get(allele, 0.0) for allele in alleles
+            )
+            locus_denom1 = sum(p1.get(allele, 0.0) ** 2 for allele in alleles)
+            locus_denom2 = sum(p2.get(allele, 0.0) ** 2 for allele in alleles)
+
+            if locus_denom1 <= 0.0 or locus_denom2 <= 0.0:
+                continue
+
+            total_num += locus_num
+            total_denom1 += locus_denom1
+            total_denom2 += locus_denom2
+            n_valid_loci += 1
+
+        if n_valid_loci == 0 or total_denom1 <= 0.0 or total_denom2 <= 0.0:
             return np.nan
 
-        I = total_num / np.sqrt(total_denom1 * total_denom2)
-        return -np.log(I) if I > 0.0 else np.inf
+        identity = total_num / np.sqrt(total_denom1 * total_denom2)
+
+        if not np.isfinite(identity) or identity <= 0.0:
+            return np.inf
+
+        identity = min(identity, 1.0)
+
+        return float(-np.log(identity))
 
     @staticmethod
     def _nei_permutation_pvalue(
         pop1_inds: np.ndarray,
         pop2_inds: np.ndarray,
         full_matrix: np.ndarray,
-        iupac_decoder: dict[str, tuple[str, str]],
+        iupac_decoder: dict[str, tuple[str, ...]],
         n_permutations: int,
         seed: int,
     ) -> tuple[float, float, np.ndarray]:
@@ -181,14 +279,30 @@ class GeneticDistance:
             if len(perm_distances) > 0
             else np.nan
         )
-        return obs_nei, p_value, perm_distances
+
+        if not isinstance(p_value, float) and ~np.isnan(p_value):
+            try:
+                pval = float(p_value)
+            except Exception:
+                pval = 1.0
+        elif np.isnan(p_value):
+            pval = 1.0
+        elif isinstance(p_value, float):
+            pval = p_value
+        else:
+            try:
+                pval = float(p_value)
+            except Exception:
+                pval = 1.0
+
+        return obs_nei, pval, perm_distances
 
     @staticmethod
     def _permutation_worker(
         pop_pair_keys: tuple[str, str],
         pop_indices: dict[str, np.ndarray],
         full_matrix: np.ndarray,
-        iupac_decoder: dict[str, tuple[str, str]],
+        iupac_decoder: dict[str, tuple[str, ...]],
         n_reps: int,
         seed: int,
     ):
@@ -207,7 +321,7 @@ class GeneticDistance:
         seed: int,
         n_loci: int,
         full_matrix: np.ndarray,
-        iupac_decoder: dict[str, tuple[str, str]],
+        iupac_decoder: dict[str, tuple[str, ...]],
         pop_pairs: list[tuple[str, str]],
         pop_indices: dict[str, np.ndarray],
     ) -> dict[tuple[str, str], float]:
@@ -255,8 +369,11 @@ class GeneticDistance:
                     - "perm_dist": array of Nei distances from permutations (np.ndarray)
 
             If method is "bootstrap":
-                dict: A dictionary where keys are (pop1, pop2) tuples and values are np.ndarrays of Nei distances from bootstrap replicates.
+                dict: A dictionary where keys are (pop1, pop2) tuples and values are dicts with:
+                    - "nei": observed Nei distance (float)
+                    - "boot_dist": array of Nei distances from bootstrap replicates (np.ndarray)
         """
+
         self.logger.info(
             f"Calculating Nei's distance using method='{method}' with {n_reps} replicates and {n_jobs} jobs."
         )
@@ -269,6 +386,12 @@ class GeneticDistance:
         rng = np.random.default_rng(self.seed)
 
         popmap = self.genotype_data.popmap_inverse
+
+        if popmap is None:
+            msg = "Population map is required for Nei distance calculation but was not found."
+            self.logger.error(msg)
+            raise AttributeError(msg)
+
         sample_to_idx = {s: i for i, s in enumerate(self.genotype_data.samples)}
         pop_indices = {
             pop: np.array([sample_to_idx[s] for s in popmap[pop]]) for pop in popmap
@@ -300,21 +423,23 @@ class GeneticDistance:
             return df
 
         elif method == "permutation":
-            result: dict[tuple[str, str], dict[str, object]] = {}
+            perm_result: dict[tuple[str, str], dict[str, object]] = {}
             pop_pairs = list(itertools.combinations(pop_keys, 2))
 
-            # --- per-pair independent seeds ---
-            base_seed = self.seed if self.seed is not None else 0
-            ss = np.random.SeedSequence(base_seed)
+            # Per-pair independent seeds.
+            # If self.seed is None, SeedSequence uses nondeterministic entropy.
+            ss = np.random.SeedSequence(self.seed)
             children = ss.spawn(len(pop_pairs))
+
             pair_seeds = {
-                pair: int(child.entropy) & 0x7FFFFFFF  # stable 31-bit int
+                pair: int(child.generate_state(1, dtype=np.uint32)[0]) & 0x7FFFFFFF
                 for pair, child in zip(pop_pairs, children)
             }
 
             from concurrent.futures import as_completed
 
             max_workers = mp.cpu_count() if n_jobs == -1 else n_jobs
+
             with ProcessPoolExecutor(max_workers=max_workers) as pool:
                 futures = [
                     pool.submit(
@@ -328,16 +453,41 @@ class GeneticDistance:
                     )
                     for pair in pop_pairs
                 ]
+
                 for fut in tqdm(
-                    as_completed(futures), desc="Nei permutations", total=len(futures)
+                    as_completed(futures),
+                    desc=f"Nei population pairs ({n_reps} permutations each)",
+                    total=len(futures),
                 ):
                     pop_pair, res_dict = fut.result()
-                    result[pop_pair] = res_dict
+                    perm_result[pop_pair] = res_dict
 
-            # Plot after collecting results
-            for (p1_key, p2_key), res_dict in result.items():
+            for (p1_key, p2_key), res_dict in perm_result.items():
+                obs_value = res_dict["nei"]
+
+                if isinstance(obs_value, (int, float, str)):
+                    try:
+                        obs = float(obs_value)
+                    except (ValueError, TypeError):
+                        obs = np.nan
+                elif isinstance(obs_value, np.generic):
+                    try:
+                        obs = float(obs_value.item())
+                    except (ValueError, TypeError):
+                        obs = np.nan
+                else:
+                    obs = np.nan
+
+                if not isinstance(res_dict["perm_dist"], np.ndarray):
+                    try:
+                        res_dict["perm_dist"] = np.array(
+                            res_dict["perm_dist"], dtype=float
+                        )
+                    except (ValueError, TypeError):
+                        res_dict["perm_dist"] = np.array([], dtype=float)
+
                 self.plotter.plot_permutation_dist(
-                    res_dict["nei"],
+                    obs,
                     res_dict["perm_dist"],
                     p1_key,
                     p2_key,
@@ -345,11 +495,34 @@ class GeneticDistance:
                 )
 
             self.logger.info("Nei distance permutation test complete!")
-            return result
+            return perm_result
 
         elif method == "bootstrap":
             pop_pairs = list(itertools.combinations(pop_keys, 2))
-            result = {pair: np.zeros(n_reps, dtype=float) for pair in pop_pairs}
+
+            bootstrap_result: dict[tuple[str | int, str | int], dict[str, object]] = {}
+
+            for p1_key, p2_key in pop_pairs:
+                i1 = pop_indices[p1_key]
+                i2 = pop_indices[p2_key]
+
+                f1_obs = GeneticDistance._calculate_allele_freqs(
+                    full_matrix,
+                    list(i1),
+                    iupac_decoder,
+                )
+                f2_obs = GeneticDistance._calculate_allele_freqs(
+                    full_matrix,
+                    list(i2),
+                    iupac_decoder,
+                )
+
+                obs_nei = GeneticDistance._neis_distance(f1_obs, f2_obs)
+
+                bootstrap_result[(p1_key, p2_key)] = {
+                    "nei": obs_nei,
+                    "boot_dist": np.zeros(n_reps, dtype=float),
+                }
 
             worker_func = partial(
                 GeneticDistance._bootstrap_replicate,
@@ -366,203 +539,238 @@ class GeneticDistance:
                 max_workers=(mp.cpu_count() if n_jobs == -1 else n_jobs)
             ) as pool:
                 reps = pool.map(worker_func, seeds)
+
                 for i, rep_data in tqdm(
-                    enumerate(reps), desc="Nei bootstrapping", total=n_reps
+                    enumerate(reps),
+                    desc="Nei bootstrapping",
+                    total=n_reps,
                 ):
                     for pair, dist_val in rep_data.items():
-                        result[pair][i] = dist_val
+                        boot_dist = bootstrap_result[pair]["boot_dist"]
+
+                        if isinstance(boot_dist, np.ndarray):
+                            boot_dist[i] = dist_val
 
             self.logger.info("Nei distance bootstrap complete!")
-            return result
+            return bootstrap_result
 
         else:
             msg = f"Unknown method '{method}'. Choose from 'observed', 'permutation', or 'bootstrap'."
             self.logger.error(msg)
             raise ValueError(msg)
 
-    def _get_per_locus_nei(self, pop1_inds, pop2_inds, full_matrix):
-        n_loci = full_matrix.shape[1]
-        nei_vals = np.full(n_loci, np.nan)
-
-        for loc in range(n_loci):
-            genos1 = [full_matrix[i, loc] for i in pop1_inds]
-            genos2 = [full_matrix[i, loc] for i in pop2_inds]
-            genos1 = self._clean_inds(genos1)
-            genos2 = self._clean_inds(genos2)
-            if not genos1 or not genos2:
-                continue
-            f1 = self._calculate_allele_freqs(full_matrix[:, [loc]], list(pop1_inds))
-            f2 = self._calculate_allele_freqs(full_matrix[:, [loc]], list(pop2_inds))
-            nei_vals[loc] = self._neis_distance(f1, f2)
-
-        return nei_vals
-
-    def parse_nei_result(self, result_dict: dict, alpha: float = 0.05) -> tuple[
+    def parse_nei_result(
+        self,
+        result_dict: dict | pd.DataFrame,
+        alpha: float = 0.05,
+    ) -> tuple[
         pd.DataFrame | None,
         pd.DataFrame | None,
         pd.DataFrame | None,
         pd.DataFrame | None,
     ]:
-        """Convert the output of `nei_distance()` into DataFrames for:
-
-        - The mean Nei distance among permutations or bootstraps,
-        - The lower and upper confidence intervals,
-        - And the p-values (if return_pvalues=True).
-
-        This method auto-detects which case of result_dict it has:
-
-        1) A direct DataFrame (case: no bootstrap, no p-values).
-        2) A dict {(pop1, pop2): np.array([...])} for bootstrap replicates.
-        3) A dict {(pop1, pop2): {"nei": float, "pvalue": pd.Series, "perm_dist": np.array([...])} for permutation results with an optional distribution array.
+        """Convert the output of `nei_distance()` into pairwise result DataFrames.
 
         Args:
-            result_dict: The structure returned by `nei_distance()`.
-            alpha (float): Significance level for CIs. Default 0.05 => 95% CIs.
+            result_dict (dict | pd.DataFrame): Structure returned by `nei_distance()`.
+            alpha (float): Significance level for interval bounds. Default 0.05 gives 95%
+                intervals.
 
         Returns:
-            tuple: (df_mean, df_lower, df_upper, df_pval), where each is a pandas DataFrame (or None if not applicable).
-            - df_mean: matrix of average Nei distances across replicates (or observed if no replicates).
-            - df_lower: matrix of lower CI bounds.
-            - df_upper: matrix of upper CI bounds.
-            - df_pval: matrix of p-values if p-values exist; otherwise None.
+            tuple[pd.DataFrame | None, pd.DataFrame | None, pd.DataFrame | None, pd.DataFrame | None]: ``(df_observed, df_lower, df_upper, df_pval)``.
 
-        Notes:
-            - For bootstrap results, df_mean, df_lower, and df_upper are computed from the replicate arrays in result_dict.
-            - For permutation results, the method looks for "perm_dist" to compute a distribution-based mean and CIs. If "perm_dist" is missing, df_lower and df_upper will remain NaN.
-            - If result_dict is just a DataFrame, it returns that as df_mean  and None for the others, since no replicates/p-values exist.
+            For ``method="observed"``:
+                - df_observed: Observed Nei's distance matrix.
+                - df_lower: None.
+                - df_upper: None.
+                - df_pval: None.
+
+            For ``method="bootstrap"`` with the preferred structure
+            ``{(pop1, pop2): {"nei": observed, "boot_dist": array}}``:
+                - df_observed: Observed Nei's distance matrix.
+                - df_lower: Lower bootstrap confidence bound.
+                - df_upper: Upper bootstrap confidence bound.
+                - df_pval: None.
+
+            For ``method="permutation"``:
+                - df_observed: Observed Nei's distance matrix.
+                - df_lower: Lower permutation/null interval, if ``perm_dist`` exists.
+                - df_upper: Upper permutation/null interval, if ``perm_dist`` exists.
+                - df_pval: Empirical permutation p-value matrix.
+
+        Raises:
+            ValueError: If the result structure is empty or unrecognized.
         """
-        # 1) If the result is already a DataFrame => case 1
         if isinstance(result_dict, pd.DataFrame):
-            # No distribution or p-values to parse, just return the matrix
             return result_dict, None, None, None
 
-        # 2) Otherwise, we have a dictionary of some sort.
-        # Inspect the first value to detect the structure.
+        if not isinstance(result_dict, dict) or not result_dict:
+            msg = f"Nei distance result must be a non-empty dictionary or a pandas DataFrame. Got: {type(result_dict)}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
         first_val = next(iter(result_dict.values()))
 
-        # Helper function to get all populations in alphabetical order
         def all_populations_from_keys(dict_keys):
-            """Given dict keys like (pop1, pop2), return a sorted list of unique pops."""
+            """Return sorted unique population labels from tuple pairwise keys."""
             pop_set = set()
-            for k in dict_keys:
-                pop_set.update(k)  # k is (pop1, pop2)
+            for key in dict_keys:
+                pop_set.update(key)
             return sorted(pop_set)
 
-        # Create empty DataFrames for storing results.
-        # Fill them if the dictionary structure allows it.
-        df_mean = df_lower = df_upper = df_pval = None
+        def init_pairwise_frame(pops: list[str]) -> pd.DataFrame:
+            """Create an empty square pairwise DataFrame."""
+            return pd.DataFrame(np.nan, index=pops, columns=pops, dtype=float)
 
-        # ------------------------------------------
-        # CASE 3 (Bootstrap): (pop1, pop2) -> np.array([...])
-        # ------------------------------------------
+        def fill_symmetric(
+            df: pd.DataFrame,
+            pop1: str,
+            pop2: str,
+            value: float | int | np.number | None,
+        ) -> None:
+            """Fill symmetric pairwise cells."""
+            if value is None:
+                return
+
+            try:
+                val = float(value)
+            except (TypeError, ValueError):
+                val = np.nan
+
+            df.loc[pop1, pop2] = val
+            df.loc[pop2, pop1] = val
+
+        def percentile_interval(values: np.ndarray) -> tuple[float, float]:
+            """Return lower and upper percentile interval bounds."""
+            values = np.asarray(values, dtype=float)
+            values = values[~np.isnan(values)]
+
+            if values.size == 0:
+                return np.nan, np.nan
+
+            lower = np.percentile(values, 100 * alpha / 2)
+            upper = np.percentile(values, 100 * (1 - alpha / 2))
+
+            return float(lower), float(upper)
+
+        pop_pairs = list(result_dict.keys())
+        pops = all_populations_from_keys(pop_pairs)
+
+        # ------------------------------------------------------------------
+        # Preferred bootstrap result:
+        # {(pop1, pop2): {"nei": observed, "boot_dist": np.array([...])}}
+        # ------------------------------------------------------------------
+        if (
+            isinstance(first_val, dict)
+            and "nei" in first_val
+            and "boot_dist" in first_val
+        ):
+            df_obs = init_pairwise_frame(pops)
+            df_lower = init_pairwise_frame(pops)
+            df_upper = init_pairwise_frame(pops)
+
+            for (pop1, pop2), subdict in result_dict.items():
+                obs_val = subdict.get("nei")
+                boot_dist = np.asarray(subdict.get("boot_dist", []), dtype=float)
+
+                lower_val, upper_val = percentile_interval(boot_dist)
+
+                fill_symmetric(df_obs, pop1, pop2, obs_val)
+                fill_symmetric(df_lower, pop1, pop2, lower_val)
+                fill_symmetric(df_upper, pop1, pop2, upper_val)
+
+            np.fill_diagonal(df_obs.values, 0.0)
+            np.fill_diagonal(df_lower.values, 0.0)
+            np.fill_diagonal(df_upper.values, 0.0)
+
+            return df_obs, df_lower, df_upper, None
+
+        # ------------------------------------------------------------------
+        # Legacy bootstrap result:
+        # {(pop1, pop2): np.array([...])}
+        #
+        # This structure does not contain the observed Nei estimate. The only
+        # possible summary is the bootstrap mean, which is not ideal for the
+        # manuscript table. Keep as fallback, but warn loudly.
+        # ------------------------------------------------------------------
         if isinstance(first_val, np.ndarray):
-            # This indicates we likely have arrays of replicate
-            # Nei values => bootstrap
-            pop_pairs = list(result_dict.keys())
-            pops = all_populations_from_keys(pop_pairs)
+            self.logger.warning(
+                "Parsing legacy Nei bootstrap output containing only replicate arrays. "
+                "Observed Nei distances are unavailable, so df_observed will contain "
+                "bootstrap means. Prefer returning {'nei': observed, 'boot_dist': array} "
+                "from nei_distance(method='bootstrap')."
+            )
 
-            # Initialize empty dataframes
-            df_mean = pd.DataFrame(np.nan, index=pops, columns=pops)
-            df_lower = pd.DataFrame(np.nan, index=pops, columns=pops)
-            df_upper = pd.DataFrame(np.nan, index=pops, columns=pops)
+            df_mean = init_pairwise_frame(pops)
+            df_lower = init_pairwise_frame(pops)
+            df_upper = init_pairwise_frame(pops)
 
-            # Fill each pair from replicate distributions
-            for (p1, p2), arr in result_dict.items():
+            for (pop1, pop2), arr in result_dict.items():
+                arr = np.asarray(arr, dtype=float)
                 arr_nonan = arr[~np.isnan(arr)]
-                if len(arr_nonan) == 0:
-                    # If everything is NaN or there's no data
+
+                if arr_nonan.size == 0:
                     mean_val = np.nan
                     lower_val = np.nan
                     upper_val = np.nan
                 else:
-                    mean_val = np.mean(arr_nonan)
-                    lower_val = np.percentile(arr_nonan, 100 * alpha / 2)
-                    upper_val = np.percentile(arr_nonan, 100 * (1 - alpha / 2))
+                    mean_val = float(np.mean(arr_nonan))
+                    lower_val, upper_val = percentile_interval(arr_nonan)
 
-                df_mean.loc[p1, p2] = mean_val
-                df_mean.loc[p2, p1] = mean_val
-                df_lower.loc[p1, p2] = lower_val
-                df_lower.loc[p2, p1] = lower_val
-                df_upper.loc[p1, p2] = upper_val
-                df_upper.loc[p2, p1] = upper_val
+                fill_symmetric(df_mean, pop1, pop2, mean_val)
+                fill_symmetric(df_lower, pop1, pop2, lower_val)
+                fill_symmetric(df_upper, pop1, pop2, upper_val)
 
-            # Diagonal is typically 0 for self-Nei distances
             np.fill_diagonal(df_mean.values, 0.0)
             np.fill_diagonal(df_lower.values, 0.0)
             np.fill_diagonal(df_upper.values, 0.0)
 
-            # p-values don't exist for a standard bootstrap approach
-            df_pval = None
+            return df_mean, df_lower, df_upper, None
 
-            # NOTE: For clarity, df_mean is the actual observed Nei matrix.
-
-            return df_mean, df_lower, df_upper, df_pval
-
-        # ------------------------------------------
-        # CASE 2 (Permutation): (pop1, pop2) ->
-        # {"nei": float, "pvalue": pd.Series, "perm_dist": optional ...}
-        # ------------------------------------------
+        # ------------------------------------------------------------------
+        # Permutation result:
+        # {(pop1, pop2): {"nei": observed, "pvalue": p, "perm_dist": array}}
+        # ------------------------------------------------------------------
         if isinstance(first_val, dict) and "nei" in first_val and "pvalue" in first_val:
-            pop_pairs = list(result_dict.keys())
-            pops = all_populations_from_keys(pop_pairs)
+            df_obs = init_pairwise_frame(pops)
+            df_pval = init_pairwise_frame(pops)
+            df_lower = init_pairwise_frame(pops)
+            df_upper = init_pairwise_frame(pops)
 
-            # Observed Nei distances
-            df_obs = pd.DataFrame(np.nan, index=pops, columns=pops)
+            has_perm_dist = False
 
-            # We store p-values in df_pval
-            df_pval = pd.DataFrame(np.nan, index=pops, columns=pops)
+            for (pop1, pop2), subdict in result_dict.items():
+                obs_val = subdict.get("nei")
+                p_value = subdict.get("pvalue")
+                perm_dist = subdict.get("perm_dist", None)
 
-            # If there's a distribution, we can compute mean & CI
-            df_mean = pd.DataFrame(np.nan, index=pops, columns=pops)
-            df_lower = pd.DataFrame(np.nan, index=pops, columns=pops)
-            df_upper = pd.DataFrame(np.nan, index=pops, columns=pops)
+                fill_symmetric(df_obs, pop1, pop2, obs_val)
+                fill_symmetric(df_pval, pop1, pop2, p_value)
 
-            for (p1, p2), subdict in result_dict.items():
-                obs_val = subdict["nei"]
-                # Extract the distribution of permuted Nei distances if exists
-                # If not, we can still compute mean & CIs
-                dist = subdict.get("perm_dist", None)
+                if perm_dist is not None:
+                    perm_dist = np.asarray(perm_dist, dtype=float)
+                    perm_dist = perm_dist[~np.isnan(perm_dist)]
 
-                # Fill in the observed Nei distance
-                df_obs.loc[p1, p2] = obs_val
-                df_obs.loc[p2, p1] = obs_val
+                    if perm_dist.size > 0:
+                        lower_val, upper_val = percentile_interval(perm_dist)
+                        fill_symmetric(df_lower, pop1, pop2, lower_val)
+                        fill_symmetric(df_upper, pop1, pop2, upper_val)
+                        has_perm_dist = True
 
-                # Extract the p-value (one-tailed)
-                p_value = subdict["pvalue"]
-                df_pval.loc[p1, p2] = p_value
-                df_pval.loc[p2, p1] = p_value
-
-                # If have a distribution of permuted Nei, compute its mean & CIs
-                if dist is not None and len(dist) > 0:
-                    dist_nonan = dist[~np.isnan(dist)]
-                    if len(dist_nonan) == 0:
-                        mean_val = np.nan
-                        lower_val = np.nan
-                        upper_val = np.nan
-                    else:
-                        mean_val = np.mean(dist_nonan)
-                        lower_val = np.percentile(dist_nonan, 100 * alpha / 2)
-                        upper_val = np.percentile(dist_nonan, 100 * (1 - alpha / 2))
-
-                    df_mean.loc[p1, p2] = mean_val
-                    df_mean.loc[p2, p1] = mean_val
-                    df_lower.loc[p1, p2] = lower_val
-                    df_lower.loc[p2, p1] = lower_val
-                    df_upper.loc[p1, p2] = upper_val
-                    df_upper.loc[p2, p1] = upper_val
-
-            # Fill diagonals with typical defaults
             np.fill_diagonal(df_obs.values, 0.0)
             np.fill_diagonal(df_pval.values, 1.0)
-            np.fill_diagonal(df_mean.values, 0.0)
-            np.fill_diagonal(df_lower.values, 0.0)
-            np.fill_diagonal(df_upper.values, 0.0)
+
+            if has_perm_dist:
+                np.fill_diagonal(df_lower.values, 0.0)
+                np.fill_diagonal(df_upper.values, 0.0)
+            else:
+                df_lower = None
+                df_upper = None
 
             self.logger.info(f"Nei distance files saved to {self.outdir}")
 
             return df_obs, df_lower, df_upper, df_pval
 
-        # If none of the above matched, raise error
-        msg = "Unrecognized structure in result_dict. Expected either a DataFrame or a dictionary with specific keys and structures."
+        msg = "Unrecognized Nei result structure. Expected one of: DataFrame; {(pop1, pop2): {'nei': float, 'boot_dist': array}}; {(pop1, pop2): {'nei': float, 'pvalue': float, 'perm_dist': array}}; or legacy {(pop1, pop2): np.ndarray}."
         self.logger.error(msg)
         raise ValueError(msg)

@@ -40,15 +40,15 @@ class PattersonDStats(DStatsBase):
 
     def calculate(
         self,
-        population1: str,
-        population2: str,
-        population3: str,
-        outgroup: str,
+        population1: np.ndarray,
+        population2: np.ndarray,
+        population3: np.ndarray,
+        outgroup: np.ndarray,
         n_boot: int,
         seed: int | None = None,
         use_jackknife: bool = False,
         block_size: int = 500,
-    ) -> Tuple[dict, np.ndarray]:
+    ) -> tuple[dict, np.ndarray]:
         """Calculate the Patterson's D-statistic for the specified populations.
 
         This method performs the necessary computations to obtain the D-statistic and its associated bootstrap or jackknife estimates.
@@ -64,7 +64,7 @@ class PattersonDStats(DStatsBase):
             block_size (int): Block size for jackknife resampling.
 
         Returns:
-            Tuple[dict, np.ndarray]: A tuple containing the results of the D-statistic calculation and the bootstrap results.
+            tuple[dict, np.ndarray]: A tuple containing the results of the D-statistic calculation and the bootstrap results.
         """
         # 1. Create config
         config = DStatsConfig(
@@ -123,4 +123,4 @@ class PattersonDStats(DStatsBase):
         if self.verbose:
             self.results.log_results(self.logger)
 
-        return self.results.to_dict(), boot_res
+        return self.results.to_dict(), np.array(boot_res)

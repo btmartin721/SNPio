@@ -96,9 +96,16 @@ def generate_phylip_file(
             sample_genotype = []
             for snp_index in range(num_loci):
                 freqs = genotype_freqs[pop_id][snp_index]
-                genotype = default_rng.choice(
-                    ["AA", "AT", "TT"], p=[freqs["AA"], freqs["AT"], freqs["TT"]]
-                )
+
+                if default_rng is None:
+                    genotype = np.random.choice(
+                        ["AA", "AT", "TT"], p=[freqs["AA"], freqs["AT"], freqs["TT"]]
+                    )
+                else:
+                    genotype = default_rng.choice(
+                        ["AA", "AT", "TT"], p=[freqs["AA"], freqs["AT"], freqs["TT"]]
+                    )
+
                 genotype_code = IUPAC_CODES[genotype]
                 sample_genotype.append(genotype_code)
             samples.append(f"{pop_id}_{i+1}\t" + "".join(sample_genotype))
@@ -142,7 +149,7 @@ class TestPopGenStatistics(unittest.TestCase):
     def setUp(self):
         """Set up common variables for tests."""
         self.verbose = False
-        self.debug = False
+        self.debug_mode = False
 
     def test_summary_statistics(self):
         """Test PopGenStatistics.summary_statistics() for structure and biological accuracy."""
@@ -158,12 +165,12 @@ class TestPopGenStatistics(unittest.TestCase):
             popmapfile=popmapfile,
             prefix="test_popgen",
             verbose=self.verbose,
-            debug=self.debug,
+            debug=self.debug_mode,
             plot_format="png",
         )
 
         popgen_stats = PopGenStatistics(
-            genotype_data, verbose=self.verbose, debug=self.debug
+            genotype_data, verbose=self.verbose, debug=self.debug_mode
         )
 
         summary_stats, allele_summary_stats = popgen_stats.summary_statistics()
@@ -181,7 +188,11 @@ class TestPopGenStatistics(unittest.TestCase):
         # --- 2. Check shape ---
         self.assertEqual(summary_stats["overall"].shape, (100, 3))
         for df in summary_stats["per_population"].values():
-            self.assertEqual(df.shape, (100, 3))
+            if isinstance(df, dict):
+                dftmp = pd.DataFrame(df)
+            else:
+                dftmp = df.copy()
+            self.assertEqual(dftmp.shape, (100, 3))
 
         # --- 3. Biological expectations ---
         # Expected He under average p = (0.7 + 0.5 + 0.3)/3 = 0.5
@@ -233,6 +244,12 @@ class TestPopGenStatistics(unittest.TestCase):
 
         # --- 5. Validate expected heterozygosity (He) per population ---
         per_pop = summary_stats["per_population"]
+
+        if isinstance(per_pop, dict):
+            per_pop = {
+                k: pd.DataFrame(v) if isinstance(v, dict) else v.copy()
+                for k, v in per_pop.items()
+            }
 
         self.assertAlmostEqual(
             per_pop["pop1"]["He"].mean(), expected_He_pop1, delta=0.03

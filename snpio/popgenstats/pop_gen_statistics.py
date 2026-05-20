@@ -1,7 +1,7 @@
+import logging
 import warnings
-from logging import Logger
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Tuple
+from typing import TYPE_CHECKING, Dict, List, Literal, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -49,7 +49,9 @@ class PopGenStatistics:
         self.verbose: bool = verbose
         self.debug: bool = debug
         self.alignment: np.ndarray = genotype_data.snp_data
-        self.popmap: Dict[str, str | int] = genotype_data.popmap
+        self.popmap: Dict[str, str | int] | None = (
+            genotype_data.popmap if genotype_data.popmap is not None else None
+        )
         self.populations: List[str | int] = genotype_data.populations
 
         plot_kwargs: dict = genotype_data.plot_kwargs
@@ -65,10 +67,15 @@ class PopGenStatistics:
         )
 
         # Get logger object and set logging level
-        level: str = "DEBUG" if debug else "INFO"
+        if debug:
+            level = "DEBUG"
+        elif verbose:
+            level = "INFO"
+        else:
+            level = "WARNING"
+
         logman.set_level(level)
-        self.logger: Logger = logman.get_logger()
-        self.logger.verbose = verbose
+        self.logger: logging.Logger = logman.get_logger()
 
         self.d_stats = DStatistics(
             self.genotype_data,
@@ -105,7 +112,7 @@ class PopGenStatistics:
         outgroup: str | List[str] | None = None,
         num_bootstraps: int = 1000,
         max_individuals_per_pop: int | None = None,
-        individual_selection: str | Dict[str, List[str]] = "random",
+        individual_selection: Literal["random"] | Dict[str, List[str]] = "random",
         save_plot: bool = True,
         seed: int | None = None,
         per_combination: bool = True,
@@ -127,7 +134,7 @@ class PopGenStatistics:
             snp_indices (np.ndarray | List[int] | None): Specific SNP indices to include in the analysis.
             num_bootstraps (int): Number of bootstrap replicates to perform.
             max_individuals_per_pop (int | None): Maximum individuals to sample per population.
-            individual_selection (str | Dict[str, List[str]]): Method for individual selection.
+            individual_selection (Literal["random"] | Dict[str, List[str]]): Method for individual selection.
             save_plot (bool): Whether to save the plot.
             seed (int | None): Random seed for reproducibility.
             per_combination (bool): Whether to calculate D-statistics for each combination of populations.
@@ -143,7 +150,9 @@ class PopGenStatistics:
         self.logger.info(f"Using D-statistics method: {method}")
         self.logger.info(f"Number of bootstraps: {num_bootstraps}")
         self.logger.info(f"Max individuals per population: {max_individuals_per_pop}")
-        self.logger.info(f"Seed: {seed if seed is not None else 'None'}")
+        self.logger.info(
+            f"Seed: {seed if seed is not None else 'Random seed will be used'}"
+        )
         self.logger.info(f"Individual selection: {individual_selection}")
         self.logger.info(f"Save plot: {save_plot}")
 
@@ -152,6 +161,40 @@ class PopGenStatistics:
             msg = f"Invalid method: {method}. Supported methods: 'patterson', 'partitioned', 'dfoil'."
             self.logger.error(msg)
             raise NotImplementedError(msg)
+
+        mthd = cast(str, method)
+
+        mthd = mthd.lower().strip()
+
+        if mthd not in {"patterson", "partitioned", "dfoil"}:
+            msg = (
+                f"Invalid method: {mthd}. Supported methods: "
+                "'patterson', 'partitioned', 'dfoil'."
+            )
+            self.logger.error(msg)
+            raise NotImplementedError(msg)
+
+        if mthd in {"patterson", "partitioned", "dfoil"} and outgroup is None:
+            msg = f"`outgroup` is required for method='{mthd}'."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if mthd in {"partitioned", "dfoil"} and population4 is None:
+            msg = f"`population4` is required for method='{mthd}'."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        method = cast(Literal["patterson", "partitioned", "dfoil"], mthd)
+
+        self.logger.warning(
+            "D-stat input populations: "
+            f"P1={population1}, P2={population2}, P3={population3}, "
+            f"P4={population4}, outgroup={outgroup}"
+        )
+
+        self.logger.info(
+            f"D-stat settings: method={method}, per_combination={per_combination}, calc_overall={calc_overall}, save_plot={save_plot}"
+        )
 
         df, overall = self.d_stats.run(
             method=method,
@@ -170,8 +213,26 @@ class PopGenStatistics:
             block_size=block_size,
         )
 
+        if df.empty:
+            msg = f"D-statistics run returned an empty DataFrame for method='{method}'. This indicates no per-combination results were produced upstream of plotting. Check population labels, generated combinations, valid loci after missing-data filtering, and whether DFOIL rows are appended to the result list."
+            self.logger.warning(msg)
+
+        if "Method" in df.columns:
+            self.logger.warning(
+                f"D-stat Method values: {df['Method'].dropna().astype(str).unique().tolist()}"
+            )
+
         if save_plot:
-            self.plotter.plot_d_statistics(df, method=method)
+            if not per_combination:
+                self.logger.warning(
+                    "Skipping D-statistic plots because per_combination=False. D-statistic plots require per-combination results."
+                )
+            elif df.empty:
+                self.logger.warning(
+                    f"Skipping D-statistic plots because no per-combination {method} results were produced."
+                )
+            else:
+                self.plotter.plot_d_statistics(df, method=method)
 
         return df, overall
 
@@ -199,7 +260,7 @@ class PopGenStatistics:
         seed: int | None = None,
         min_samples: int = 5,
         max_outliers_to_plot: int | None = None,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> pd.DataFrame:
         """Detect Fst outliers from SNP data using permutation or DBSCAN.
 
         This method detects Fst outliers from SNP data using permutation or DBSCAN clustering. Outliers are identified based on the distribution of Fst values between population pairs. The method returns a DataFrame containing the Fst outliers and contributing population pairs, as well as a DataFrame containing the adjusted or unadjusted P-values, depending on whether a multiple testing correction method was specified.
@@ -239,33 +300,24 @@ class PopGenStatistics:
 
         if correction_method is not None:
             if isinstance(correction_method, str):
+                corr_method = cast(str, correction_method)
+
                 # Convert to lowercase for consistency
-                correction_method = correction_method.lower()
+                corr_method = corr_method.lower()
             else:
-                msg = f"Invalid type for correction_method: {type(correction_method)}. Expected str or None."
+                msg = f"Invalid type for correction_method: {type(corr_method)}. Expected str or None."
                 self.logger.error(msg)
                 raise TypeError(msg)
 
             # Validate correction_method
-            corr_method_set = {
-                "bonferroni",
-                "fdr_bh",
-                "fdr_by",
-                "fdr",
-                "bonf",
-                "sidak",
-                "holm",
-                "holm-sidak",
-                "simes-hochberg",
-                "hommel",
-                "fdr_tsbh",
-                "fdr_tsbky",
-            }
+            corr_method_set = {"bonferroni", "fdr_bh"}
 
-            if correction_method not in corr_method_set:
-                msg = f"Invalid correction_method. Supported options: {','.join(list(corr_method_set))}; but got: {correction_method}"
+            if corr_method not in corr_method_set:
+                msg = f"Invalid correction_method. Supported options: {','.join(list(corr_method_set))}; but got: {corr_method}"
                 self.logger.error(msg)
                 raise ValueError(msg)
+
+            correction_method = cast(Literal["bonferroni", "fdr_bh"], corr_method)
 
         if not 0 < alpha <= 1:
             msg = f"Invalid alpha value. Must be in the range (0, 1], but got: {alpha}"
@@ -282,6 +334,10 @@ class PopGenStatistics:
         self.logger.info(
             f"Starting Fst outlier detection ({method.capitalize()} method)..."
         )
+
+        if seed is None:
+            seed = np.random.randint(0, 1_000_000)
+            self.logger.info(f"No seed provided. Using random seed: {seed}")
 
         # Returns outlier SNPs, Fst-values, and adjusted
         # p-values per population pair in a long-form DataFrame.
@@ -322,26 +378,28 @@ class PopGenStatistics:
 
     def summary_statistics(
         self,
-        fst_method: Literal["observed", "permutation", "bootstrap"] = "observed",
+        method: Literal["observed", "permutation", "bootstrap"] = "observed",
         n_reps: int = 1000,
         n_jobs: int = 1,
         save_plots: bool = True,
-    ) -> Tuple[pd.DataFrame, dict]:
+        include_nei: bool = False,
+    ) -> tuple[dict, pd.DataFrame | pd.Series]:
         """Calculate a suite of summary statistics for SNP data.
 
-        This method calculates heterozygosity, nucleotide diversity, and Fst. It can also perform permutation tests or bootstrapping for Fst. The method returns a DataFrame with allele-based summary statistics and a dictionary with other summary statistics.
+        This method calculates heterozygosity, nucleotide diversity, Fst, and Nei's genetic distance. It can also perform permutation tests or bootstrapping for Fst and Nei's distance. The method returns a DataFrame with allele-based summary statistics and a dictionary with other summary statistics.
 
         Args:
-            fst_method (str): The Fst calculation method to use.
+            method (str): The Fst calculation method to use.
                 - 'observed': (Default) Computes the observed Fst matrix.
                 - 'permutation': Performs a permutation test to get p-values.
                 - 'bootstrap': Performs a bootstrap to get confidence intervals.
             n_reps (int): Number of replicates for permutation or bootstrap.
             n_jobs (int): Number of parallel jobs (-1 for all cores).
             save_plots (bool): Whether to save plots of the summary statistics.
+            include_nei (bool): Whether to include Nei's genetic distance in the summary statistics. Defaults to False.
 
         Returns:
-            Tuple[pd.DataFrame, dict]: A tuple containing a DataFrame with allele-based summary statistics and a dictionary with all other summary statistics.
+            tuple[dict, pd.DataFrame | pd.Series]: A tuple containing a DataFrame with allele-based summary statistics and a dictionary with all other summary statistics.
         """
         allele_sumstats = AlleleSummaryStats(
             self.genotype_data, verbose=self.verbose, debug=self.debug
@@ -358,7 +416,11 @@ class PopGenStatistics:
 
         # Call the helper method with the new, clearer API
         sumstats = summary_stats.calculate_summary_statistics(
-            fst_method=fst_method, n_reps=n_reps, n_jobs=n_jobs, save_plots=save_plots
+            method=method,
+            n_reps=n_reps,
+            n_jobs=n_jobs,
+            save_plots=save_plots,
+            include_nei=include_nei,
         )
 
         return sumstats, allele_sumstats_df
@@ -397,7 +459,7 @@ class PopGenStatistics:
 
         amv = amova_instance.run(
             regionmap=regionmap,
-            n_permutations=n_permutations,
+            n_bootstraps=n_permutations,
             n_jobs=n_jobs,
             random_seed=random_seed,
         )
@@ -530,7 +592,7 @@ class PopGenStatistics:
         n_jobs: int = 1,
         palette: str = "magma",
         suppress_plot: bool = False,
-    ) -> Dict[str, pd.DataFrame]:
+    ) -> Dict[str, pd.DataFrame | None] | None:
         """Calculate Nei's genetic distance and optionally run statistical tests.
 
         This method calculates Nei's genetic distance between populations and can perform permutation tests for p-values or bootstrapping for 95 percent confidence intervals (CIs). The resulting distance matrix can be visualized as a heatmap. The method returns a dictionary containing the observed distance matrix, and optionally lower/upper confidence intervals or p-values depending on the chosen method.
@@ -543,7 +605,7 @@ class PopGenStatistics:
             suppress_plot (bool): If True, suppresses plotting the heatmap.
 
         Returns:
-            Dict[str, pd.DataFrame]: A dictionary containing the resulting DataFrames. Keys may include 'observed', 'pvalues', 'lower_ci', 'upper_ci'.
+            Dict[str, pd.DataFrame | None] | None: A dictionary containing the resulting DataFrames. Keys may include 'observed', 'pvalues', 'lower_ci', 'upper_ci'.
         """
         gd = GeneticDistance(
             self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
@@ -568,12 +630,16 @@ class PopGenStatistics:
                 # Invalid strings (like "NaN") become np.nan.
                 df_obs_plot = df_obs.apply(pd.to_numeric, errors="coerce")
                 df_obs_plot = df_obs_plot.fillna(0.0)
+            else:
+                df_obs_plot = pd.DataFrame()
 
             if df_pval is not None:
                 # Coerce all values to numeric.
                 # Invalid strings (like "NaN") become np.nan.
                 df_pval_plot = df_pval.apply(pd.to_numeric, errors="coerce")
                 df_pval_plot = df_pval_plot.fillna(1.0)
+            else:
+                df_pval_plot = pd.DataFrame()
 
             # ----- Plotting & MultiQC queuing -----
             self.plotter.plot_dist_matrix(
@@ -588,7 +654,7 @@ class PopGenStatistics:
             obs_id = {
                 "observed": "nei_observed",
                 "permutation": "nei_permutation_observed",
-                "bootstrap": "nei_bootstrap_mean",
+                "bootstrap": "nei_bootstrap_observed",
             }[method]
 
             title = (
@@ -597,7 +663,7 @@ class PopGenStatistics:
                 else (
                     "SNPio: Nei's Genetic Distance — Observed (Permutation)"
                     if method == "permutation"
-                    else "SNPio: Nei's Genetic Distance — Mean (Bootstrap)"
+                    else "SNPio: Nei's Genetic Distance — Observed (Bootstrap)"
                 )
             )
 
@@ -613,7 +679,7 @@ class PopGenStatistics:
                     else (
                         "Observed Nei's distance; significance assessed via permutation (p = Pr(D_perm ≥ D_obs)). This tests the null hypothesis of no genetic differentiation (D = 0). D_perm is the distance from permuted data; D_obs is the observed distance."
                         if method == "permutation"
-                        else "Mean Nei's distance across bootstrap replicates (loci resampled with replacement). This provides a measure of uncertainty around the observed distance."
+                        else "Observed Nei's distance with uncertainty estimated by bootstrap resampling of loci with replacement."
                     )
                 ),
                 index_label="Population",
@@ -682,18 +748,20 @@ class PopGenStatistics:
                     },
                 )
 
-            self.logger.info("Nei's genetic distance calculation complete!")
+        self.logger.info("Nei's genetic distance calculation complete!")
 
-            # Return a structured dictionary, which is more robust than a tuple
-            final_results = {"observed": df_obs}
-            if df_lower is not None:
-                final_results["lower_ci"] = df_lower
-            if df_upper is not None:
-                final_results["upper_ci"] = df_upper
-            if df_pval is not None:
-                final_results["pvalues"] = df_pval
+        final_results = {"observed": df_obs}
 
-            return final_results
+        if df_lower is not None:
+            final_results["lower_ci"] = df_lower
+
+        if df_upper is not None:
+            final_results["upper_ci"] = df_upper
+
+        if df_pval is not None:
+            final_results["pvalues"] = df_pval
+
+        return final_results
 
     def pca(
         self,
@@ -709,7 +777,7 @@ class PopGenStatistics:
         right_margin: float = 0,
         width: int = 1088,
         height: int = 700,
-        plot_format: Literal["png", "jpeg", "pdf", "svg"] | None = None,
+        plot_format: Literal["png", "jpg", "pdf", "jpeg"] | None = None,
     ) -> Tuple[np.ndarray, PCA]:
         """Run PCA on genotype data and generate a scatterplot colored by missing data proportions.
 
@@ -848,30 +916,43 @@ class PopGenStatistics:
                 "Missing Prop.": "Missing Prop.",
                 "Population": "Population",
             }
-            if n_axes == 3:
-                labels["Axis3"] = f"PC3 ({pc_var[2]:.2f}% Explained Variance)"
 
             # Plotly colour scale (ggplot-ish)
             my_scale = ["rgb(19, 43, 67)", "rgb(86, 177, 247)"]
 
-            scatter_fn = px.scatter_3d if n_axes == 3 else px.scatter
-            scatter_kwargs = dict(x="Axis1", y="Axis2")
             if n_axes == 3:
-                scatter_kwargs["z"] = "Axis3"
+                labels["Axis3"] = f"PC3 ({pc_var[2]:.2f}% Explained Variance)"
+                fig = px.scatter_3d(
+                    df_pca,
+                    x="Axis1",
+                    y="Axis2",
+                    z="Axis3",
+                    color="Missing Prop.",
+                    symbol="Population",
+                    color_continuous_scale=my_scale,
+                    custom_data=["SampleID", "Population", "Missing Prop."],
+                    size="Size",
+                    size_max=point_size,
+                    labels=labels,
+                    range_color=[0.0, 1.0],
+                    title="SNPio: PCA with Points Colored by Per-population Missing Proportions",
+                )
 
-            fig = scatter_fn(
-                df_pca,
-                **scatter_kwargs,
-                color="Missing Prop.",
-                symbol="Population",
-                color_continuous_scale=my_scale,
-                custom_data=["SampleID", "Population", "Missing Prop."],
-                size="Size",
-                size_max=point_size,
-                labels=labels,
-                range_color=[0.0, 1.0],
-                title="SNPio: PCA with Points Colored by Per-population Missing Proportions",
-            )
+            else:
+                fig = px.scatter(
+                    df_pca,
+                    x="Axis1",
+                    y="Axis2",
+                    color="Missing Prop.",
+                    symbol="Population",
+                    color_continuous_scale=my_scale,
+                    custom_data=["SampleID", "Population", "Missing Prop."],
+                    size="Size",
+                    size_max=point_size,
+                    labels=labels,
+                    range_color=[0.0, 1.0],
+                    title="SNPio: PCA with Points Colored by Per-population Missing Proportions",
+                )
 
             # Nice hover + layout
             hover_lines = [

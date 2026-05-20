@@ -169,50 +169,50 @@ class DStatsResults:
     seed: int | None
 
     # Patterson D-statistics
-    D: float = None
-    Z: float = None
-    P: float = None
-    X2: float = None
-    P_X2: float = None
+    D: float | None = None
+    Z: float | None = None
+    P: float | None = None
+    X2: float | None = None
+    P_X2: float | None = None
 
     # Partitioned D-statistics
-    D1: float = None
-    D2: float = None
-    D12: float = None
-    Z_D1: float = None
-    Z_D2: float = None
-    Z_D12: float = None
-    P_D1: float = None
-    P_D2: float = None
-    P_D12: float = None
-    X2_D1: float = None
-    X2_D2: float = None
-    X2_D12: float = None
-    P_X2_D1: float = None
-    P_X2_D2: float = None
-    P_X2_D12: float = None
+    D1: float | None = None
+    D2: float | None = None
+    D12: float | None = None
+    Z_D1: float | None = None
+    Z_D2: float | None = None
+    Z_D12: float | None = None
+    P_D1: float | None = None
+    P_D2: float | None = None
+    P_D12: float | None = None
+    X2_D1: float | None = None
+    X2_D2: float | None = None
+    X2_D12: float | None = None
+    P_X2_D1: float | None = None
+    P_X2_D2: float | None = None
+    P_X2_D12: float | None = None
 
     # DFOIL statistics
-    DFO: float = None
-    DFI: float = None
-    DOL: float = None
-    DIL: float = None
-    Z_DFO: float = None
-    Z_DFI: float = None
-    Z_DOL: float = None
-    Z_DIL: float = None
-    P_DFO: float = None
-    P_DFI: float = None
-    P_DOL: float = None
-    P_DIL: float = None
-    X2_DFO: float = None
-    X2_DFI: float = None
-    X2_DOL: float = None
-    X2_DIL: float = None
-    P_X2_DFO: float = None
-    P_X2_DFI: float = None
-    P_X2_DOL: float = None
-    P_X2_DIL: float = None
+    DFO: float | None = None
+    DFI: float | None = None
+    DOL: float | None = None
+    DIL: float | None = None
+    Z_DFO: float | None = None
+    Z_DFI: float | None = None
+    Z_DOL: float | None = None
+    Z_DIL: float | None = None
+    P_DFO: float | None = None
+    P_DFI: float | None = None
+    P_DOL: float | None = None
+    P_DIL: float | None = None
+    X2_DFO: float | None = None
+    X2_DFI: float | None = None
+    X2_DOL: float | None = None
+    X2_DIL: float | None = None
+    P_X2_DFO: float | None = None
+    P_X2_DFI: float | None = None
+    P_X2_DOL: float | None = None
+    P_X2_DIL: float | None = None
 
     method: Literal["patterson", "partitioned", "dfoil"] = "patterson"
 
@@ -457,14 +457,18 @@ class DStatsBase:
         return corrected_pvals
 
     def zscore(
-        self, observed: Sequence[float], boots: np.ndarray, *, eps: float = 1e-12
+        self,
+        observed: np.ndarray | list[float] | tuple[float, ...],
+        boots: np.ndarray | list[float] | tuple[float, ...],
+        *,
+        eps: float = 1e-12,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Compute Z-scores and two-sided P-values from bootstrap/jackknife replicates.
 
         Guards against zero/near-zero SD so divisions do not explode to inf.
 
         Args:
-            observed (Sequence[float]): Observed statistics, length = n_stats.
+            observed (np.ndarray | list[float] | tuple[float, ...]): Observed statistics, length = n_stats.
             boots (np.ndarray): Replicate statistics, shape (n_reps, n_stats).
             eps (float): Minimum SD treated as nonzero.
 
@@ -472,12 +476,17 @@ class DStatsBase:
             Tuple[np.ndarray, np.ndarray]: (z_scores, p_values), each shape (n_stats,).
         """
         observed = np.array(observed, dtype=float)
+
+        if not isinstance(boots, np.ndarray):
+            boots = np.array(boots, dtype=float)
+
         if boots.ndim != 2 or boots.shape[1] != observed.size:
             raise ValueError(
                 f"`boots` must be (n_reps, {observed.size}); got {boots.shape}."
             )
 
         stds = np.nanstd(boots, axis=0, ddof=1)
+
         # keep only finite, > eps
         good = (~np.isnan(stds)) & (stds > eps)
 
@@ -503,39 +512,40 @@ class DStatsBase:
     ) -> np.ndarray:
         """Compute P-values for Z-scores under the normal distribution.
 
-        This method computes P-values based on the provided Z-scores and the specified alternative hypothesis.
-
         Args:
             z_scores (np.ndarray): Array of Z-scores.
-            alternative (Literal): Specifies the type of test:
-                - "two-sided": P-value for two-tailed test.
-                - "upper": P-value for upper-tailed test.
-                - "lower": P-value for lower-tailed test.
+            alternative (Literal["two-sided", "upper", "lower"]): Alternative hypothesis: ``"two-sided"``, ``"upper"``,
+                or ``"lower"``.
 
         Returns:
-            np.ndarray: Array of P-values corresponding to the Z-scores.
+            np.ndarray: Array of P-values.
 
         Raises:
-            ValueError: If an invalid alternative is specified.
-
+            ValueError: If ``alternative`` is invalid.
         """
-        pvals = np.zeros_like(z_scores)
-        for idx, z in enumerate(z_scores):
-            if np.isnan(z):
-                pvals[idx] = np.nan
-            elif alternative == "two-sided":
-                pvals[idx] = 2 * (1 - norm.cdf(abs(z)))
-            elif alternative == "upper":
-                pvals[idx] = 1 - norm.cdf(z)
-            elif alternative == "lower":
-                pvals[idx] = norm.cdf(z)
-            else:
-                self.logger.error(f"Invalid alternative: {alternative}")
-                raise ValueError(alternative)
+        if alternative not in {"two-sided", "upper", "lower"}:
+            msg = f"Invalid alternative: {alternative}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        z_scores = np.asarray(z_scores, dtype=np.float64)
+        pvals = np.full(z_scores.shape, np.nan, dtype=np.float64)
+
+        finite = np.isfinite(z_scores)
+
+        if alternative == "two-sided":
+            pvals[finite] = 2.0 * (1.0 - norm.cdf(np.abs(z_scores[finite])))
+        elif alternative == "upper":
+            pvals[finite] = 1.0 - norm.cdf(z_scores[finite])
+        else:
+            pvals[finite] = norm.cdf(z_scores[finite])
+
         return pvals
 
     def chisq(
-        self, observed: Sequence[float], boots: np.ndarray
+        self,
+        observed: Sequence[float],
+        boots: np.ndarray | list[float] | tuple[float, ...],
     ) -> Tuple[np.ndarray, np.ndarray]:
         """Compute chi-squared stats and P-values for each observed D vs bootstrap variance.
 
@@ -543,15 +553,17 @@ class DStatsBase:
 
         Args:
             observed (Sequence[float]): Observed D-statistics.
-            boots (np.ndarray): Bootstrap replicates of D-statistics.
+            boots (np.ndarray | list[float] | tuple[float, ...]): Bootstrap replicates of D-statistics.
 
         Returns:
-            Tuple[np.ndarray, np.ndarray]: Tuple containing:
-                - chisqs (np.ndarray): Chi-squared statistics for each observed value.
-                - pvals (np.ndarray): P-values corresponding to the chi-squared statistics.
+            Tuple[np.ndarray, np.ndarray]: Tuple containing chisqs (np.ndarray): Chi-squared statistics for each observed value. pvals (np.ndarray): P-values corresponding to the chi-squared statistics.
         """
         chisqs = np.zeros(len(observed), dtype=float)
         pvals = np.zeros(len(observed), dtype=float)
+
+        if not isinstance(boots, np.ndarray):
+            boots = np.array(boots, dtype=float)
+
         for i, obs in enumerate(observed):
             var = np.nanvar(boots[:, i], ddof=1)
             chisqs[i] = obs**2 / var if var > 1e-10 else np.nan
@@ -609,6 +621,14 @@ class DStatsBase:
         Raises:
             ValueError: If no valid jackknife blocks can be formed.
         """
+        if not isinstance(n_snps, int) or n_snps <= 1:
+            raise ValueError(
+                "Jackknife requires n_snps to be an integer greater than 1."
+            )
+
+        if not isinstance(block_size, int) or block_size <= 0:
+            raise ValueError("block_size must be a positive integer.")
+
         if n_snps <= 1:
             raise ValueError("Jackknife requires at least 2 SNPs.")
 
@@ -652,99 +672,235 @@ class DStatsBase:
     def bootstrap_indices(
         self, n_snps: int, n_bootstraps: int, seed: int | None = None
     ) -> np.ndarray:
-        """Return (n_bootstraps x n_snps) array of bootstrap resampled SNP indices.
-
-        This method generates bootstrap indices for resampling SNPs.
+        """Return bootstrap-resampled SNP indices.
 
         Args:
-            n_snps (int): Total number of SNPs.
-            n_bootstraps (int): Number of bootstrap samples to generate.
-            seed (int | None): Random seed for reproducibility. If None, uses default RNG.
-        """
-        rng = (
-            np.random.default_rng(seed) if seed is not None else np.random.default_rng()
-        )
-        return rng.choice(n_snps, (n_bootstraps, n_snps), replace=True)
-
-    def _extract_pop_freqs(
-        self, config: DStatsConfig, geno_sub: np.ndarray, pops_mapped: tuple
-    ) -> np.ndarray:
-        """Extract population frequencies from the genotype matrix.
-
-
-        This method computes the allele frequencies for each population defined in the configuration.
-
-        Args:
-            config (DStatsConfig): Configuration object containing population definitions.
-            geno_sub (np.ndarray): Subset of the genotype matrix for the populations.
-            pops_mapped (tuple): Tuple of numpy arrays, each containing indices for a population.
+            n_snps: Number of SNPs.
+            n_bootstraps: Number of bootstrap replicates.
+            seed: Optional random seed.
 
         Returns:
-            np.ndarray: Array of allele frequencies for each population.
+            np.ndarray: Integer array with shape ``(n_bootstraps, n_snps)``.
 
         Raises:
-            RuntimeError: If no sites survive the coverage filter.
-            ValueError: If the genotype matrix is empty.
+            ValueError: If ``n_snps`` or ``n_bootstraps`` is invalid.
         """
-        S = geno_sub.shape[1]
-        mask_cov = np.ones(S, dtype=bool)
-        for inds in pops_mapped:
-            cov_j = np.any(geno_sub[inds, :] != config.MISSING, axis=0)
-            mask_cov &= cov_j
+        if not isinstance(n_snps, int) or n_snps <= 0:
+            raise ValueError("n_snps must be a positive integer.")
 
-        freq = geno_sub.astype(float, copy=True)
-        freq[freq == config.MISSING] = np.nan
-        freq /= 2.0
+        if not isinstance(n_bootstraps, int) or n_bootstraps <= 0:
+            raise ValueError("n_bootstraps must be a positive integer.")
 
-        out_idx = pops_mapped[-1]
+        rng = np.random.default_rng(seed)
+        return rng.choice(n_snps, size=(n_bootstraps, n_snps), replace=True)
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            # Calculate mean frequency for the outgroup
-            out_mean = np.nanmean(freq[out_idx, :], axis=0)
-
-        flip = out_mean > 0.5
-
-        # Drop sites where outgroup freq is exactly 0.5
-        tie_mask = ~(np.isfinite(out_mean) | np.isnan(out_mean))
-        tie_mask = np.abs(out_mean - 0.5) < 1e-12
-
-        freq[:, flip] = 1.0 - freq[:, flip]
-
-        freq1 = freq[:, mask_cov]
-
-        if freq1.shape[1] == 0:
-            msg = (
-                "No sites survived the coverage/ tie filter. "
-                "Consider running NRemover2 or relaxing filters."
-            )
-            self.logger.error(msg)
-            raise RuntimeError(msg)
-
-        return np.vstack([np.nanmean(freq1[inds, :], axis=0) for inds in pops_mapped])
-
-    def _map_geno_to_pops(self, geno012, config):
-        """Map genotype matrix to populations defined in the configuration.
-
-        This method extracts unique indices from the genotype matrix and maps them to the populations defined in the configuration.
+    def _map_geno_to_pops(
+        self, geno012: np.ndarray, config: DStatsConfig
+    ) -> tuple[np.ndarray, tuple[np.ndarray, ...]]:
+        """Map the genotype matrix to population-specific row indices.
 
         Args:
-            geno012 (np.ndarray): Genotype matrix with shape (n_samples, n_snps).
-            config (DStatsConfig): Configuration object containing population definitions.
+            geno012: Genotype matrix with shape ``(n_samples, n_snps)``.
+            config: D-statistics configuration containing population sample indices.
 
         Returns:
-            Tuple[np.ndarray, tuple]: A tuple containing:
-                - geno_sub: Subset of the genotype matrix with unique indices.
-                - pops_mapped: Tuple of numpy arrays, each containing indices for a population.
+            tuple[np.ndarray, tuple[np.ndarray, ...]]: A tuple containing the subsetted genotype matrix containing all unique population samples and a tuple of mapped population indices relative to the subsetted matrix.
+
+        Raises:
+            ValueError: If input dimensions, population indices, or overlaps are invalid.
+            IndexError: If population indices are out of bounds.
+            TypeError: If population indices are not integers.
         """
-        all_inds = np.concatenate(config.pops)
-        uniq, idx = np.unique(all_inds, return_index=True)
-        uniq = uniq[np.argsort(idx)]
+        if not isinstance(geno012, np.ndarray) or geno012.ndim != 2:
+            msg = "`geno012` must be a 2D numpy array."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        n_samples, n_snps = geno012.shape
+        if n_samples == 0 or n_snps == 0:
+            msg = "`geno012` must have at least one sample and one SNP."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        pops = tuple(config.pops)
+        if len(pops) == 0:
+            msg = "At least one population must be provided."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        cleaned_pops: list[np.ndarray] = []
+        seen_global: set[int] = set()
+
+        for pop_idx, inds in enumerate(pops):
+            inds = np.asarray(inds)
+
+            if inds.ndim != 1:
+                msg = f"Population {pop_idx} indices must be one-dimensional."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            if inds.size == 0:
+                msg = f"Population {pop_idx} is empty."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            if not np.issubdtype(inds.dtype, np.integer):
+                msg = f"Population {pop_idx} indices must be integers."
+                self.logger.error(msg)
+                raise TypeError(msg)
+
+            if np.any(inds < 0) or np.any(inds >= n_samples):
+                bad = inds[(inds < 0) | (inds >= n_samples)]
+                msg = f"Population {pop_idx} contains out-of-bounds sample indices: {bad.tolist()} for n_samples={n_samples}."
+                self.logger.error(msg)
+                raise IndexError(msg)
+
+            uniq_local = np.unique(inds)
+            if uniq_local.size != inds.size:
+                msg = f"Population {pop_idx} contains duplicate sample indices. Duplicates would overweight samples in population-frequency estimates."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            overlap = seen_global.intersection(inds.tolist())
+            if overlap:
+                msg = f"Population {pop_idx} shares sample indices with another population: {sorted(overlap)}."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            seen_global.update(inds.tolist())
+            cleaned_pops.append(inds.astype(int, copy=False))
+
+        all_inds = np.concatenate(cleaned_pops)
+        uniq, first_pos = np.unique(all_inds, return_index=True)
+        uniq = uniq[np.argsort(first_pos)]
+
         geno_sub = geno012[uniq, :]
 
-        inv = {orig: i for i, orig in enumerate(uniq)}
+        inv = {int(orig): i for i, orig in enumerate(uniq)}
         pops_mapped = tuple(
-            np.array([inv[i] for i in grp], dtype=int) for grp in config.pops
+            np.array([inv[int(i)] for i in grp], dtype=np.int64) for grp in cleaned_pops
         )
 
         return geno_sub, pops_mapped
+
+    def _extract_pop_freqs(
+        self,
+        config: DStatsConfig,
+        geno_sub: np.ndarray,
+        pops_mapped: tuple[np.ndarray, ...],
+    ) -> np.ndarray:
+        """Extract polarized population allele frequencies from 012 genotypes.
+
+        Genotypes are interpreted as alternate-allele dosage:
+        ``0 = homozygous reference``, ``1 = heterozygous``, ``2 = homozygous alternate``, and ``config.MISSING`` is treated as missing. Sites are retained only if every population has at least one non-missing genotype and the outgroup is not tied at frequency 0.5. Sites where the outgroup alternate-allele frequency is greater than 0.5 are flipped so that the returned frequency corresponds to the allele opposite the outgroup-major state.
+
+        Args:
+            config: D-statistics configuration.
+            geno_sub: Genotype matrix subsetted to the samples used by the test.
+            pops_mapped: Population indices relative to ``geno_sub``. The final
+                population is assumed to be the outgroup.
+
+        Returns:
+            np.ndarray: Array with shape ``(n_pops, n_retained_sites)`` containing population allele frequencies.
+
+        Raises:
+            ValueError: If input dimensions, population mappings, or genotype values are invalid.
+            RuntimeError: If no SNPs survive coverage and outgroup-tie filtering.
+        """
+        if not isinstance(geno_sub, np.ndarray) or geno_sub.ndim != 2:
+            msg = "`geno_sub` must be a 2D numpy array."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if geno_sub.size == 0 or geno_sub.shape[0] == 0 or geno_sub.shape[1] == 0:
+            msg = "`geno_sub` must be a non-empty 2D genotype matrix."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if not pops_mapped:
+            msg = "`pops_mapped` must contain at least one population."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        n_samples, n_sites = geno_sub.shape
+
+        for pop_idx, inds in enumerate(pops_mapped):
+            inds = np.asarray(inds)
+
+            if inds.ndim != 1:
+                msg = f"Population {pop_idx} mapped indices must be one-dimensional."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            if inds.size == 0:
+                msg = f"Population {pop_idx} has no mapped samples."
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+            if not np.issubdtype(inds.dtype, np.integer):
+                msg = f"Population {pop_idx} mapped indices must be integers."
+                self.logger.error(msg)
+                raise TypeError(msg)
+
+            if np.any(inds < 0) or np.any(inds >= n_samples):
+                bad = inds[(inds < 0) | (inds >= n_samples)]
+                msg = (
+                    f"Population {pop_idx} contains mapped indices outside geno_sub: "
+                    f"{bad.tolist()} for n_samples={n_samples}."
+                )
+                self.logger.error(msg)
+                raise IndexError(msg)
+
+        valid = (
+            (geno_sub == 0)
+            | (geno_sub == 1)
+            | (geno_sub == 2)
+            | (geno_sub == config.MISSING)
+        )
+        if not np.all(valid):
+            bad_vals = np.unique(geno_sub[~valid])
+            msg = (
+                "Invalid 012 genotype values detected. Expected only "
+                f"{{0, 1, 2, {config.MISSING}}}; found {bad_vals.tolist()}."
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        mask_cov = np.ones(n_sites, dtype=bool)
+        for inds in pops_mapped:
+            mask_cov &= np.any(geno_sub[inds, :] != config.MISSING, axis=0)
+
+        freq = geno_sub.astype(np.float64, copy=True)
+        freq[freq == config.MISSING] = np.nan
+        freq *= 0.5
+
+        out_idx = pops_mapped[-1]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            out_mean = np.nanmean(freq[out_idx, :], axis=0)
+
+        tie_mask = np.isclose(out_mean, 0.5, atol=1e-12, rtol=0.0)
+        keep_mask = mask_cov & np.isfinite(out_mean) & ~tie_mask
+
+        if not np.any(keep_mask):
+            msg = "No sites survived the coverage/outgroup-tie filter. Consider stricter upstream SNP filtering, removing highly missing sites, or checking that the outgroup has usable genotype calls."
+            self.logger.error(msg)
+            raise RuntimeError(msg)
+
+        flip_mask = keep_mask & (out_mean > 0.5)
+        freq[:, flip_mask] = 1.0 - freq[:, flip_mask]
+
+        freq_kept = freq[:, keep_mask]
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            pop_freqs = np.vstack(
+                [np.nanmean(freq_kept[inds, :], axis=0) for inds in pops_mapped]
+            )
+
+        if not np.all(np.isfinite(pop_freqs)):
+            msg = "Non-finite population frequencies detected after filtering. This indicates an unexpected coverage-filtering failure."
+            self.logger.error(msg)
+            raise RuntimeError(msg)
+
+        return pop_freqs

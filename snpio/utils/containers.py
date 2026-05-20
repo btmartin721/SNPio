@@ -115,14 +115,14 @@ class PopState:
         populations (list[str | int]): List of population identifiers corresponding to samples.
         popmap (dict[str, str | int] | None): Mapping from sample names to
             population identifiers.
-        popmap_inverse (dict[str, list[str]] | None): Inverse mapping from population identifiers to lists of sample names.
+        popmap_inverse (dict[str | int, list[str]] | None): Inverse mapping from population identifiers to lists of sample names.
         num_pops (int): Number of unique populations.
     """
 
     samples: list[str] = field(default_factory=list)
     populations: list[str | int] = field(default_factory=list)
     popmap: dict[str, str | int] | None = None
-    popmap_inverse: dict[str, list[str]] | None = None
+    popmap_inverse: dict[str | int, list[str]] | None = None
     num_pops: int = 0
 
     def __post_init__(self):
