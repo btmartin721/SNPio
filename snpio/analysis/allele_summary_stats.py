@@ -208,6 +208,6 @@ class AlleleSummaryStats:
     def __str__(self) -> str:
         """String representation of the AlleleSummaryStats object."""
         return (
-            f"AlleleSummaryStats with {self.genotype_data.n_samples} samples and "
-            f"{self.genotype_data.n_loci} loci."
+            f"AlleleSummaryStats with {self.genotype_data.num_inds} samples and "
+            f"{self.genotype_data.num_snps} loci."
         )

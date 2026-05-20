@@ -38,7 +38,7 @@ class StructureReader(GenotypeData):
         force_popmap: bool = False,
         exclude_pops: List[str] | None = None,
         include_pops: List[str] | None = None,
-        plot_format: Literal["png", "pdf", "jpg", "svg"] = "png",
+        plot_format: Literal["png", "pdf", "jpg", "jpeg"] = "png",
         prefix: str = "snpio",
         verbose: bool = False,
         debug: bool = False,
@@ -119,8 +119,9 @@ class StructureReader(GenotypeData):
             {'pop1': ['Sample1', 'Sample2'], 'pop2': ['Sample2']}
         """
         # logger setup
-        kwargs = dict(prefix=prefix, verbose=verbose, debug=debug)
-        self.logger = LoggerManager(name=__name__, **kwargs).get_logger()
+        self.logger = LoggerManager(
+            name=__name__, prefix=prefix, verbose=verbose, debug=debug
+        ).get_logger()
         self.iupac = IUPAC(logger=self.logger)
 
         self.resource_data: Dict[str, Any] = {}
@@ -129,22 +130,23 @@ class StructureReader(GenotypeData):
         self.debug = debug
         self._has_popids = has_popids
         self._has_marker_names = has_marker_names
-        self.allele_encoding = allele_encoding
 
-        if self.allele_encoding is not None:
-            self.allele_encoding = {str(k): v for k, v in allele_encoding.items()}
+        # will hold header markers or None
+        self.marker_names: list[str] | None = None
+        self._onerow = False
 
-        self._validate_allele_encoding()
-
-        # decide where alleles start
+        # Decide where alleles start
         default_start = 1 + (1 if has_popids else 0)
         self.allele_start_col = (
             allele_start_col if allele_start_col is not None else default_start
         )
 
-        # will hold header markers or None
-        self.marker_names: list[str] | None = None
-        self._onerow = False
+        self.allele_encoding = allele_encoding
+
+        if self.allele_encoding is not None:
+            self.allele_encoding = {str(k): v for k, v in self.allele_encoding.items()}
+
+        self._validate_allele_encoding()
 
         super().__init__(
             filename=filename,
@@ -267,6 +269,11 @@ class StructureReader(GenotypeData):
             AlignmentFormatError: If the STRUCTURE file format is incorrect.
             StructureAlignmentSampleMismatch: If the number of samples does not match the number of genotypes.
         """
+        if self.filename is None:
+            msg = "No filename provided for STRUCTURE file."
+            self.logger.error(msg)
+            raise TypeError(msg)
+
         path = Path(self.filename)
         if not path.is_file():
             raise AlignmentFileNotFoundError(self.filename)

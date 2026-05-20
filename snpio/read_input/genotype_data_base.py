@@ -6,7 +6,7 @@ import tempfile
 import textwrap
 from collections import Counter
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Mapping, Tuple, cast
 
 import numpy as np
 import pysam
@@ -37,12 +37,22 @@ IUPAC_TO_BASES = {
 
 
 class BaseGenotypeData:
-    def __init__(self, filename: str | None = None, filetype: str | None = "auto"):
+    def __init__(
+        self,
+        prefix: str,
+        verbose: bool,
+        debug: bool,
+        filename: str | None = None,
+        filetype: str | None = "auto",
+    ):
         """Base class for handling genotype data.
 
         This class provides methods for loading, processing, and encoding genotype data from various file formats, including VCF, STRUCTURE, and PHYLIP files. It also includes methods for handling IUPAC-encoded genotypes and generating VCF headers.
 
         Args:
+            prefix (str): Prefix for output files and logging.
+            verbose (bool): Whether to enable verbose logging.
+            debug (bool): Whether to enable debug mode.
             filename (str, optional): Path to the input file. Defaults to None.
             filetype (str, optional): Type of the input file. Defaults to "auto".
                 - "auto": Automatically detect file type.
@@ -53,53 +63,54 @@ class BaseGenotypeData:
         self.filetype: str | None = filetype.lower() if filetype is not None else None
 
         # Initialize as None, load on demand
-        self._snp_data: List[List[str]] | None = None
+        self._snp_data: np.ndarray | None = None
         self._samples: List[str] = []
         self._populations: List[str | int] = []
         self._ref: List[str] = []
-        self._alt: List[List[str] | str] = []
+        self._alt: List[List[str]] = []
+        self.prefix: str = prefix
+        self.debug: bool = debug
+        self.verbose: bool = verbose
 
-        logman = LoggerManager(
-            __name__, prefix=self.prefix, verbose=self.verbose, debug=self.debug
-        )
+        logman = LoggerManager(__name__, prefix=prefix, verbose=verbose, debug=debug)
         self.logger: logging.Logger = logman.get_logger()
 
     def _load_data(self) -> None:
         """Method to load data from file based on filetype"""
         raise NotImplementedError("Subclasses should implement this method")
 
-    # in BaseGenotypeData class
     def get_ref_alt_alleles(
         self, data: np.ndarray
-    ) -> Tuple[np.ndarray, List[List[str]]]:
+    ) -> Tuple[List[str], List[List[str]]]:
         """Determine ref/alt alleles for each locus from IUPAC-encoded genotypes.
 
         Args:
-            data (np.ndarray): (n_variants x n_samples) matrix of IUPAC
+            data (np.ndarray): Matrix of IUPAC-encoded genotypes.
 
         Returns:
-            tuple: (ref_alleles, alt_lists)
-                - ref_alleles: np.ndarray of REF alleles for each locus
-                - alt_lists: List of ALT alleles for each locus
+            tuple: A tuple containing ref_alleles and alt_alleles_list.
+                - ref_alleles: REF allele for each locus.
+                - alt_alleles_list: ALT allele list for each locus.
         """
         if data.size == 0:
-            return np.array([], dtype="<U1"), []
+            return [], []
 
-        VALID_BASES = {"A", "C", "G", "T"}
-        ref_alleles = []
-        alt_alleles_list = []
+        valid_bases = {"A", "C", "G", "T"}
+        ref_alleles: List[str] = []
+        alt_alleles_list: List[List[str]] = []
 
         for locus in data.T:
             unique, counts = np.unique(locus, return_counts=True)
+
             valid_allele_counts = [
-                (allele, count)
+                (str(allele), int(count))
                 for allele, count in zip(unique, counts)
-                if allele.upper() in VALID_BASES
+                if str(allele).upper() in valid_bases
             ]
 
             if not valid_allele_counts:
                 ref_alleles.append("N")
-                alt_alleles_list.append(["."])  # Use placeholder
+                alt_alleles_list.append(["."])
                 continue
 
             sorted_alleles = sorted(valid_allele_counts, key=lambda x: (-x[1], x[0]))
@@ -107,12 +118,9 @@ class BaseGenotypeData:
             ref_alleles.append(sorted_alleles[0][0])
 
             alts = [allele for allele, _ in sorted_alleles[1:]]
-            if not alts:
-                alt_alleles_list.append(["."])
-            else:
-                alt_alleles_list.append(alts)
+            alt_alleles_list.append(alts if alts else ["."])
 
-        return np.array(ref_alleles, dtype="<U1"), alt_alleles_list
+        return ref_alleles, alt_alleles_list
 
     def refs_alts_from_snp_data(
         self, snp_matrix: np.ndarray
@@ -122,27 +130,35 @@ class BaseGenotypeData:
         This method processes the SNP matrix to extract reference and alternate alleles for each locus.
 
         Args:
-            snp_matrix (np.ndarray): (n_samples x n_loci) matrix of IUPAC codes
+            snp_matrix (np.ndarray): Matrix of IUPAC codes with shape
+                (n_samples x n_loci).
 
         Returns:
-            tuple: (ref_alleles, alt_lists)
-                - ref_alleles: List of REF alleles for each locus
-                - alt_lists: List of ALT alleles for each locus
+            tuple: A tuple containing:
+                - ref_alleles: List of REF alleles for each locus.
+                - alt_lists: List of ALT alleles for each locus.
         """
-        n_samples, n_loci = snp_matrix.shape
-        ref_alleles = []
-        alt_lists = []
+        _, n_loci = snp_matrix.shape
+
+        reverse_iupac_mapping: Mapping[str, tuple[str, ...]] = getattr(
+            self, "reverse_iupac_mapping", {}
+        )
+
+        ref_alleles: list[str] = []
+        alt_lists: List[List[str]] = []
 
         for j in range(n_loci):
             col = snp_matrix[:, j]
-            # Expand IUPAC codes into pairs
-            allele_pairs = [self.reverse_iupac_mapping.get(code, ()) for code in col]
+
+            allele_pairs = [reverse_iupac_mapping.get(str(code), ()) for code in col]
+
             flat = [
                 b
                 for pair in allele_pairs
                 for b in pair
                 if b not in {"N", ".", "-", "?"}
             ]
+
             counts = Counter(flat)
 
             if not counts:
@@ -150,17 +166,14 @@ class BaseGenotypeData:
                 alt_lists.append([])
                 continue
 
-            # Choose reference as the most common allele
             common = counts.most_common()
             common.sort(key=lambda x: x[1], reverse=True)
-            top1 = common[0][0]
-            ref = top1
 
-            # Include *all other* alleles as ALT
+            ref = common[0][0]
             alt = [a for a in counts if a != ref]
 
             ref_alleles.append(ref)
-            alt_lists.append(sorted(alt))  # sort for determinism
+            alt_lists.append(sorted(alt))
 
         return ref_alleles, alt_lists
 
@@ -212,22 +225,27 @@ class BaseGenotypeData:
     def build_vcf_header(self) -> str:
         """Dynamically builds the VCF header using the stored header object."""
         # Use the stored header from the original VCF file.
-        if hasattr(self, "vcf_header") and self.vcf_header:
-            header_str = str(self.vcf_header)
-            header_lines = header_str.strip().split("\n")
+        if getattr(self, "vcf_header", None) is not None:
+            header_str = str(getattr(self, "vcf_header"))
+            header_lines = [
+                line for line in header_str.strip().splitlines() if line.strip()
+            ]
 
             # Find and replace the #CHROM line to match the current samples
             for i, line in enumerate(header_lines):
                 if line.startswith("#CHROM"):
                     fixed_fields = line.split("\t")[:9]
-                    new_chrom_line = "\t".join(fixed_fields + list(self.samples))
+                    new_chrom_line = "\t".join(
+                        fixed_fields + list(getattr(self, "samples"))
+                    )
                     header_lines[i] = new_chrom_line
                     break
 
             return "\n".join(header_lines) + "\n"
         else:
             # Fallback for data not originating from a VCF file
-            sample_headers = "\t".join(self.samples)
+            sample_headers = "\t".join(getattr(self, "samples"))
+
             return textwrap.dedent(
                 f"""\
                 ##fileformat=VCFv4.2
@@ -286,8 +304,8 @@ class BaseGenotypeData:
             fmt_data = data[1:] if len(data) > 1 else []
 
             # Decode the IUPAC code to get the alleles
-            if iupac_code in self.reverse_iupac_mapping:
-                alleles = self.reverse_iupac_mapping[iupac_code]
+            if iupac_code in getattr(self, "reverse_iupac_mapping", {}):
+                alleles = getattr(self, "reverse_iupac_mapping")[iupac_code]
                 # If multiple alleles are present in the mapping, take the
                 # first two
                 if len(alleles) >= 2:
@@ -324,7 +342,7 @@ class BaseGenotypeData:
             bool: True if the file appears to be BGZF-compressed, False otherwise.
         """
         try:
-            with pysam.BGZFile(str(path), "rb") as f:
+            with pysam.BGZFile(str(path), "rb", index=None) as f:
                 _ = f.read(1)
             return True
         except Exception:
@@ -388,7 +406,7 @@ class BaseGenotypeData:
             try:
                 with (
                     open(filepath, "rb") as f_in,
-                    pysam.BGZFile(str(tmp_out), "wb") as f_out,
+                    pysam.BGZFile(str(tmp_out), "wb", index=None) as f_out,
                 ):
                     shutil.copyfileobj(f_in, f_out, length=1024 * 1024)
                 os.replace(tmp_out, filepath)  # atomic swap
@@ -415,7 +433,7 @@ class BaseGenotypeData:
 
         with (
             open(filepath, "rb") as f_in,
-            pysam.BGZFile(str(bgzipped_path), "wb") as f_out,
+            pysam.BGZFile(str(bgzipped_path), "wb", index=None) as f_out,
         ):
             shutil.copyfileobj(f_in, f_out, length=1024 * 1024)
 
@@ -431,7 +449,8 @@ class BaseGenotypeData:
             bool: True if the file is sorted, False otherwise.
         """
         try:
-            with pysam.VariantFile(filepath, mode="r") as vcf:
+            fp = cast(str, filepath)  # pysam expects str paths
+            with pysam.VariantFile(fp, mode="r") as vcf:
                 previous_key = None
                 for record in vcf:
                     current_key = self._natural_sort_key((record.chrom, record.pos))
@@ -472,7 +491,8 @@ class BaseGenotypeData:
         try:
             header_lines = []
             data_lines = []
-            with pysam.VariantFile(filepath, "r") as vcf_in:
+            fp = cast(str, filepath)  # pysam expects str paths
+            with pysam.VariantFile(fp, "r") as vcf_in:
                 header_lines.extend(str(vcf_in.header).splitlines())
                 for record in vcf_in:
                     data_lines.append(record)

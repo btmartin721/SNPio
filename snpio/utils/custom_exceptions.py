@@ -24,7 +24,7 @@ class EmptyIterableError(SNPioError):
 class PopmapKeyError(SNPioError):
     """Raised when a key is not found in the population map."""
 
-    def __init__(self, key: str, message: str = None) -> None:
+    def __init__(self, key: str, message: str | None = None) -> None:
         self.key = key
         msg = (
             message
@@ -42,7 +42,7 @@ class PopmapFileFormatError(SNPioError):
 class PopmapFileNotFoundError(SNPioError):
     """Raised when the population map file is not found."""
 
-    def __init__(self, filename: str, message: str = None) -> None:
+    def __init__(self, filename: str, message: str | None = None) -> None:
         self.filename = filename
         msg = message or f"Population map file '{filename}' not found."
         super().__init__(msg)
@@ -107,7 +107,7 @@ class StructureAlignmentSampleMismatch(AlignmentFormatError):
 class AlignmentFileNotFoundError(AlignmentError):
     """Raised when an alignment file is not found."""
 
-    def __init__(self, filename: str, message: str = None) -> None:
+    def __init__(self, filename: str, message: str | None = None) -> None:
         self.filename = filename
         msg = message or f"Alignment file '{filename}' not found."
         super().__init__(msg)
@@ -116,7 +116,7 @@ class AlignmentFileNotFoundError(AlignmentError):
 class NoValidAllelesError(SNPioError):
     """Raised when no valid alleles are found in a SNP column."""
 
-    def __init__(self, column_index: int, message: str = None) -> None:
+    def __init__(self, column_index: int, message: str | None = None) -> None:
         self.column_index = column_index
         msg = message or f"No valid alleles found in column {column_index}"
         super().__init__(msg)
@@ -125,7 +125,7 @@ class NoValidAllelesError(SNPioError):
 class InvalidGenotypeError(SNPioError):
     """Raised when a genotype string is invalid or unrecognized."""
 
-    def __init__(self, message: str = None) -> None:
+    def __init__(self, message: str | None = None) -> None:
         msg = message or "Invalid or unrecognized genotype string."
         super().__init__(msg)
 
@@ -133,7 +133,7 @@ class InvalidGenotypeError(SNPioError):
 class MissingPopulationMapError(SNPioError):
     """Raised when a required population map is missing."""
 
-    def __init__(self, message: str = None) -> None:
+    def __init__(self, message: str | None = None) -> None:
         msg = message or "Missing required population map file or object."
         super().__init__(msg)
 
@@ -141,7 +141,7 @@ class MissingPopulationMapError(SNPioError):
 class NonBiallelicSiteError(SNPioError):
     """Raised when a non-biallelic SNP site is encountered where only biallelic sites are allowed."""
 
-    def __init__(self, message: str = None) -> None:
+    def __init__(self, message: str | None = None) -> None:
         msg = (
             message
             or "Encountered a non-biallelic SNP site where only biallelic sites are allowed."
@@ -152,7 +152,7 @@ class NonBiallelicSiteError(SNPioError):
 class EmptyLocusSetError(SNPioError):
     """Raised when no loci remain after filtering or subsetting."""
 
-    def __init__(self, message: str = None) -> None:
+    def __init__(self, message: str | None = None) -> None:
         msg = message or "No loci remain after filtering or subsetting."
         super().__init__(msg)
 
@@ -196,7 +196,7 @@ class UnsupportedFileFormatError(SNPioError):
 class InvalidThresholdError(SNPioError):
     """Raised when an invalid threshold is provided for filtering."""
 
-    def __init__(self, threshold: float, message: str = None) -> None:
+    def __init__(self, threshold: float, message: str | None = None) -> None:
         self.threshold = threshold
         msg = (
             message or f"Invalid threshold value: {threshold}. Must be between 0 and 1."

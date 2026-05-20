@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import List, Literal, cast
 
 import numpy as np
 
@@ -126,6 +126,9 @@ class PhylipReader(GenotypeData):
 
         self.iupac = IUPAC(logger=self.logger)
 
+        pfmt = "png" if plot_format is None else plot_format
+        pfmt = cast(Literal["png", "jpg", "pdf", "jpeg"], pfmt)
+
         # Initialize the parent class GenotypeData
         super().__init__(
             filename=filename,
@@ -134,12 +137,14 @@ class PhylipReader(GenotypeData):
             force_popmap=force_popmap,
             exclude_pops=exclude_pops,
             include_pops=include_pops,
-            plot_format=plot_format,
+            plot_format=pfmt,
             prefix=prefix,
             verbose=verbose,
             logger=self.logger,
             debug=debug,
         )
+
+        self.allele_encoding = None
 
     def load_aln(self) -> None:
         """Load the PHYLIP file and populate SNP data, samples, and alleles.

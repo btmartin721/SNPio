@@ -184,3 +184,5 @@ class Benchmark:
 
         outdir = save_dir or Path("./profile")
         outdir.mkdir(exist_ok=True, parents=True)
+
+        return df, merged

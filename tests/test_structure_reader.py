@@ -113,7 +113,7 @@ class TestStructureReader(unittest.TestCase):
         # header → marker names for 4 loci
         self.assertEqual(reader.marker_names, ["M1", "M2", "M3", "M4"])
         self.assertEqual(reader.samples, ["Sample1", "Sample2", "Sample3"])
-        self.assertEqual(reader.populations, [0, 0, 1])
+        self.assertEqual(reader.populations, ["0", "0", "1"])
         self.assertEqual(reader.num_snps, 4)
 
         expected = [
@@ -148,9 +148,11 @@ class TestStructureReader(unittest.TestCase):
 
         # header → 4 marker names
         self.assertEqual(reader.marker_names, ["M1", "M2", "M3", "M4"])
+
         # samples & inline populations
         self.assertEqual(reader.samples, ["Sample1", "Sample2", "Sample3"])
-        self.assertEqual(reader.populations, [0, 0, 1])
+        self.assertEqual(reader.populations, ["0", "0", "1"])
+
         # two-line input for 4 loci → num_snps == 4
         self.assertEqual(reader.num_snps, 4)
 
@@ -248,7 +250,7 @@ class TestStructureReader(unittest.TestCase):
         )
         self.assertEqual(reader.marker_names, None)
         self.assertEqual(reader.samples, ["Sample1", "Sample2", "Sample3"])
-        self.assertEqual(reader.populations, [0, 0, 1])
+        self.assertEqual(reader.populations, ["0", "0", "1"])
         self.assertEqual(reader.num_snps, 4)
 
         expected = [

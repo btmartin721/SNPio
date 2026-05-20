@@ -106,7 +106,7 @@ class VCFReader(GenotypeData):
         force_popmap: bool = False,
         exclude_pops: List[str] | None = None,
         include_pops: List[str] | None = None,
-        plot_format: Literal["png", "pdf", "jpg", "svg"] | None = "png",
+        plot_format: Literal["png", "pdf", "jpg", "jpeg"] | None = "png",
         plot_fontsize: int = 18,
         plot_dpi: int = 300,
         plot_despine: bool = True,
@@ -149,19 +149,19 @@ class VCFReader(GenotypeData):
         outdir.mkdir(exist_ok=True, parents=True)
 
         self._vcf_attributes_fn = outdir / "vcf_attributes.h5"
-        self.store_format_fields = store_format_fields
         self.disable_progress_bar = disable_progress_bar
 
         self.from_vcf = True
         self.filetype = "vcf"
         self.marker_names = []
+        self.allele_encoding = None
+        self.store_format_fields = store_format_fields
 
         self.num_records = 0
         self.vcf_header = None
         self.info_fields = None
 
-        kwargs = {"prefix": prefix, "verbose": verbose, "debug": debug}
-        logman = LoggerManager(name=__name__, **kwargs)
+        logman = LoggerManager(name=__name__, verbose=verbose, debug=debug)
         self.logger = logman.get_logger()
 
         self.resource_data = {}
@@ -191,12 +191,17 @@ class VCFReader(GenotypeData):
 
         outdir.mkdir(exist_ok=True, parents=True)
 
-    def load_aln(self) -> None:
+    def load_aln(self) -> "VCFReader":
         """Loads the alignment from the VCF file into the VCFReader object.
 
         This method ensures that the input VCF file is bgzipped, sorted, and indexed using Tabix. It then reads the VCF file and extracts the necessary attributes. The VCF attributes are stored in an HDF5 file for efficient access. The genotype data is transformed into IUPAC codes for efficient storage and processing.
         """
         self.logger.info(f"Processing input VCF file {self.filename}...")
+
+        if self.filename is None:
+            msg = "No VCF filename provided. Please provide a valid VCF file path."
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         vcf_path = Path(self.filename)
         bgzipped_vcf = vcf_path
@@ -242,7 +247,7 @@ class VCFReader(GenotypeData):
 
         with pysam.VariantFile(self.filename, mode="r") as vcf:
             self.vcf_header = vcf.header
-            self.samples = np.array(vcf.header.samples)
+            self.samples = np.array(vcf.header.samples).tolist()
 
             # Count records without loading all into memory.
             # Faster than sum(1 for _ in vcf) or len(list(vcf))
@@ -251,10 +256,10 @@ class VCFReader(GenotypeData):
 
             self.chunk_size = min(self.chunk_size, self.num_records)
 
-            self.vcf_attributes_fn, self.snp_data, self.samples = (
-                self.get_vcf_attributes(vcf, chunk_size=self.chunk_size)
+            self.vcf_attributes_fn, self.snp_data, samp_arr = self.get_vcf_attributes(
+                vcf, chunk_size=self.chunk_size
             )
-
+            self.samples = samp_arr.tolist()
             self.snp_data = self.snp_data.T
 
         self.logger.info(f"VCF file successfully loaded!")
@@ -270,6 +275,46 @@ class VCFReader(GenotypeData):
         self.logger.debug(f"snp_data shape: {self.snp_data.shape}")
 
         return self
+
+    def _get_h5_dataset(self, group: h5py.File | h5py.Group, key: str) -> h5py.Dataset:
+        """Return an HDF5 dataset with runtime validation.
+
+        Args:
+            group: HDF5 file or group containing the dataset.
+            key: Dataset key.
+
+        Returns:
+            The HDF5 dataset.
+
+        Raises:
+            TypeError: If the requested HDF5 object is not a dataset.
+        """
+        obj = group[key]
+        if not isinstance(obj, h5py.Dataset):
+            raise TypeError(
+                f"Expected HDF5 dataset at key '{key}', found {type(obj).__name__}"
+            )
+        return obj
+
+    def _get_h5_group(self, group: h5py.File | h5py.Group, key: str) -> h5py.Group:
+        """Return an HDF5 group with runtime validation.
+
+        Args:
+            group: HDF5 file or parent group.
+            key: Group key.
+
+        Returns:
+            The HDF5 group.
+
+        Raises:
+            TypeError: If the requested HDF5 object is not a group.
+        """
+        obj = group[key]
+        if not isinstance(obj, h5py.Group):
+            raise TypeError(
+                f"Expected HDF5 group at key '{key}', found {type(obj).__name__}"
+            )
+        return obj
 
     def get_vcf_attributes(
         self, vcf: pysam.VariantFile, chunk_size: int = 1000
@@ -316,7 +361,9 @@ class VCFReader(GenotypeData):
         iupac_map = self.iupac.get_tuple_to_iupac()
 
         @lru_cache(maxsize=None)
-        def cached_convert(gt_pair: Tuple[int, int], alleles: Tuple[str, ...]) -> str:
+        def cached_convert(
+            gt_pair: Tuple[int | None, ...], alleles: Tuple[str, ...]
+        ) -> str:
             """Convert genotype pair to IUPAC code using cached function."""
             # build base calls, using "N" for any missing allele
             bases = tuple(alleles[i] if i is not None else "N" for i in gt_pair)
@@ -355,6 +402,15 @@ class VCFReader(GenotypeData):
                     compression="lzf",
                 )
 
+            chrom_ds = self._get_h5_dataset(h5, "chrom")
+            pos_ds = self._get_h5_dataset(h5, "pos")
+            id_ds = self._get_h5_dataset(h5, "id")
+            ref_ds = self._get_h5_dataset(h5, "ref")
+            alt_ds = self._get_h5_dataset(h5, "alt")
+            qual_ds = self._get_h5_dataset(h5, "qual")
+            filt_ds = self._get_h5_dataset(h5, "filt")
+            fmt_ds = self._get_h5_dataset(h5, "fmt")
+
             # INFO datasets
             info_grp = h5.create_group("info")
             for key in info_keys:
@@ -367,16 +423,22 @@ class VCFReader(GenotypeData):
                     compression="lzf",
                 )
 
+            info_dsets = {key: self._get_h5_dataset(info_grp, key) for key in info_keys}
+
             # FORMAT datasets
+            fmt_data_buf = {}
+            fmt_dsets: dict[str, h5py.Dataset] = {}
+
             if self.store_format_fields:
                 fmt_data_buf = {
                     k: np.empty((chunk_size, n_samples), dtype=object)
                     for k in fmt_keys
                     if k != "GT"
                 }
+
                 fmt_grp = h5.create_group("fmt_metadata")
                 for key in fmt_data_buf:
-                    fmt_grp.create_dataset(
+                    fmt_dsets[key] = fmt_grp.create_dataset(
                         key,
                         shape=(n_vars, n_samples),
                         maxshape=(n_vars, n_samples),
@@ -407,13 +469,18 @@ class VCFReader(GenotypeData):
 
                 # --- New robust logic using record.alleles ---
                 all_alleles = record.alleles
-                if len(all_alleles) > 1:
+
+                if all_alleles is None or len(all_alleles) == 0:
+                    # No alleles found, treat as missing
+                    alt.append(["."])
+                    alt_for_hdf5 = "."
+                elif len(all_alleles) > 1:
                     # Site has alternate alleles (bi- or multi-allelic)
                     current_alts = all_alleles[1:]
                     alt.append(list(current_alts))
                     alt_for_hdf5 = ",".join(current_alts)
                 else:
-                    # Site is monomorphic (only has a REF allele)
+                    # No alternate alleles, treat as missing
                     alt.append(["."])
                     alt_for_hdf5 = "."
 
@@ -446,7 +513,11 @@ class VCFReader(GenotypeData):
                         fmt_data_buf[fmt_key][row_in_chunk, :] = row
 
                 # Convert genotypes to IUPAC codes
-                alleles_tuple = tuple(record.alleles)
+                if record.alleles is not None:
+                    alleles_tuple = tuple(record.alleles)
+                else:
+                    alleles_tuple = (str(record.ref),)
+
                 snp_matrix[idx, :] = np.array(
                     [
                         cached_convert(
@@ -463,23 +534,22 @@ class VCFReader(GenotypeData):
                     start = idx + 1 - chunk_size
                     end = idx + 1
 
-                    h5["chrom"][start:end] = chrom_buf
-                    h5["pos"][start:end] = pos_buf
-                    h5["id"][start:end] = id_buf
-                    h5["ref"][start:end] = ref_buf
-                    h5["alt"][start:end] = alt_buf
-                    h5["qual"][start:end] = qual_buf
-                    h5["filt"][start:end] = filt_buf
-                    h5["fmt"][start:end] = fmt_buf
+                    chrom_ds[start:end] = chrom_buf
+                    pos_ds[start:end] = pos_buf
+                    id_ds[start:end] = id_buf
+                    ref_ds[start:end] = ref_buf
+                    alt_ds[start:end] = alt_buf
+                    qual_ds[start:end] = qual_buf
+                    filt_ds[start:end] = filt_buf
+                    fmt_ds[start:end] = fmt_buf
 
                     for key in info_keys:
-                        h5["info"][key][start:end] = info_buf[key]
+                        info_dsets[key][start:end] = info_buf[key]
                         info_buf[key] = np.empty((chunk_size,), dtype=object)
 
                     if self.store_format_fields:
                         for fmt_key, buf in fmt_data_buf.items():
-                            fmt_grp[fmt_key][start:end, :] = buf
-                            h5["fmt_metadata"][fmt_key][start:end, :] = fmt_grp[fmt_key]
+                            fmt_dsets[fmt_key][start:end, :] = buf
 
                     # reset buffers
                     chrom_buf = np.empty((chunk_size,), dtype=object)
@@ -503,24 +573,21 @@ class VCFReader(GenotypeData):
                 start = n_vars - remainder
                 end = n_vars
 
-                h5["chrom"][start:end] = chrom_buf[:remainder]
-                h5["pos"][start:end] = pos_buf[:remainder]
-                h5["id"][start:end] = id_buf[:remainder]
-                h5["ref"][start:end] = ref_buf[:remainder]
-                h5["alt"][start:end] = alt_buf[:remainder]
-                h5["qual"][start:end] = qual_buf[:remainder]
-                h5["filt"][start:end] = filt_buf[:remainder]
-                h5["fmt"][start:end] = fmt_buf[:remainder]
+                chrom_ds[start:end] = chrom_buf[:remainder]
+                pos_ds[start:end] = pos_buf[:remainder]
+                id_ds[start:end] = id_buf[:remainder]
+                ref_ds[start:end] = ref_buf[:remainder]
+                alt_ds[start:end] = alt_buf[:remainder]
+                qual_ds[start:end] = qual_buf[:remainder]
+                filt_ds[start:end] = filt_buf[:remainder]
+                fmt_ds[start:end] = fmt_buf[:remainder]
 
                 for key in info_keys:
-                    h5["info"][key][start:end] = info_buf[key][:remainder]
+                    info_dsets[key][start:end] = info_buf[key][:remainder]
 
                 if self.store_format_fields:
                     for fmt_key, buf in fmt_data_buf.items():
-                        fmt_grp[fmt_key][start:end, :] = buf[:remainder, :]
-                        h5["fmt_metadata"][fmt_key][start:end, :] = fmt_grp[fmt_key][
-                            :remainder, :
-                        ]
+                        fmt_dsets[fmt_key][start:end, :] = buf[:remainder, :]
 
         self.ref = ref
         self.alt = alt
@@ -595,10 +662,12 @@ class VCFReader(GenotypeData):
         sample_indices: np.ndarray,
         loci_indices: np.ndarray,
         samples: np.ndarray,
-    ) -> str:
+    ) -> Path | None:
         """Updates the VCF attributes with new data in chunks.
 
-        This method updates the VCF attributes in the HDF5 file with new data. It processes the data in chunks to reduce memory usage and ensures that the data is written correctly.
+        This method updates the VCF attributes in the HDF5 file with new data. It
+        processes the data in chunks to reduce memory usage and ensures that the data
+        is written correctly.
 
         Args:
             snp_data (np.ndarray): The SNP data to update the VCF attributes with.
@@ -607,7 +676,8 @@ class VCFReader(GenotypeData):
             samples (np.ndarray): The sample names to update.
 
         Returns:
-            str: Path to the new filtered HDF5 file.
+            Path | None: Path to the new filtered HDF5 file, or None if no update
+                is performed.
 
         Raises:
             FileNotFoundError: If the VCF attributes file is not found.
@@ -626,10 +696,18 @@ class VCFReader(GenotypeData):
                 self.logger.warning(
                     "No samples left after filtering. Skipping VCF attribute update."
                 )
-            return
+            return None
 
         self.snp_data = snp_data
-        self.samples = samples
+
+        if isinstance(samples, np.ndarray):
+            samp_list = samples.tolist()
+        elif isinstance(samples, list):
+            samp_list = samples
+        else:
+            raise TypeError("samples must be a numpy array or a list")
+
+        self.samples = samp_list
         self.sample_indices = sample_indices
         self.loci_indices = loci_indices
 
@@ -657,18 +735,23 @@ class VCFReader(GenotypeData):
                 fr (h5py.File): The HDF5 file to read from.
                 sample_size (int | None): The size of the sample to process. Defaults to None.
             """
-            new_shape = (new_size, sample_size) if sample_size else (new_size,)
+            src_ds = self._get_h5_dataset(fr, dataset_name)
+
+            new_shape = (
+                (new_size, sample_size) if sample_size is not None else (new_size,)
+            )
 
             chunk_size_inner = min(self.chunk_size, new_size)
-            dset_size = fr[dataset_name].shape[0]
-            fw.create_dataset(
+            dset_size = src_ds.shape[0]
+
+            dst_ds = fw.create_dataset(
                 dataset_name,
                 dtype=dtype,
                 shape=new_shape,
                 maxshape=new_shape,
                 chunks=(
                     (chunk_size_inner, sample_size)
-                    if sample_size
+                    if sample_size is not None
                     else (chunk_size_inner,)
                 ),
                 compression="lzf",
@@ -682,7 +765,7 @@ class VCFReader(GenotypeData):
                 end_idx = min(start_idx + chunk_size_inner, dset_size)
 
                 # Get the chunk of data from the original dataset
-                chunk = fr[dataset_name][start_idx:end_idx]
+                chunk = src_ds[start_idx:end_idx]
                 chunk_indices = global_indices[start_idx:end_idx]
                 mask = loci_indices[chunk_indices]
 
@@ -695,13 +778,13 @@ class VCFReader(GenotypeData):
                 filtered_chunk = np.array(filtered_chunk, dtype=dtype)
 
                 if sample_size is None:
-                    fw[dataset_name][
-                        write_idx : write_idx + filtered_chunk.shape[0]
-                    ] = filtered_chunk
+                    dst_ds[write_idx : write_idx + filtered_chunk.shape[0]] = (
+                        filtered_chunk
+                    )
                 else:
-                    fw[dataset_name][
-                        write_idx : write_idx + filtered_chunk.shape[0], :
-                    ] = filtered_chunk
+                    dst_ds[write_idx : write_idx + filtered_chunk.shape[0], :] = (
+                        filtered_chunk
+                    )
 
                 write_idx += filtered_chunk.shape[0]
                 start_idx = end_idx
@@ -710,7 +793,6 @@ class VCFReader(GenotypeData):
                 gc.collect()
 
         with h5py.File(hdf5_file_filt, "w") as fw, h5py.File(hdf5_file_path, "r") as fr:
-
             datasets_to_process = [
                 ("chrom", h5py.string_dtype(encoding="utf-8")),
                 ("pos", np.int64),
@@ -722,23 +804,26 @@ class VCFReader(GenotypeData):
                 ("fmt", h5py.string_dtype(encoding="utf-8")),
             ]
 
-            [
+            for dataset_name, dtype in datasets_to_process:
                 process_chunk(dataset_name, dtype, fw, fr)
-                for dataset_name, dtype in datasets_to_process
-            ]
 
             if "info" in fr:
                 fw.create_group("info")
-                [
+                info_grp = self._get_h5_group(fr, "info")
+
+                for key in info_grp:
                     process_chunk(
-                        f"info/{key}", h5py.string_dtype(encoding="utf-8"), fw, fr
+                        f"info/{key}",
+                        h5py.string_dtype(encoding="utf-8"),
+                        fw,
+                        fr,
                     )
-                    for key in fr["info"]
-                ]
 
             if self.store_format_fields and "fmt_metadata" in fr:
                 fw.create_group("fmt_metadata")
-                [
+                fmt_metadata_grp = self._get_h5_group(fr, "fmt_metadata")
+
+                for fmt_key in fmt_metadata_grp:
                     process_chunk(
                         f"fmt_metadata/{fmt_key}",
                         h5py.string_dtype(encoding="utf-8"),
@@ -746,8 +831,6 @@ class VCFReader(GenotypeData):
                         fr,
                         sample_size=new_sample_size,
                     )
-                    for fmt_key in fr["fmt_metadata"]
-                ]
 
         self.vcf_attributes_fn = hdf5_file_filt
         return self.vcf_attributes_fn

@@ -92,6 +92,7 @@ class TestGenePopReader(unittest.TestCase):
         )
 
         snp_data = reader.snp_data.tolist()
+
         self.assertEqual(snp_data, self.expected_snp_data_multiline)
         self.assertEqual(reader.num_snps, 3)
         self.assertEqual(reader.num_inds, 3)

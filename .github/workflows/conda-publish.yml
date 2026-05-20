@@ -37,8 +37,8 @@ jobs:
         env:
           CI: "1"
         run: |
-          conda install --yes conda-build anaconda-client
-          conda build recipe/ \
+          conda install --yes -c conda-forge conda-build anaconda-client
+          conda-build recipe/ \
             --output-folder conda_build_artifacts \
             --python ${{ matrix.python-version }} --no-test
 

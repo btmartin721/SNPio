@@ -65,6 +65,12 @@ def main():
         rf'\1"{version}"',
     )
 
+    update_file(
+        "snpio/docs/source/conf.py",
+        r'("current_version"\s*:\s*)"v\d+\.\d+\.\d+"',
+        rf'\1"v{version}"',
+    )
+
 
 if __name__ == "__main__":
     main()

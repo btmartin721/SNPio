@@ -104,7 +104,7 @@ class ReadPopmap:
         """
         self.filename: str = filename
         self.verbose: bool = verbose
-        self._popdict: Dict[str, str] = dict()
+        self._popdict: Dict[str, str | int] = dict()
         self._sample_indices = None
         self.logger: logging.Logger = logger
 
@@ -320,9 +320,9 @@ class ReadPopmap:
         Args:
             output_file (str): The filename of the output file to write the population map.
         """
-        output_file = Path(output_file)
+        of = Path(output_file)
 
-        with open(output_file, "w") as f:
+        with open(of, "w") as f:
             sorted_dict = dict(sorted(self._popdict.items(), key=lambda item: item[1]))
 
             for key, value in sorted_dict.items():
@@ -426,70 +426,57 @@ class ReadPopmap:
 
     def subset_popmap(
         self,
-        samples: List[str],
-        include: List[str] | None,
-        exclude: List[str] | None,
+        samples: list[str],
+        include: list[str] | None,
+        exclude: list[str] | None,
     ) -> None:
         """Subset the population map based on inclusion and exclusion criteria.
 
-        Subsets the population map by including only the specified populations (include) and excluding the specified populations (exclude).
-
         Args:
-            samples (List[str]): List of samples from alignment.
-
-            include (List[str] | None): List of populations to include in the subset.
-                The populations to include in the subset of the population map.
-
-            exclude (List[str] | None): List of populations to exclude from the subset of the population map.
+            samples: List of samples from alignment.
+            include: Populations to include in the population map subset.
+            exclude: Populations to exclude from the population map subset.
 
         Raises:
-            ValueError: Raises an exception if populations are present in both include and exclude lists.
-
-            TypeError: Raises an exception if include or exclude arguments are not lists.
-
-            ValueError: Raises an exception if the population map is empty after subsetting.
-
+            ValueError: If populations are present in both include and exclude lists.
+            TypeError: If include or exclude arguments are not lists.
+            ValueError: If the population map is empty after subsetting.
         """
         if include is None and exclude is None:
-            return None
+            return
 
         if include is not None and exclude is not None:
             include_set = set(include)
             exclude_set = set(exclude)
-            common = ",".join(list(include_set & exclude_set))
+            common = ",".join(sorted(include_set & exclude_set))
+
             if common:
                 msg = (
-                    f"Populations found in both include_pops and exclude_pops: {common}"
+                    "Populations found in both include_pops and exclude_pops: "
+                    f"{common}"
                 )
                 self.logger.error(msg)
                 raise ValueError(msg)
 
+        popmap: dict[str, str | int] = dict(self._popdict)
+
         if include is not None:
             self._validate_pop_subset_lists(include)
-
-            popmap = {k: v for k, v in self._popdict.items() if v in include}
-            inc_idx = np.isin(samples, list(popmap.keys()))  # Boolean array
-        else:
-            inc_idx = np.ones(len(samples), dtype=bool)  # All True
+            popmap = {k: v for k, v in popmap.items() if v in include}
 
         if exclude is not None:
             self._validate_pop_subset_lists(exclude)
-
-            if include is None:
-                popmap = self._popdict
-
             popmap = {k: v for k, v in popmap.items() if v not in exclude}
-            exc_idx = np.isin(samples, list(popmap.keys()))  # Boolean array
-        else:
-            exc_idx = np.ones(len(samples), dtype=bool)  # All True
 
         if not popmap:
-            msg = "popmap was empty after subseting with 'include_pops' and/ or 'exclude_pops' arguments."
+            msg = (
+                "popmap was empty after subsetting with 'include_pops' and/or "
+                "'exclude_pops' arguments."
+            )
             self.logger.error(msg)
             raise ValueError(msg)
 
-        # Boolean intersection of inclusion and exclusion conditions
-        indices = np.logical_and(inc_idx, exc_idx)
+        indices = np.isin(samples, list(popmap.keys()))
 
         if self._sample_indices is None:
             self._sample_indices = indices
@@ -517,13 +504,15 @@ class ReadPopmap:
             self.logger.error(msg)
             raise TypeError(msg)
 
-    def _flip_dictionary(self, input_dict: Dict[str, str]) -> Dict[str, List[str]]:
+    def _flip_dictionary(
+        self, input_dict: Dict[str, str | int]
+    ) -> Dict[str, List[str]]:
         """Flip the keys and values of a dictionary.
 
         Flips the keys and values of the input dictionary, where the original keys become values and the original values become keys.
 
         Args:
-            input_dict (Dict[str, str]): The input dictionary to be flipped.
+            input_dict (Dict[str, str | int]): The input dictionary to be flipped.
 
         Returns:
             Dict[str, List[str]]: The flipped dictionary with the original values as keys and lists of original keys as values.
@@ -538,11 +527,11 @@ class ReadPopmap:
         return flipped_dict
 
     @property
-    def popmap(self) -> Dict[str, str]:
+    def popmap(self) -> Dict[str, str | int]:
         """Get the population dictionary.
 
         Returns:
-            Dict[str, str]: Dictionary with SampleIDs as keys and the corresponding population ID as values.
+            Dict[str, str | int]: Dictionary with SampleIDs as keys and the corresponding population ID as values.
         """
         return self._popdict
 
@@ -583,14 +572,14 @@ class ReadPopmap:
     def __len__(self):
         return len(list(self._popdict.keys()))
 
-    def __getitem__(self, idx: str) -> str:
+    def __getitem__(self, idx: str) -> str | int:
         """Get the population ID associated with a given SampleID.
 
         Args:
             idx (str): The SampleID for which to retrieve the associated population ID.
 
         Returns:
-            str: The population ID associated with the given SampleID.
+            str | int: The population ID associated with the given SampleID.
 
         Raises:
             KeyError: If the SampleID is not found in the population map.

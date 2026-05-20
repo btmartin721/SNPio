@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Literal, Optional, cast
 
 import numpy as np
 
@@ -65,6 +65,11 @@ class GenePopReader(GenotypeData):
         self.verbose = verbose
         self.debug = debug
 
+        self.resource_data = {}
+
+        pfmt = "png" if plot_format is None else plot_format
+        pfmt = cast(Literal["png", "jpg", "pdf", "jpeg"], pfmt)
+
         self.allele_encoding = allele_encoding or {
             "01": "A",
             "02": "C",
@@ -76,8 +81,6 @@ class GenePopReader(GenotypeData):
             "004": "T",
         }
 
-        self.resource_data = {}
-
         super().__init__(
             filename=filename,
             filetype="genepop",
@@ -85,7 +88,7 @@ class GenePopReader(GenotypeData):
             force_popmap=force_popmap,
             exclude_pops=exclude_pops,
             include_pops=include_pops,
-            plot_format=plot_format,
+            plot_format=pfmt,
             prefix=prefix,
             verbose=verbose,
             logger=self.logger,
@@ -93,6 +96,12 @@ class GenePopReader(GenotypeData):
         )
 
     def load_aln(self) -> None:
+        """Load the GenePop file and parse genotype data."""
+        if self.filename is None:
+            msg = "No GenePop filename provided."
+            self.logger.error(msg)
+            raise AlignmentFileNotFoundError(msg)
+
         path = Path(self.filename)
         if not path.exists():
             msg = f"GenePop file {self.filename} not found."
@@ -165,6 +174,10 @@ class GenePopReader(GenotypeData):
                         a1, a2 = code[:2], code[2:]
                     elif len(code) == 6:  # Diploid, 3-digit codes
                         a1, a2 = code[:3], code[3:]
+                    else:
+                        msg = f"Invalid allele code length for sample {sid}: '{code}'"
+                        self.logger.error(msg)
+                        raise AlignmentFormatError(msg)
 
                     gt_calls.append(self._convert_to_iupac(a1, a2))
 
@@ -177,6 +190,7 @@ class GenePopReader(GenotypeData):
 
         self.samples = samples
         self.populations = populations
+
         self.snp_data = np.array(genotypes, dtype="<U1")
 
         if len(set(map(len, genotypes))) > 1:
