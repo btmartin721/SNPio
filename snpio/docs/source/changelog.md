@@ -2,6 +2,13 @@
 
 This document outlines the changes made to the project with each release.
 
+## Version 1.6.15 (2026-05-20)
+
+### Packaging
+
+- Finalized the conda publishing workflow with the refreshed Anaconda.org upload token secret.
+- Released the final synchronized package version for PyPI, Docker, and conda distribution.
+
 ## Version 1.6.14 (2026-05-20)
 
 ### Data Packaging
