@@ -1,12 +1,13 @@
 # This workflow builds and publishes a Conda package to btmartin721/snpio on Anaconda.org
-# It is triggered by pushes to tags that match the pattern v*.*.*.
+# It is triggered by release tags, conda-only release tags, or manually.
 name: Publish Conda Package to btmartin721/snpio
 
-# Trigger the workflow on pushes to tags matching the pattern v*.*.*
 on:
+  workflow_dispatch:
   push:
     tags:
-      - 'v*.*.*'
+      - "v*.*.*"
+      - "conda-v*.*.*"
 
 # Define the jobs to be executed
 jobs:
@@ -31,7 +32,7 @@ jobs:
           auto-update-conda: true
           auto-activate-base: false
           environment-file: etc/environment.yml
- 
+
       - name: Build Conda package
         shell: bash -el {0}
         env:
@@ -45,7 +46,7 @@ jobs:
       - name: Upload to Anaconda.org
         shell: bash -el {0}
         env:
-          ANACONDA_API_TOKEN: ${{ secrets.CONDA_UPLOAD_TOKEN }}
+          ANACONDA_API_TOKEN: ${{ secrets.SNPIO_UPLOAD_TOKEN }}
         run: |
           anaconda -t $ANACONDA_API_TOKEN upload \
             conda_build_artifacts/**/snpio-*.conda \
