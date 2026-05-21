@@ -23,6 +23,8 @@ All analysis scripts live in this single folder.
 - `benchmark_vcfr_memory.R` - vcfR memory worker.
 - `process_fileio_results.py` and `process_fileio_results.zsh` - Process and plot file I/O results.
 - `process_filtering_results.py` and `process_filtering_results.zsh` - Process and plot filtering results.
+- `calculate_fold_changes.py` and `calculate_fold_changes.zsh` - Calculate SNPio fold changes and raw mean estimates against vcfR and SNPfiltR for the reviewer loci sizes.
+- `process_reviewer_results_package.zsh` - Run file I/O processing, filtering processing, and fold-change/raw-mean calculation in order.
 
 ## `outputs/`
 
@@ -56,6 +58,13 @@ Manually edited figure files are separated from generated outputs so rerunning t
 - `figures/png/` - Reviewer-facing filtering PNG figures.
 - `figures/pdf/` - Reviewer-facing filtering PDF figures.
 
+### `outputs/fold_changes/`
+
+- `snpio_fold_changes_summary.csv` - Long-form fold-change summary by benchmark, metric, operation, comparator, and loci size.
+- `snpio_fold_changes_reviewer_table.csv` - Wide reviewer-facing fold-change table with one row per comparison.
+- `snpio_raw_mean_estimates_summary.csv` - Long-form mean execution time and memory estimates by benchmark, metric, operation, method, and loci size.
+- `snpio_raw_mean_estimates_reviewer_table.csv` - Wide reviewer-facing mean estimate table with one row per benchmark, operation, and method.
+
 ## Current Figures
 
 File I/O:
@@ -87,3 +96,7 @@ Edited figures:
 - `outputs/fileIO/processed/fileIO_memory_usage_long.csv`
 - `outputs/filtering/processed/filtering_execution_time_long.csv`
 - `outputs/filtering/processed/filtering_memory_usage_long.csv`
+- `outputs/fold_changes/snpio_fold_changes_summary.csv`
+- `outputs/fold_changes/snpio_fold_changes_reviewer_table.csv`
+- `outputs/fold_changes/snpio_raw_mean_estimates_summary.csv`
+- `outputs/fold_changes/snpio_raw_mean_estimates_reviewer_table.csv`

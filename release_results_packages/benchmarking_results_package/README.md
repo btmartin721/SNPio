@@ -32,13 +32,29 @@ Processed long-form tables:
 - `outputs/filtering/processed/filtering_execution_time_long.csv`
 - `outputs/filtering/processed/filtering_memory_usage_long.csv`
 
+Reviewer fold-change and raw mean tables:
+
+- `outputs/fold_changes/snpio_fold_changes_summary.csv`
+- `outputs/fold_changes/snpio_fold_changes_reviewer_table.csv`
+- `outputs/fold_changes/snpio_raw_mean_estimates_summary.csv`
+- `outputs/fold_changes/snpio_raw_mean_estimates_reviewer_table.csv`
+
 ## Re-run Processing
 
 From the repository root:
 
 ```zsh
-benchmarking_results_package/scripts/process_fileio_results.zsh
-benchmarking_results_package/scripts/process_filtering_results.zsh
+release_results_packages/benchmarking_results_package/scripts/process_reviewer_results_package.zsh
+```
+
+This regenerates the file I/O tables and figures, filtering tables and figures, and fold-change/raw-mean tables in `release_results_packages/benchmarking_results_package/outputs/`.
+
+To rerun each step separately:
+
+```zsh
+release_results_packages/benchmarking_results_package/scripts/process_fileio_results.zsh
+release_results_packages/benchmarking_results_package/scripts/process_filtering_results.zsh
+release_results_packages/benchmarking_results_package/scripts/calculate_fold_changes.zsh
 ```
 
 These scripts read from `outputs/` and write regenerated CSV/PNG/PDF files back to `outputs/`.
@@ -92,6 +108,7 @@ benchmarking_results_package/
       memory/
       processed/
       figures/
+    fold_changes/
     polished_figures/
   scripts/
   README.md
