@@ -4,6 +4,8 @@ This document outlines the changes made to the project with each release.
 
 ## Unreleased
 
+## Version 1.7.1 (2026-07-23)
+
 ### Release Engineering
 
 - Made Docker image tests block publication, included the repository resources
@@ -12,6 +14,14 @@ This document outlines the changes made to the project with each release.
 - Updated Docker and Conda setup actions for Node 24, removed deprecated action
   inputs and the commercial default Conda channel, and added non-publishing
   manual validation modes for released package artifacts.
+- Added required runtime-asset checks for wheels and source distributions,
+  packaged the SNPio MultiQC logo, and made Docker install the exact wheel
+  produced by its publishing run.
+- Corrected the Docker validation-data layout so the portable LD runner is
+  exercised rather than skipped or failed by missing repository resources.
+- Removed repository-controlled Conda and Git warning noise while retaining
+  strict failure propagation; the known single-output recipe warning from
+  `conda-build` is filtered narrowly pending its upstream fix.
 
 ## Version 1.7.0 (2026-07-23)
 

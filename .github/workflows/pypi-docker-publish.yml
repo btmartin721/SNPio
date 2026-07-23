@@ -25,6 +25,13 @@ on:
     tags:
       - 'v*.*.*'  # Only run on semantic version tag pushes
 
+env:
+  GIT_CONFIG_COUNT: "2"
+  GIT_CONFIG_KEY_0: init.defaultBranch
+  GIT_CONFIG_VALUE_0: master
+  GIT_CONFIG_KEY_1: advice.detachedHead
+  GIT_CONFIG_VALUE_1: "false"
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
@@ -69,7 +76,10 @@ jobs:
         run: rm -rf dist/
 
       - name: Build package
-        run: python -m build
+        run: |
+          python -m build
+          python -m twine check dist/*
+          python scripts/verify_distributions.py dist/*
 
       - name: Publish to TestPyPI
         if: github.event_name == 'push' || inputs.publish_python
@@ -114,6 +124,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: btmartin721/snpio
+          flavor: latest=false
           tags: |
             type=semver,pattern={{version}},value=${{ steps.extract_version.outputs.version }}
             type=raw,value=latest
@@ -127,6 +138,8 @@ jobs:
           push: true
           provenance: false  # Disable SBOM/attestation if unsupported on ARM
           builder: ${{ steps.buildx.outputs.name }}
+          build-args: |
+            SNPIO_VERSION=${{ steps.extract_version.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 

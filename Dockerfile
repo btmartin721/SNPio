@@ -1,6 +1,8 @@
 # Base image with Conda
 FROM continuumio/miniconda3
 
+ARG SNPIO_VERSION
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -41,10 +43,13 @@ RUN conda create --yes --solver classic --override-channels \
 
 ENV PATH=/opt/conda/envs/$CONDA_ENV/bin:$PATH
 
+COPY dist/snpio-${SNPIO_VERSION}-py3-none-any.whl /tmp/snpio.whl
+
 RUN conda run -n "$CONDA_ENV" python -m pip install --no-cache-dir \
-    snpio \
+    /tmp/snpio.whl \
     pytest \
     jupyterlab && \
+    rm /tmp/snpio.whl && \
     conda clean -afy
 
 # Create a non-root user and set home directory
@@ -61,7 +66,7 @@ WORKDIR /app
 COPY --chown=snpiouser:snpiouser tests/ tests/
 COPY --chown=snpiouser:snpiouser scripts/ scripts/
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/ scripts_and_notebooks/
-COPY --chown=snpiouser:snpiouser snpio/example_data/ example_data/
+COPY --chown=snpiouser:snpiouser snpio/example_data/ snpio/example_data/
 COPY --chown=snpiouser:snpiouser multiqc_config.yml pyproject.toml ./
 COPY --chown=snpiouser:snpiouser README.md docs/README.md
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpiouser/.bashrc

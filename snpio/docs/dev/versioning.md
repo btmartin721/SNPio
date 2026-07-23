@@ -107,10 +107,14 @@ BREAKING CHANGE: The minimum supported Python version is now 3.11.
   uses GitVersion's calculated semantic version.
 - Do **not** manually edit version files. `scripts/update_versions.py` updates
   `pyproject.toml`, `recipe/meta.yaml`, and `snpio/docs/source/conf.py`.
-- Tests, strict documentation, distribution builds, and Twine checks must pass
-  before the version commit and tag are pushed atomically.
+- Tests, strict documentation, distribution builds, Twine checks, and required
+  runtime-package-data checks must pass before the version commit and tag are
+  pushed atomically.
 - A GitHub Release is created from the tag, then the PyPI/Docker and Conda
   publishing workflows are explicitly dispatched at that tag.
+- The Docker image installs the wheel built by the same publishing run and
+  executes the complete unit-test suite against that installed artifact before
+  any image is pushed.
 
 ---
 
@@ -121,6 +125,8 @@ CI uses GitVersion to:
 - Compute the next version number
 - Update `pyproject.toml`, `recipe/meta.yaml`, and `snpio/docs/source/conf.py`
 - Run release validation before modifying `master`
+- Verify that every wheel and source distribution contains required runtime
+  assets, including the SNPio logo used by MultiQC reports
 - Atomically push the version commit and version tag (`vX.Y.Z`)
 - Create a GitHub Release with release notes
 - Dispatch the PyPI/Docker and Conda publishing workflows at the release tag
