@@ -7,6 +7,16 @@ This document outlines the changes made to the project with each release.
 Unreleased
 ----------
 
+Version 1.7.2 (2026-07-23)
+--------------------------
+
+Release Engineering
+~~~~~~~~~~~~~~~~~~~
+
+- Preserved the complete wheel filename inside Docker builds so pip can parse
+  its compatibility tags while installing the exact artifact produced by the
+  publishing workflow.
+
 Version 1.7.1 (2026-07-23)
 --------------------------
 

@@ -43,13 +43,13 @@ RUN conda create --yes --solver classic --override-channels \
 
 ENV PATH=/opt/conda/envs/$CONDA_ENV/bin:$PATH
 
-COPY dist/snpio-${SNPIO_VERSION}-py3-none-any.whl /tmp/snpio.whl
+COPY dist/snpio-${SNPIO_VERSION}-py3-none-any.whl /tmp/
 
 RUN conda run -n "$CONDA_ENV" python -m pip install --no-cache-dir \
-    /tmp/snpio.whl \
+    /tmp/snpio-${SNPIO_VERSION}-py3-none-any.whl \
     pytest \
     jupyterlab && \
-    rm /tmp/snpio.whl && \
+    rm /tmp/snpio-${SNPIO_VERSION}-py3-none-any.whl && \
     conda clean -afy
 
 # Create a non-root user and set home directory
