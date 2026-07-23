@@ -1,17 +1,28 @@
-mode: Mainline
+workflow: GitHubFlow/v1
+strategies:
+  - ConfiguredNextVersion
+  - Mainline
 commit-message-incrementing: Enabled
+major-version-bump-message: '(?m)(^[a-z]+(?:\([^)]*\))?!:|^BREAKING CHANGE:\s.+)'
+minor-version-bump-message: '^feat(?:\([^)]*\))?:'
+patch-version-bump-message: '^(?:fix|perf)(?:\([^)]*\))?:'
+no-bump-message: '^(?:build|chore|ci|docs|style|test)(?:\([^)]*\))?:'
 branches:
   main:
     regex: ^main$
     increment: Minor
     is-release-branch: true
-    prevent-increment-of-merged-branch-version: false
-    tag: ""
+    is-main-branch: true
+    prevent-increment:
+      of-merged-branch: false
+    label: ""
   master:
     regex: ^master$
     increment: Minor
     is-release-branch: true
-    prevent-increment-of-merged-branch-version: false
-    tag: ""
+    is-main-branch: true
+    prevent-increment:
+      of-merged-branch: false
+    label: ""
 ignore:
   sha: []

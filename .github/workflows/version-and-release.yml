@@ -7,7 +7,12 @@ on:
     inputs:
       manual_tag:
         description: 'Manually specify a version tag (e.g., 1.5.3). Leave blank to auto-generate.'
-        required: true
+        required: false
+        default: ''
+
+permissions:
+  actions: write
+  contents: write
 
 jobs:
   version-release:
@@ -18,34 +23,29 @@ jobs:
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          persist-credentials: false
-
-      - name: Exit if workflow triggered by a version tag (prevent recursion)
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          echo "🛑 Detected tag push (${GITHUB_REF}). Skipping version bump to prevent recursion."
-          exit 0
 
       - name: Setup GitVersion
-        uses: gittools/actions/gitversion/setup@v0.11.0
+        uses: gittools/actions/gitversion/setup@v4.7.0
         with:
-          versionSpec: '5.12.0'
+          versionSpec: '6.8.x'
 
       - name: Run GitVersion
         id: gitversion
-        uses: gittools/actions/gitversion/execute@v0.11.0
+        uses: gittools/actions/gitversion/execute@v4.7.0
 
       - name: Determine version to use
         id: set_version
+        env:
+          GITVERSION_SEMVER: ${{ steps.gitversion.outputs.semVer }}
+          MANUAL_TAG: ${{ inputs.manual_tag }}
         run: |
-          if [ -z "${{ github.event.inputs.manual_tag }}" ]; then
-            VERSION="${{ steps.gitversion.outputs.semVer }}"
-          else
-            VERSION="${{ github.event.inputs.manual_tag }}"
+          VERSION="${MANUAL_TAG:-$GITVERSION_SEMVER}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Version must use MAJOR.MINOR.PATCH format."
+            exit 1
           fi
           echo "Using version: $VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
 
       - name: Print version
         run: |
@@ -62,7 +62,9 @@ jobs:
         run: python -m pip install tomli-w pyyaml
 
       - name: Update version in pyproject.toml, meta.yaml, conf.py
-        run: python scripts/update_versions.py ${{ steps.set_version.outputs.version }}
+        env:
+          VERSION: ${{ steps.set_version.outputs.version }}
+        run: python scripts/update_versions.py "$VERSION"
 
       - name: Install release validation dependencies
         run: |
@@ -85,37 +87,43 @@ jobs:
           python -m build
           python -m twine check dist/*
 
-      - name: Push commit and tag using PAT
-        if: github.event_name != 'pull_request'
+      - name: Push version commit and tag atomically
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${{ secrets.GH_SNPIO_PAT_26_27 }}@github.com/${{ github.repository }}
-      
-          git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
-          git commit -m "chore: bump version to ${{ steps.set_version.outputs.version }}" || echo "No changes to commit"
 
-          if git rev-parse "v${{ steps.set_version.outputs.version }}" >/dev/null 2>&1; then
-            echo "❌ Tag v${{ steps.set_version.outputs.version }} already exists. Aborting to prevent recursive tagging."
-            exit 0
+          git add pyproject.toml recipe/meta.yaml snpio/docs/source/conf.py
+          git commit -m "chore: bump version to ${{ steps.set_version.outputs.version }}"
+
+          if git rev-parse --verify --quiet \
+            "refs/tags/v${{ steps.set_version.outputs.version }}"; then
+            echo "::error::Tag v${{ steps.set_version.outputs.version }} already exists."
+            exit 1
           fi
-      
-          git push origin HEAD
+
           git tag "v${{ steps.set_version.outputs.version }}"
-          git push origin "v${{ steps.set_version.outputs.version }}"
+          git push --atomic origin \
+            HEAD:master "refs/tags/v${{ steps.set_version.outputs.version }}"
           echo "v${{ steps.set_version.outputs.version }}" > .version_tag
 
       - name: Set tag name output
         id: read_tag
-        run: echo "tag_name=$(cat .version_tag)" >> $GITHUB_OUTPUT
+        run: echo "tag_name=$(cat .version_tag)" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.read_tag.outputs.tag_name }}
           name: Release ${{ steps.read_tag.outputs.tag_name }}
-          body: |
-            Auto-generated release from GitVersion
+          generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_SNPIO_PAT_26_27 }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Dispatch package publishing workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run pypi-docker-publish.yml \
+            --ref "${{ steps.read_tag.outputs.tag_name }}"
+          gh workflow run conda-publish.yml \
+            --ref "${{ steps.read_tag.outputs.tag_name }}"

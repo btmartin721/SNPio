@@ -9,6 +9,10 @@ This document outlines the changes made to the project with each release.
 - Gated automated version tagging and GitHub release creation on warning-free
   unit tests, a strict warning-as-error Sphinx build, and successful wheel and
   source-distribution checks.
+- Updated release automation to use scoped GitHub token permissions, atomic
+  version-commit and tag publication, Node 24-compatible GitVersion actions,
+  GitVersion 6 strategy-based configuration, validated semantic-version input,
+  and explicit PyPI, Docker, and Conda workflow dispatches.
 - Modernized package licensing metadata to the SPDX format and removed
   redundant manifest exclusions so source and wheel builds complete without
   packaging deprecation or unmatched-pattern warnings.
