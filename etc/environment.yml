@@ -2,9 +2,8 @@ name: snpio-build
 channels:
   - conda-forge
   - bioconda
-  - defaults
 
-channel_priority: flexible
+channel_priority: strict
 
 dependencies:
   - python >=3.11,<3.13
