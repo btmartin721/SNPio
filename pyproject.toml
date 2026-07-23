@@ -17,6 +17,9 @@ include = [
 ]
 
 [tool.setuptools.package-data]
+"snpio" = [
+    "img/snpio_logo.png",
+]
 "snpio.validation" = [
     "data/*.csv.gz",
     "data/*.json",

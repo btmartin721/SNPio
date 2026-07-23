@@ -1,5 +1,6 @@
 include README.md
 include LICENSE
 include pyproject.toml
+include snpio/img/snpio_logo.png
 
 recursive-include snpio *.py

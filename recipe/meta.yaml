@@ -14,7 +14,9 @@ source:
 build:
   number: 0
   noarch: python
-  script: "{{ PYTHON }} -m pip install . --no-deps -vv"
+  # conda-build disables bytecode for noarch packages. Clearing the variable
+  # prevents setuptools from emitting warnings while preserving wheel contents.
+  script: "env -u PYTHONDONTWRITEBYTECODE {{ PYTHON }} -m pip install . --no-deps -vv"
 
 requirements:
   build:
