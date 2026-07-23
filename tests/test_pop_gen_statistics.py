@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from snpio import PhylipReader, PopGenStatistics
+from snpio.popgenstats.summary_statistics import SummaryStatistics
 
 # Mapping of diploid genotypes to IUPAC codes
 IUPAC_CODES = {
@@ -150,6 +151,33 @@ class TestPopGenStatistics(unittest.TestCase):
         """Set up common variables for tests."""
         self.verbose = False
         self.debug_mode = False
+
+    def test_heterozygosity_retains_empty_loci_as_nan(self):
+        """Ho and He should be deterministic when a locus has no observations."""
+        stats = object.__new__(SummaryStatistics)
+        alignment = np.array(
+            [
+                [np.nan, 0.0, 1.0],
+                [np.nan, 1.0, 2.0],
+            ]
+        )
+        n_individuals = np.array([0, 2, 2])
+
+        observed = stats._calculate_heterozygosity(
+            alignment,
+            n_individuals,
+            observed=True,
+        )
+        expected = stats._calculate_heterozygosity(
+            alignment,
+            n_individuals,
+            observed=False,
+        )
+
+        np.testing.assert_allclose(observed[1:], np.array([0.5, 0.5]))
+        np.testing.assert_allclose(expected[1:], np.array([0.375, 0.375]))
+        self.assertTrue(np.isnan(observed[0]))
+        self.assertTrue(np.isnan(expected[0]))
 
     def test_summary_statistics(self):
         """Test PopGenStatistics.summary_statistics() for structure and biological accuracy."""

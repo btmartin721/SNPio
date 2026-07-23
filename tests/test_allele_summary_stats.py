@@ -3,6 +3,7 @@ from unittest.mock import Mock
 import numpy as np
 
 from snpio.analysis.allele_summary_stats import AlleleSummaryStats
+from snpio.utils.numeric import safe_divide
 
 
 def test_safe_divide_broadcasts_and_marks_invalid_ratios() -> None:
@@ -10,7 +11,7 @@ def test_safe_divide_broadcasts_and_marks_invalid_ratios() -> None:
     numerator = np.array([[1.0, 1.0], [0.0, 0.0]])
     denominator = np.array([[2.0], [0.0]])
 
-    observed = AlleleSummaryStats._safe_divide(numerator, denominator)
+    observed = safe_divide(numerator, denominator)
 
     np.testing.assert_allclose(observed[0], np.array([0.5, 0.5]))
     assert np.isnan(observed[1]).all()

@@ -5,6 +5,7 @@ import pandas as pd
 
 from snpio.plotting.plotting import Plotting
 from snpio.utils.logging import LoggerManager
+from snpio.utils.numeric import safe_divide
 from snpio import GenotypeEncoder
 
 if TYPE_CHECKING:
@@ -38,40 +39,6 @@ class AlleleSummaryStats:
 
         ge = GenotypeEncoder(self.genotype_data)
         self.alleles = ge.two_channel_alleles
-
-    @staticmethod
-    def _safe_divide(
-        numerator: np.ndarray | float | int,
-        denominator: np.ndarray | float | int,
-    ) -> np.ndarray:
-        """Divide finite values and retain non-estimable ratios as ``NaN``.
-
-        Args:
-            numerator: Scalar or array-like dividend.
-            denominator: Scalar or array-like divisor. Values must be finite
-                and strictly positive to produce an estimate.
-
-        Returns:
-            A floating-point array with the broadcast shape of the inputs.
-        """
-        numerator_array = np.asarray(numerator, dtype=np.float64)
-        denominator_array = np.asarray(denominator, dtype=np.float64)
-        output_shape = np.broadcast_shapes(
-            numerator_array.shape,
-            denominator_array.shape,
-        )
-        output = np.full(output_shape, np.nan, dtype=np.float64)
-        valid = (
-            np.isfinite(numerator_array)
-            & np.isfinite(denominator_array)
-            & (denominator_array > 0.0)
-        )
-        return np.divide(
-            numerator_array,
-            denominator_array,
-            out=output,
-            where=valid,
-        )
 
     def summarise(self, sample_indices: np.ndarray | None = None) -> pd.Series:
         """Summarize allele data from the genotype data.
@@ -119,12 +86,8 @@ class AlleleSummaryStats:
         locus_miss = missing_mask.mean(axis=0)  # (n_loci,)
         sample_non_missing = non_missing.sum(axis=1)
         locus_non_missing = non_missing.sum(axis=0)
-        sample_het = self._safe_divide(
-            het_mask.sum(axis=1), sample_non_missing
-        )
-        locus_het = self._safe_divide(
-            het_mask.sum(axis=0), locus_non_missing
-        )
+        sample_het = safe_divide(het_mask.sum(axis=1), sample_non_missing)
+        locus_het = safe_divide(het_mask.sum(axis=0), locus_non_missing)
 
         # 3. Allele counts per locus
         # (2*n_samples, n_loci)
@@ -135,17 +98,17 @@ class AlleleSummaryStats:
         n_alleles = np.sum(counts > 0, axis=1)  # distinct alleles per locus
         tot_alleles = counts.sum(axis=1)
         # allele_freqs per locus
-        freqs = self._safe_divide(counts, tot_alleles[:, None])
+        freqs = safe_divide(counts, tot_alleles[:, None])
         minor_counts = tot_alleles - counts.max(axis=1)
 
         # minor allele frequency per locus
         # (n_loci,)
-        maf = self._safe_divide(minor_counts, tot_alleles)
+        maf = safe_divide(minor_counts, tot_alleles)
 
         # 4. Derived metrics
         # per locus
         biallelic = np.sum(freqs**2, axis=1)  # check for biallelic loci
-        effective_alleles = self._safe_divide(1.0, biallelic)
+        effective_alleles = safe_divide(1.0, biallelic)
         exp_het = 1.0 - np.sum(freqs**2, axis=1)  # expected heterozygosity
 
         # 1) Build an explicit boolean mask
@@ -178,7 +141,7 @@ class AlleleSummaryStats:
             "Locus Miss Q1": np.percentile(locus_miss, 25),
             "Locus Miss Q3": np.percentile(locus_miss, 75),
             # Heterozygosity
-            "Overall Heterozygosity Prop.": self._safe_divide(
+            "Overall Heterozygosity Prop.": safe_divide(
                 het_mask.sum(), n_non_missing
             ).item(),
             "Mean Sample Heterozygosity Prop.": np.nanmean(sample_het),
