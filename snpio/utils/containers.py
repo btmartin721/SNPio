@@ -126,10 +126,16 @@ class PopState:
     num_pops: int = 0
 
     def __post_init__(self):
-        self.num_pops = len(list(set(self.populations)))
+        self.refresh_num_pops()
+
+    def refresh_num_pops(self) -> int:
+        """Synchronize and return the population count."""
+        self.num_pops = len(set(self.populations))
+        return self.num_pops
 
     def to_dict(self) -> dict:
         """Convert the PopState to a dictionary."""
+        self.refresh_num_pops()
         return {
             "samples": self.samples,
             "populations": self.populations,

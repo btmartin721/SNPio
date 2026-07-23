@@ -1,7 +1,7 @@
 import logging
 import warnings
-from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Literal, Tuple, cast
+from time import perf_counter
+from typing import TYPE_CHECKING, Dict, Hashable, List, Literal, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -14,13 +14,18 @@ import snpio.utils.custom_exceptions as exceptions
 from snpio import GenotypeEncoder, Plotting
 from snpio.analysis.allele_summary_stats import AlleleSummaryStats
 from snpio.popgenstats.amova import AMOVA
-from snpio.popgenstats.d_statistics import DStatistics
+from snpio.popgenstats.d_statistics import DStatistics, IndividualSelection
 from snpio.popgenstats.fst_distance import FstDistance
 from snpio.popgenstats.fst_outliers import FstOutliers
 from snpio.popgenstats.genetic_distance import GeneticDistance
+from snpio.popgenstats.linkage_disequilibrium import (
+    LinkageDisequilibrium,
+    LinkageDisequilibriumResult,
+)
 from snpio.popgenstats.summary_statistics import SummaryStatistics
 from snpio.utils.logging import LoggerManager
 from snpio.utils.multiqc_reporter import SNPioMultiQC
+from snpio.utils.output_paths import OutputPaths
 
 if TYPE_CHECKING:
     from snpio.plotting.plotting import Plotting
@@ -89,14 +94,7 @@ class PopGenStatistics:
         self.encoder = GenotypeEncoder(self.genotype_data)
         self.alignment_012: np.ndarray = self.encoder.genotypes_012.astype(np.float64)
 
-        if self.genotype_data.was_filtered:
-            self.outdir = Path(
-                f"{self.genotype_data.prefix}_output", "nremover", "reports", "analysis"
-            )
-        else:
-            self.outdir = Path(
-                f"{self.genotype_data.prefix}_output", "reports", "analysis"
-            )
+        self.outdir = OutputPaths.from_genotype_data(genotype_data).reports()
         self.outdir.mkdir(exist_ok=True, parents=True)
 
         self.snpio_mqc = SNPioMultiQC
@@ -112,7 +110,7 @@ class PopGenStatistics:
         outgroup: str | List[str] | None = None,
         num_bootstraps: int = 1000,
         max_individuals_per_pop: int | None = None,
-        individual_selection: Literal["random"] | Dict[str, List[str]] = "random",
+        individual_selection: IndividualSelection = "random",
         save_plot: bool = True,
         seed: int | None = None,
         per_combination: bool = True,
@@ -134,7 +132,10 @@ class PopGenStatistics:
             snp_indices (np.ndarray | List[int] | None): Specific SNP indices to include in the analysis.
             num_bootstraps (int): Number of bootstrap replicates to perform.
             max_individuals_per_pop (int | None): Maximum individuals to sample per population.
-            individual_selection (Literal["random"] | Dict[str, List[str]]): Method for individual selection.
+            individual_selection (IndividualSelection): ``"random"``,
+                ``"least_missing"``, ``"all"``, or a dictionary of explicit
+                samples per population. ``"least_missing"`` selects samples
+                with the fewest unusable D-statistic genotypes.
             save_plot (bool): Whether to save the plot.
             seed (int | None): Random seed for reproducibility.
             per_combination (bool): Whether to calculate D-statistics for each combination of populations.
@@ -186,7 +187,7 @@ class PopGenStatistics:
 
         method = cast(Literal["patterson", "partitioned", "dfoil"], mthd)
 
-        self.logger.warning(
+        self.logger.info(
             "D-stat input populations: "
             f"P1={population1}, P2={population2}, P3={population3}, "
             f"P4={population4}, outgroup={outgroup}"
@@ -218,7 +219,7 @@ class PopGenStatistics:
             self.logger.warning(msg)
 
         if "Method" in df.columns:
-            self.logger.warning(
+            self.logger.debug(
                 f"D-stat Method values: {df['Method'].dropna().astype(str).unique().tolist()}"
             )
 
@@ -232,9 +233,407 @@ class PopGenStatistics:
                     f"Skipping D-statistic plots because no per-combination {method} results were produced."
                 )
             else:
+                plot_started = perf_counter()
+                self.logger.info(
+                    f"D-statistic inference is complete; generating {method} plots for {len(df)} per-combination results."
+                )
                 self.plotter.plot_d_statistics(df, method=method)
+                self.logger.info(
+                    f"D-statistic plot generation complete for {method} in {perf_counter() - plot_started:.2f} seconds."
+                )
 
         return df, overall
+
+    def calculate_linkage_disequilibrium(
+        self,
+        *,
+        populations: Sequence[str | int] | str | int | None = None,
+        include_overall: bool = False,
+        locus_groups: Sequence[Hashable] | None = None,
+        bootstrap_groups: Sequence[Hashable] | None = None,
+        assume_unlinked: bool = False,
+        n_bootstraps: int = 200,
+        n_bootstrap_blocks: int = 20,
+        n_jobs: int = 1,
+        max_pairs: int | None = 1_000_000,
+        pair_chunk_size: int = 25_000,
+        pairwise_sample_size: int = 100_000,
+        mating_system: Literal["random", "monogamous"] = "random",
+        alpha: float = 0.05,
+        seed: int | None = None,
+        save_pairwise: bool = True,
+        save_plots: bool = True,
+    ) -> LinkageDisequilibriumResult:
+        """Estimate unbiased LD moments from unphased diploid SNPs.
+
+        This method implements the finite-sample estimators of Ragsdale and
+        Gravel (2020) for ``D``, ``D2``, ``Dz``, and ``pi2``. The normalized
+        statistics are calculated as ratios of aggregate sums:
+
+        ``r2D = sum(D2) / sum(pi2)`` and
+        ``rDz = sum(Dz) / sum(pi2)``.
+
+        For unlinked loci, recent effective population size is estimated as
+        ``Ne = 1 / (3 r2D)`` under random mating or ``2 / (3 r2D)`` under a
+        monogamous mating model. The analysis assumes randomly sampled,
+        unphased diploid individuals from each requested population.
+
+        Args:
+            populations: Population IDs to analyze. Defaults to every
+                population in the population map, or all samples when no map
+                is available.
+            include_overall: Include a pooled all-sample analysis in addition
+                to mapped populations.
+            locus_groups: Chromosome, scaffold, or independently segregating
+                group for each locus. Pairs within the same group are omitted.
+                VCF chromosome labels are used automatically when available.
+            bootstrap_groups: Optional biological resampling group for each
+                locus. Explicit groups use a node-cluster bootstrap that
+                preserves dependence among block-pair summaries sharing a
+                biological group. When omitted, loci are randomly assigned to
+                grouped bootstrap blocks as in the paper.
+            assume_unlinked: Explicitly treat every supplied locus as
+                unlinked. Required for coordinate-free formats unless
+                ``locus_groups`` is supplied.
+            n_bootstraps: Number of grouped-locus bootstrap replicates.
+            n_bootstrap_blocks: Number of random locus blocks used by the
+                grouped bootstrap.
+            n_jobs: Number of Numba/NumPy worker threads; ``-1`` uses all CPUs.
+            max_pairs: Maximum uniformly sampled eligible locus pairs per
+                population. ``None`` evaluates all eligible pairs.
+            pair_chunk_size: Maximum pairs in one vectorized calculation.
+            pairwise_sample_size: Maximum sampled pairwise estimates retained
+                for output and diagnostic plots.
+            mating_system: Random-mating or monogamous ``Ne`` relationship.
+            alpha: Two-sided bootstrap confidence-interval error rate.
+            seed: Random seed for deterministic blocking and resampling.
+            save_pairwise: Save the retained pairwise sample as compressed CSV.
+            save_plots: Generate LD summary and diagnostic plots.
+
+        Returns:
+            Structured LD results with summary, bootstrap, block-pair, and
+            sampled pairwise tables plus generated file paths.
+
+        Notes:
+            The per-pair ``r2_star = D2 / pi2`` values retained for diagnostic
+            plotting remain biased and can be negative or greater than one.
+            They are not averaged to obtain ``r2D``.
+
+        References:
+            Ragsdale, A. P. & Gravel, S. (2020). Unbiased estimation of
+            linkage disequilibrium from unphased data. Molecular Biology and
+            Evolution, 37(3), 923-932. doi:10.1093/molbev/msz265.
+        """
+
+        self.logger.info(
+            "Calculating unbiased linkage disequilibrium (LD) and effective population size (Ne) statistics..."
+        )
+
+        analysis = LinkageDisequilibrium(
+            self.genotype_data,
+            self.alignment_012,
+            allele_channels=self.encoder.two_channel_alleles,
+            plotter=self.plotter,
+            logger=self.logger,
+        )
+
+        result = analysis.run(
+            populations=populations,
+            include_overall=include_overall,
+            locus_groups=locus_groups,
+            bootstrap_groups=bootstrap_groups,
+            assume_unlinked=assume_unlinked,
+            n_bootstraps=n_bootstraps,
+            n_bootstrap_blocks=n_bootstrap_blocks,
+            n_jobs=n_jobs,
+            max_pairs=max_pairs,
+            pair_chunk_size=pair_chunk_size,
+            pairwise_sample_size=pairwise_sample_size,
+            mating_system=mating_system,
+            alpha=alpha,
+            seed=seed,
+            save_pairwise=save_pairwise,
+            save_plots=save_plots,
+        )
+
+        if result.summary.empty:
+            return result
+
+        if not save_plots:
+            msg = "save_plots=False; LD and Ne MultiQC plots not generated."
+            self.logger.info(msg)
+            return result
+
+        self.logger.info("LD and Ne calculations complete.")
+        self.logger.info("Generating MultiQC report for LD and Ne...")
+
+        self._queue_linkage_disequilibrium_multiqc(result.summary)
+        self._queue_linkage_disequilibrium_boxplots(result.bootstrap)
+
+        self.logger.info("LD and Ne MultiQC plots queued.")
+
+        return result
+
+    def _queue_linkage_disequilibrium_boxplots(self, bootstrap: pd.DataFrame) -> None:
+        """Queue population-grouped LD and Ne bootstrap boxplots."""
+
+        if bootstrap.empty:
+            msg = "Skipping LD bootstrap boxplots; no bootstraps were produced."
+            self.logger.warning(msg)
+            return
+
+        statistic_order = ["r2D", "rDz", "D", "Dz", "Pi2"]
+        population_order = bootstrap["Population"].drop_duplicates().tolist()
+
+        ld_boxplot = bootstrap[["Population", "Replicate", *statistic_order]].melt(
+            id_vars=["Population", "Replicate"],
+            value_vars=statistic_order,
+            var_name="Statistic",
+            value_name="Estimate",
+        )
+
+        ld_boxplot["Estimate"] = pd.to_numeric(ld_boxplot["Estimate"], errors="coerce")
+
+        ld_boxplot = ld_boxplot.loc[
+            np.isfinite(ld_boxplot["Estimate"].to_numpy(dtype=np.float64))
+        ].reset_index(drop=True)
+
+        if not ld_boxplot.empty:
+            self.snpio_mqc.queue_custom_boxplot(
+                df=ld_boxplot,
+                panel_id="linkage_disequilibrium_boxplot",
+                section="Linkage Disequilibrium",
+                title="Unbiased LD Bootstrap Distributions",
+                description=(
+                    "Population-specific bootstrap distributions for unbiased "
+                    "LD statistics estimated with the Ragsdale-Gravel (2020) "
+                    "method. The center line is the median; each box spans "
+                    "the 25th to 75th percentiles (the interquartile range, "
+                    "IQR); whiskers extend to the most extreme values within "
+                    "1.5 times the IQR; and individual points mark values "
+                    "beyond the whiskers. r2D and rDz are normalized by Pi2, "
+                    "whereas D, Dz, and Pi2 are unnormalized moments, so "
+                    "compare populations within the same statistic rather "
+                    "than comparing magnitudes among differently scaled "
+                    "statistics. Wider boxes or longer whiskers indicate "
+                    "greater bootstrap uncertainty. Negative values can "
+                    "occur for finite-sample unbiased estimators and do not, "
+                    "by themselves, indicate a calculation error."
+                ),
+                index_label="Population",
+                pconfig={
+                    "title": "Unbiased LD Bootstrap Distributions",
+                    "id": "linkage_disequilibrium_boxplot",
+                    "x": "Population",
+                    "y": "Estimate",
+                    "color": "Statistic",
+                    "color_label": "Statistic",
+                    "hover_data": ["Replicate"],
+                    "category_orders": {
+                        "Population": population_order,
+                        "Statistic": statistic_order,
+                    },
+                    "boxmode": "group",
+                    "points": "outliers",
+                    "x_type": "category",
+                    "xlab": "Population",
+                    "ylab": "Bootstrap Estimate",
+                },
+            )
+        else:
+            msg = "No finite bootstraps produced; skipping LD boxplots."
+            self.logger.warning(msg)
+
+        ne_boxplot = bootstrap[["Population", "Replicate", "Ne"]].copy()
+        ne_boxplot["Ne"] = pd.to_numeric(ne_boxplot["Ne"], errors="coerce")
+        ne_boxplot = ne_boxplot.loc[
+            np.isfinite(ne_boxplot["Ne"].to_numpy(dtype=np.float64))
+        ].reset_index(drop=True)
+
+        if not ne_boxplot.empty:
+            self.snpio_mqc.queue_custom_boxplot(
+                df=ne_boxplot,
+                panel_id="linkage_disequilibrium_boxplot_Ne",
+                section="Linkage Disequilibrium",
+                title="Effective Population Size (Ne) Bootstrap Distributions",
+                description=(
+                    "Population-specific bootstrap distributions of recent, "
+                    "LD-based effective population size (Ne), derived from "
+                    "r2D using the selected mating-system relationship. The "
+                    "center line is the median; each box spans the 25th to "
+                    "75th percentiles (the interquartile range, IQR); "
+                    "whiskers extend to the most extreme values within 1.5 "
+                    "times the IQR; and individual points mark values beyond "
+                    "the whiskers. Wider or strongly right-skewed "
+                    "distributions indicate greater uncertainty; very large "
+                    "values can occur when r2D approaches zero because Ne is "
+                    "inversely related to r2D. Only finite estimates are "
+                    "shown, so replicates with nonpositive or unavailable "
+                    "r2D are omitted. Ne is an effective, not census, "
+                    "population size and should be compared among "
+                    "populations only when sampling and locus sets are "
+                    "comparable."
+                ),
+                index_label="Population",
+                pconfig={
+                    "title": "Effective Population Size (Ne) Bootstrap Distributions",
+                    "id": "linkage_disequilibrium_boxplot_Ne",
+                    "x": "Population",
+                    "y": "Ne",
+                    "hover_data": ["Replicate"],
+                    "category_orders": {"Population": population_order},
+                    "boxmode": "group",
+                    "points": "outliers",
+                    "x_type": "category",
+                    "xlab": "Population",
+                    "ylab": "Effective Population Size (Ne)",
+                },
+            )
+        else:
+            msg = "No finite Ne bootstrap estimates produced; skipping boxplot."
+            self.logger.warning(msg)
+
+    def _queue_linkage_disequilibrium_multiqc(self, summary: pd.DataFrame) -> None:
+        """Queue LD summaries while preserving undefined effective sizes."""
+
+        self.logger.info("Generating MultiQC report for LD summary statistics...")
+
+        table = summary.set_index("Population")[
+            ["Samples", "Loci", "Pairs", "r2D", "rDz", "Ne"]
+        ]
+        r2d = table["r2D"].to_numpy(dtype=np.float64)
+        ne = table["Ne"].to_numpy(dtype=np.float64)
+        finite_ne = np.isfinite(ne)
+        nonpositive_r2d = np.isfinite(r2d) & (r2d <= 0.0)
+
+        report_table = table.copy()
+        ne_status = np.full(table.shape[0], "Estimated", dtype=object)
+        ne_status[~finite_ne] = "Not estimable (r2D unavailable)"
+        ne_status[~finite_ne & nonpositive_r2d] = "Not estimable (r2D <= 0)"
+        report_table["Ne_Status"] = ne_status
+
+        self.snpio_mqc.queue_table(
+            report_table,
+            panel_id="linkage_disequilibrium_summary",
+            section="Linkage Disequilibrium",
+            title="Unbiased Linkage Disequilibrium",
+            index_label="Population",
+            description=(
+                "Ragsdale-Gravel unbiased unphased LD estimates. r2D is the "
+                "ratio of aggregate D2 and Pi2; Ne assumes unlinked loci. "
+                "A missing Ne is retained as not estimable when r2D is "
+                "nonpositive or unavailable."
+            ),
+        )
+
+        self.snpio_mqc.queue_barplot(
+            table[["r2D", "rDz"]],
+            panel_id="linkage_disequilibrium_barplot",
+            section="Linkage Disequilibrium",
+            title="Unbiased Linkage Disequilibrium Barplot",
+            description="Barplot of unbiased r2D and rDz estimates per population using the Ragsdale-Gravel method.",
+            index_label="Population",
+            value_label="r2D and rDz",
+        )
+
+        finite_ne_table = table.loc[finite_ne, ["Ne"]]
+        if finite_ne_table.shape[0] != table.shape[0]:
+            omitted = ", ".join(str(value) for value in table.index[~finite_ne])
+            self.logger.warning(
+                f"Omitting non-estimable Ne values from the MultiQC Ne bar  plot for population(s): {omitted}. Their r2D values and Ne status remain in the summary table."
+            )
+        if not finite_ne_table.empty:
+            self.snpio_mqc.queue_barplot(
+                finite_ne_table,
+                panel_id="linkage_disequilibrium_barplot_Ne",
+                section="Linkage Disequilibrium",
+                title="Effective Population Size (Ne) Barplot",
+                description=(
+                    "Barplot of finite effective population size (Ne) "
+                    "estimates per population using the Ragsdale-Gravel "
+                    "method. Non-estimable values are retained in the "
+                    "summary table."
+                ),
+                index_label="Population",
+                value_label="Ne",
+            )
+        else:
+            self.logger.warning(
+                "Skipping the MultiQC Ne bar plot because no population has "
+                "a finite Ne estimate."
+            )
+
+        self.snpio_mqc.queue_heatmap(
+            table[["r2D", "rDz"]],
+            panel_id="linkage_disequilibrium_heatmap",
+            section="Linkage Disequilibrium",
+            title="Unbiased Linkage Disequilibrium Heatmap",
+            description="Heatmap of unbiased r2D and rDz estimates per population using the Ragsdale-Gravel method.",
+            index_label="Population",
+            pconfig={
+                "title": f"Unbiased Linkage Disequilibrium Heatmap (r2D and rDz)",
+                "id": "linkage_disequilibrium_heatmap",
+                "xlab": "Population",
+                "ylab": "Population",
+                "zlab": "r2D and rDz",
+                "tt_decimals": 3,
+                "reverse_colors": False,
+            },
+        )
+
+        self.snpio_mqc.queue_heatmap(
+            table[["Ne"]],
+            panel_id="linkage_disequilibrium_heatmap_Ne",
+            section="Linkage Disequilibrium",
+            title="Effective Population Size (Ne) Heatmap",
+            description="Heatmap of effective population size (Ne) estimates per population using the Ragsdale-Gravel method.",
+            index_label="Population",
+            pconfig={
+                "title": f"Effective Population Size (Ne) Heatmap",
+                "id": "linkage_disequilibrium_heatmap_Ne",
+                "xlab": "Population",
+                "ylab": "Population",
+                "zlab": "Effective Population Size (Ne)",
+                "tt_decimals": 0,
+                "reverse_colors": False,
+            },
+        )
+
+        self.snpio_mqc.queue_linegraph(
+            table[["r2D", "rDz"]],
+            panel_id="linkage_disequilibrium_linegraph",
+            section="Linkage Disequilibrium",
+            title="Unbiased Linkage Disequilibrium (r2D and rDz)",
+            description="Line graph of unbiased r2D and rDz estimates per population using the Ragsdale-Gravel method.",
+            index_label="Population",
+            pconfig={
+                "title": f"Unbiased Linkage Disequilibrium (r2D and rDz)",
+                "categories": True,
+                "id": "linkage_disequilibrium_linegraph",
+                "xlab": "Population",
+                "ylab": "r2D and rDz",
+                "tt_decimals": 3,
+                "colors": {"r2D": "#1f77b4", "rDz": "#ff7f0e"},
+            },
+        )
+
+        self.snpio_mqc.queue_linegraph(
+            table[["Ne"]],
+            panel_id="linkage_disequilibrium_linegraph_Ne",
+            section="Linkage Disequilibrium",
+            title="Effective Population Size (Ne)",
+            description="Line graph of effective population size (Ne) estimates per population using the Ragsdale-Gravel method.",
+            index_label="Population",
+            pconfig={
+                "title": f"Effective Population Size (Ne)",
+                "categories": True,
+                "id": "linkage_disequilibrium_linegraph_Ne",
+                "xlab": "Population",
+                "ylab": "Effective Population Size (Ne)",
+                "tt_decimals": 0,
+                "colors": {"Ne": "#1f77b4"},
+            },
+        )
 
     def detect_fst_outliers(
         self,
@@ -360,17 +759,22 @@ class PopGenStatistics:
                 alternative="upper",
             )
 
-        try:
-            self.plotter.plot_fst_outliers(
-                df_fst_outliers,
-                method=method,
-                max_outliers_to_plot=max_outliers_to_plot,
-            )
-        except Exception as e:
-            # Continue without plotting if an error occurs
+        if df_fst_outliers.empty:
             self.logger.warning(
-                f"Error plotting Fst outliers: {e}. Plotting skipped for {method} method."
+                f"No Fst outliers detected. Plotting skipped for {method} method."
             )
+        else:
+            try:
+                self.plotter.plot_fst_outliers(
+                    df_fst_outliers,
+                    method=method,
+                    max_outliers_to_plot=max_outliers_to_plot,
+                )
+            except Exception as e:
+                # Continue without plotting if an error occurs
+                self.logger.warning(
+                    f"Error plotting Fst outliers: {repr(e)}. Plotting skipped for {method} method."
+                )
 
         self.logger.info(f"{method.capitalize()} Fst outlier detection complete!")
 
@@ -781,7 +1185,7 @@ class PopGenStatistics:
     ) -> Tuple[np.ndarray, PCA]:
         """Run PCA on genotype data and generate a scatterplot colored by missing data proportions.
 
-        This method performs Principal Component Analysis (PCA) on the genotype data, handling missing values and scaling as specified. It generates a scatterplot of the first two or three principal components, colored by the proportion of missing data per sample. The plot is saved as an interactive HTML file and as a static image format supplied as `plot_format` to ``<prefix>_output/analysis`` (if NRemover2 has not been run) or ``<prefix>_output/nremover/analysis`` (after filtering with NRemover2).
+        This method performs Principal Component Analysis (PCA) on the genotype data, handling missing values and scaling as specified. It generates a scatterplot of the first two or three principal components, colored by the proportion of missing data per sample. The plot is saved as an interactive HTML file and as a static image beneath ``<prefix>_output/plots/pca`` or ``<prefix>_output/plots/nremover/pca`` after filtering with NRemover2.
 
         The workflow is:
 
@@ -792,7 +1196,7 @@ class PopGenStatistics:
         5. **Sanity-check** the matrix to ensure it is finite (`np.nan_to_num`).
         6. **Fit PCA**, return components, and plot (2-D or 3-D).
 
-        The plot is saved as an interactive HTML file and as a static image format supplied as `plot_format` to ``<prefix>_output/analysis`` (if NRemover2 has not been run) or ``<prefix>_output/nremover/analysis`` (after filtering with NRemover2) with the base name ``pca_missingness_mqc``. If `plot_format` is not specified, it defaults to the format supplied to the GenotypeData object (e.g., VCFReader, StructureReader, GenePopReader, PhylipReader).
+        The plot is saved with the base name ``pca_missingness``. If `plot_format` is not specified, it defaults to the format supplied to the GenotypeData object (e.g., VCFReader, StructureReader, GenePopReader, PhylipReader).
 
 
         Args:
@@ -829,13 +1233,7 @@ class PopGenStatistics:
         else:
             plot_format = self.genotype_data.plot_kwargs.get("plot_format", "png")
 
-        output_dir = Path(f"{self.genotype_data.prefix}_output")
-        if self.genotype_data.was_filtered:
-            output_dir = output_dir / "nremover" / "analysis"
-        else:
-            output_dir = output_dir / "analysis"
-
-        output_dir.mkdir(exist_ok=True, parents=True)
+        output_dir = self.plotter._plot_dir("pca")
 
         if self.genotype_data.was_filtered:
             description_prefix = "PCA (Post-NRemover2 Filtering): "
@@ -866,7 +1264,9 @@ class PopGenStatistics:
 
             if (~non_constant_mask).any():
                 dropped = (~non_constant_mask).sum()
-                self.logger.warning(f"Dropping {dropped} loci with zero variance.")
+                self.logger.warning(
+                    f"Dropping {dropped} of {len(non_constant_mask)} loci ({100.0 * dropped / len(non_constant_mask):.1f}%) with zero variance before PCA."
+                )
                 X_imp = X_imp[:, non_constant_mask]
 
             # 4. Center / scale (optional)

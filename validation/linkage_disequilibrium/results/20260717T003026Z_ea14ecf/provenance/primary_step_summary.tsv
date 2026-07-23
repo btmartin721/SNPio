@@ -1,0 +1,7 @@
+step	status	exit_code	seconds	detail
+01_unit_tests	PASS	0	5	logs/unit_tests.log
+02_exact_expectations	PASS	0	3	tables/exact_enumeration/
+03_golden_reference	PASS	0	3	tables/golden_reference/
+04_published_island_fox	PASS	0	50	tables/published_island_fox/
+05_forward_simulation	PASS	0	3470	tables/forward_simulation/
+06_pair_convergence	SKIP	0	0	requested with --skip-convergence

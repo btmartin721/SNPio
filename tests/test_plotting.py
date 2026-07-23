@@ -57,7 +57,20 @@ class TestPlotting(unittest.TestCase):
         self.genotype_data.missingness_reports()
 
         expected_file = Path(
-            f"{self.genotype_data.prefix}_output/nremover/plots/gtdata/missingness_report.png"
+            f"{self.genotype_data.prefix}_output/plots/missingness/missingness_report.png"
+        )
+
+        self.assertTrue(expected_file.exists())
+        self.assertTrue(expected_file.is_file())
+        self.assertTrue(expected_file.stat().st_size > 0)
+
+    def test_visualize_missingness_after_filtering(self):
+        gd_filt = NRemover2(self.genotype_data).random_subset_loci(5, seed=42).resolve()
+
+        gd_filt.missingness_reports()
+
+        expected_file = Path(
+            f"{self.genotype_data.prefix}_output/plots/nremover/missingness/missingness_report.png"
         )
 
         self.assertTrue(expected_file.exists())
@@ -73,10 +86,9 @@ class TestPlotting(unittest.TestCase):
 
         expected_file = Path(
             Path(f"{self.genotype_data.prefix}_output")
-            / "nremover"
             / "plots"
-            / "gtdata"
-            / "sankey_plots"
+            / "nremover"
+            / "filtering"
             / "filtering_results_sankey_mqc.html"
         )
 

@@ -23,6 +23,7 @@
       ~Plotting.plot_dstat_significance_counts
       ~Plotting.plot_fst_outliers
       ~Plotting.plot_gt_distribution
+      ~Plotting.plot_linkage_disequilibrium
       ~Plotting.plot_permutation_dist
       ~Plotting.plot_pop_counts
       ~Plotting.plot_search_results

@@ -556,11 +556,7 @@ def build_dataframe(  # feel free to make this @staticmethod inside your class
     if index_labels is not None:
         if len(index_labels) != len(df):
             log.warning(
-                "Length mismatch between supplied index_labels (%d) and DataFrame "
-                "rows (%d); using synthetic index '%s{N}'.",
-                len(index_labels),
-                len(df),
-                default_index_prefix,
+                f"Length mismatch between supplied index_labels ({len(index_labels)}) and DataFrame rows ({len(df)}); using synthetic index '{default_index_prefix}{{N}}'.",
             )
             df.index = [f"{default_index_prefix}{i}" for i in range(len(df))]
         else:

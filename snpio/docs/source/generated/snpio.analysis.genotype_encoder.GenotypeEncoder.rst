@@ -22,7 +22,6 @@
       ~GenotypeEncoder.encode_alleles_two_channel
       ~GenotypeEncoder.inverse_int_iupac
       ~GenotypeEncoder.inverse_onehot
-      ~GenotypeEncoder.read_012
    
    
 

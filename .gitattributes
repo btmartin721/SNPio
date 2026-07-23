@@ -1,0 +1,5 @@
+*.gz binary
+*.pdf binary
+*.png binary
+*.tsv whitespace=-blank-at-eol
+snpio/docs/source/generated/*.rst whitespace=-blank-at-eol,-blank-at-eof

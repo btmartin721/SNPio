@@ -23,11 +23,13 @@ This guide covers:
 Installation
 ------------
 
-There are several ways to install SNPio:
+There are several maintained ways to install SNPio:
 
-- Using `pip` (recommended with a virtual environment)
-- Using `conda`
-- Using Docker
+- Using `PyPI <https://pypi.org/project/snpio/>`_ with ``pip`` (recommended
+  with a virtual environment)
+- Using the `btmartin721 conda channel
+  <https://anaconda.org/channels/btmartin721/packages/snpio/overview>`_
+- Using `DockerHub <https://hub.docker.com/r/btmartin721/snpio>`_
 - (Advanced) Installing globally with `pip` (not recommended)
 
 Installing with pip
@@ -392,6 +394,30 @@ Basic Example
 
    You **must** call `.resolve()` at the end of the filter chain to apply the filtering logic and return a new `GenotypeData` object.
 
+Filtered-data consistency
+-------------------------
+
+``resolve()`` returns a new object whose genotype matrix and dependent state
+describe the same retained samples and loci. SNPio updates sample IDs, marker
+names, population mappings and counts, REF/ALT alleles, VCF record counts,
+retained-coordinate masks, and data-dependent cached properties together.
+Downstream encoders and analyses therefore operate on ``gd_filt.snp_data`` and
+its filtered metadata rather than the source alignment.
+
+For VCF input, the original metadata cache remains beneath
+``<prefix>_output/data/vcf/vcf_attributes.h5``. Each distinct filtered state
+receives an independent, state-specific HDF5 file beneath
+``<prefix>_output/data/vcf/nremover/``. The derived file is written to a
+temporary sibling and installed atomically before the returned
+``GenotypeData`` is changed. If metadata generation fails, the original object
+and source cache remain usable. This also makes repeated and branched filter
+chains independent.
+
+``sample_indices`` and ``loci_indices`` remain boolean masks in the immediate
+parent alignment's coordinate system. Their retained counts must equal the
+shape of the filtered matrix; inconsistent masks are rejected before state is
+mutated.
+
 Filtering with exclude_heterozygous
 -----------------------------------
 
@@ -662,6 +688,7 @@ It supports:
 
 - Summary statistics: He, Ho, π, and pairwise Weir & Cockerham Fst :cite:p:`WeirCockerham1984`
 - Nei's genetic distance :cite:p:`Nei1972` (observed, permutation p-values, bootstrap CIs)
+- Unbiased linkage-disequilibrium moments from unphased, unlinked SNPs :cite:p:`RagsdaleGravel2020`
 - D-statistics: Patterson's :cite:p:`PattersonPriceReich2006,GreenEtAl2010`, Partitioned :cite:p:`EatonRee2013`, and D-FOIL :cite:p:`PeaseHahn2015`
 - Fst outlier detection :cite:p:`BeaumontNichols1996,FollGaggiotti2008`
 - Principal Component Analysis (PCA)
@@ -803,6 +830,182 @@ Compute pairwise Weir & Cockerham Fst between populations. Supports: observed Fs
   Figure: Pairwise Fst matrix. Lighter colors indicate higher differentiation.
 
 
+Unbiased Linkage Disequilibrium from Unlinked SNPs
+--------------------------------------------------
+
+``calculate_linkage_disequilibrium`` implements the finite-sample polynomial
+estimators of :cite:t:`RagsdaleGravel2020` for unphased diploid genotypes. It
+calculates unbiased estimates of :math:`D`, :math:`D^2`, :math:`Dz`, and
+:math:`\pi_2`, then forms the aggregate normalized statistics
+
+.. math::
+
+  r_D^2 = \frac{\sum \widehat{D^2}}{\sum \widehat{\pi_2}}
+  \qquad\text{and}\qquad
+  r_{Dz} = \frac{\sum \widehat{Dz}}{\sum \widehat{\pi_2}}.
+
+For unlinked loci, the recent effective population-size estimate is
+:math:`N_e = 1 / (3r_D^2)` under random mating or
+:math:`N_e = 2 / (3r_D^2)` under monogamy.
+
+VCF input
+^^^^^^^^^
+
+For VCF-derived data, SNPio automatically pairs loci from different
+chromosomes using the chromosome component of each marker name:
+
+.. code-block:: python
+
+  from snpio import PopGenStatistics, VCFReader
+
+  gd = VCFReader(
+      filename="example.vcf.gz",
+      popmapfile="popmap.txt",
+      force_popmap=True,
+      prefix="ld_analysis",
+  )
+  pgs = PopGenStatistics(gd)
+
+  ld = pgs.calculate_linkage_disequilibrium(
+      n_bootstraps=200,
+      n_bootstrap_blocks=20,
+      n_jobs=-1,
+      max_pairs=1_000_000,
+      seed=42,
+      save_pairwise=True,
+      save_plots=True,
+  )
+
+.. warning::
+
+  Do not set ``assume_unlinked=True`` for an ordinary multi-chromosome or
+  multi-scaffold VCF. That option deliberately overrides available VCF group
+  labels and includes within-group pairs. SNPio emits a warning when such an
+  override is requested.
+
+Coordinate-free input
+^^^^^^^^^^^^^^^^^^^^^
+
+For PHYLIP, STRUCTURE, GENEPOP, or another input without genomic coordinates,
+provide one chromosome, scaffold, or independently segregating group per
+locus. SNPio excludes pairs within the same group:
+
+.. code-block:: python
+
+  linkage_groups = ["chr1", "chr1", "chr2", "chr2", "chr3", "chr3"]
+
+  ld = pgs.calculate_linkage_disequilibrium(
+      locus_groups=linkage_groups,
+      n_jobs=4,
+      seed=42,
+  )
+
+For calibration studies or designs in which chromosomes are the independent
+resampling units, pass the same labels as ``bootstrap_groups``. SNPio then
+draws biological groups with replacement and jointly weights every block-pair
+summary incident to a sampled group, preserving their shared-group dependence.
+Ordinary SNP datasets retain the paper's default random grouped-locus
+bootstrap when this argument is omitted.
+
+If the input has already been pruned to independent loci and no group labels
+exist, state that assumption explicitly:
+
+.. code-block:: python
+
+  ld = pgs.calculate_linkage_disequilibrium(
+      assume_unlinked=True,
+      max_pairs=None,  # Evaluate every eligible pair.
+      seed=42,
+  )
+
+SNPio never silently declares coordinate-free loci to be unlinked.
+
+Results and output files
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The returned ``LinkageDisequilibriumResult`` contains ``summary``,
+``bootstrap``, ``block_summaries``, ``pairwise_sample``, ``metadata``, and
+``files`` attributes. Reports and plots are organized first by artifact type
+and then by analysis::
+
+  <prefix>_output/
+  ├── reports/linkage_disequilibrium/
+  │   ├── linkage_disequilibrium_summary.csv
+  │   ├── linkage_disequilibrium_bootstrap.csv.gz
+  │   ├── linkage_disequilibrium_block_summaries.csv.gz
+  │   ├── linkage_disequilibrium_pairwise_sample.csv.gz
+  │   └── linkage_disequilibrium_metadata.json
+  └── plots/linkage_disequilibrium/
+      ├── linkage_disequilibrium_summary.<format>
+      ├── linkage_disequilibrium_effective_size.<format>
+      └── linkage_disequilibrium_pairwise_distributions.<format>
+
+Filtered datasets use
+``reports/nremover/linkage_disequilibrium/`` and
+``plots/nremover/linkage_disequilibrium/``.
+
+SNPio output layout
+^^^^^^^^^^^^^^^^^^^
+
+SNPio keeps artifact types together and uses named operation directories::
+
+  <prefix>_output/
+  ├── data/
+  │   ├── vcf/                    # HDF5 VCF metadata and caches
+  │   └── popmaps/                # generated population maps
+  ├── logs/                       # runtime logs and arguments.json
+  ├── multiqc/                    # MultiQC report bundle
+  ├── plots/
+  │   ├── <operation>/            # unfiltered plots
+  │   └── nremover/<operation>/   # plots from filtered data
+  └── reports/
+      ├── <operation>/            # unfiltered CSV, JSON, and tables
+      └── nremover/<operation>/   # reports from filtered data
+
+For example, PCA plots use ``plots/pca/``, D-statistic tables use
+``reports/d_statistics/``, and NRemover2 filtering diagrams use
+``plots/nremover/filtering/``. Directories are created only when their
+operation writes an artifact.
+
+.. important::
+
+  The sampled per-pair diagnostic ``r2_star = D2 / pi2`` is not an unbiased
+  pairwise :math:`r^2`. It can be negative or greater than one and is never
+  averaged to obtain :math:`r_D^2`. Individual unbiased polynomial estimates
+  may also fall outside their conventional parameter bounds.
+
+.. note::
+
+  The estimators require at least four complete diploid individuals per
+  locus pair and use biallelic loci only. The effective-size relationship
+  assumes randomly sampled individuals and the requested mating model;
+  inbreeding, linked loci, and population structure can distort the result.
+  Inspect :math:`r_{Dz}` as a diagnostic for model violations such as recent
+  migration or structure.
+
+The polynomial terms are constructed exactly inside SNPio and evaluated with
+Numba-compiled kernels. Parallelism uses threads over grouped locus-pair
+blocks, so neither ``moments-popgen`` nor ``tskit`` is a runtime dependency.
+``max_pairs`` controls uniform pair subsampling for large datasets, while
+``pairwise_sample_size`` only limits rows retained for diagnostic output and
+does not change the aggregate estimator when it is smaller than
+``max_pairs``.
+
+See :doc:`ld_validation` for the exact mathematical oracle, frozen authors'
+reference corpus, optional forward-time calibration, published island-fox
+benchmark, and target-dataset pair-convergence protocol.
+
+See :doc:`linkage_disequilibrium` for the complete algorithm, assumptions, and
+API contract, and :doc:`tutorial` for a worked end-to-end analysis.
+
+LD plots use linear axes for signed statistics and reserve logarithmic axes for
+strictly positive :math:`\pi_2` or :math:`N_e` values spanning at least two
+orders of magnitude. Color-blind-safe blue circles show ordinary estimates,
+while orange diamonds identify populations whose bootstrap :math:`r_{Dz}`
+interval excludes zero. Pairwise boxplots omit exact-zero estimates while
+reporting their prevalence in a separate informative-pair panel.
+
+
 D-Statistics (Patterson, Partitioned, DFOIL)
 --------------------------------------------
 
@@ -844,6 +1047,26 @@ Basic Example
       seed=42,
   )
 
+``individual_selection`` accepts ``"random"``, ``"least_missing"``,
+``"all"``, or a dictionary mapping population IDs to explicit sample IDs.
+With ``"least_missing"``, SNPio ranks samples within each population by the
+number of unusable genotypes in the filtered D-statistic matrix and retains up
+to ``max_individuals_per_pop``. Ties follow the original alignment order.
+The ranking is deterministic and does not use ``seed``; ``seed`` affects only
+``"random"`` selection. ``"all"`` explicitly ignores
+``max_individuals_per_pop``.
+
+An explicit mapping must provide an entry for every requested population and
+may name only samples belonging to that population. The per-population cap is
+applied to mapping entries when it is not ``None``. Invalid strategies,
+nonpositive caps, missing mapping entries, and genotype-row/sample mismatches
+are rejected before inference. Combinations without enough usable data remain
+``NaN`` and are excluded from multiple-test correction rather than being
+coerced to zero.
+
+When ``pgs`` is initialized with an ``NRemover2`` result, D-statistic encoding,
+missingness ranking, resampling, and inference all use the filtered alignment.
+
 
 Fst Outlier Detection
 ---------------------
@@ -855,7 +1078,7 @@ Supports two methods:
 
 .. code-block:: python
 
-  # Permutation-based outliers (single DataFrame with unadjusted/adjusted 
+  # Permutation-based outliers (single DataFrame with unadjusted/adjusted
   # p-values)
   df_outliers = pgs.detect_fst_outliers(
       n_permutations=1000,
@@ -880,7 +1103,12 @@ Supports two methods:
 
 .. note::
 
-  ``detect_fst_outliers`` now returns **one** DataFrame. If a correction method is provided, adjusted p-values are included as columns.
+  ``detect_fst_outliers`` returns **one** long-form DataFrame with the stable
+  columns ``Locus``, ``Population_Pair``, ``Fst``, and ``q_value``. If no
+  outliers are detected, the returned DataFrame is empty but retains those
+  columns and plotting is skipped. ``max_outliers_to_plot`` limits both the
+  static and MultiQC heatmaps without truncating the returned scientific
+  results.
 
 
 AMOVA (Experimental)
@@ -921,6 +1149,9 @@ PopGenStatistics Method Summary
   * - ``fst_distance(method, n_reps, n_jobs, palette, suppress_plot)``
     - Computes Weir & Cockerham pairwise Fst. Returns dict like Nei’s: ``observed`` plus (optionally) ``pvalues`` or CIs.
     - Weir & Cockerham (1984)
+  * - ``calculate_linkage_disequilibrium(populations, locus_groups, assume_unlinked, n_bootstraps, n_jobs, max_pairs, seed)``
+    - Estimates aggregate unbiased LD moments, :math:`r_D^2`, :math:`r_{Dz}`, and recent :math:`N_e` from unphased diploids.
+    - Ragsdale & Gravel (2020) finite-sample polynomials and grouped-locus bootstrap
   * - ``calculate_d_statistics(method, population1, population2, population3, population4=None, outgroup=None, num_bootstraps, max_individuals_per_pop, individual_selection, save_plot, seed, per_combination, calc_overall, use_jackknife, block_size)``
     - Calculates Patterson / Partitioned / D-FOIL with bootstrap or jackknife support.
     - ABBA–BABA framework with resampling
@@ -944,10 +1175,11 @@ MultiQC Report Generation
 
 SNPio includes built-in support for generating **interactive MultiQC reports** that summarize results from all major analysis modules. These reports are ideal for data exploration, publication-ready figures, and batch comparisons.
 
-The `SNPioMultiQCReport` class automatically collects results from:
+The ``SNPioMultiQC`` report builder automatically collects results from:
 
 - Filtering (`NRemover2`)
 - Summary statistics and Fst estimates (`PopGenStatistics`)
+- Linkage-disequilibrium moments and recent effective population-size estimates
 - Genetic distance matrices (Nei's, Weir & Cockerham's)
 - D-statistics (Patterson, Partitioned, D-FOIL)
 - Fst Outlier detection (DBSCAN, permutations)
@@ -995,12 +1227,26 @@ The SNPio MultiQC report includes:
 
 - **Filtering Summary** (Sankey plot, missingness, sample/locus counts)
 - **Summary Statistics** (He, Ho, π)
+- **Linkage Disequilibrium** (population summary; ``r2D``/``rDz`` bar,
+  heatmap, and line panels; replicate-level LD bootstrap boxes)
+- **Recent Effective Population Size** (finite ``Ne`` summary panels and a
+  separate population-specific bootstrap boxplot)
 - **Pairwise Fst Matrix** (Weir & Cockerham)
 - **Nei's Distance Heatmap**
 - **D-statistics** (histograms, significance bar plots)
 - **Fst Outlier Heatmaps**
 - **PCA** (colored by population)
 - **Input Metadata Table** (samples, loci, populations)
+
+The LD bootstrap boxplots preserve one observation per ``Population`` and
+``Replicate``. ``r2D``, ``rDz``, ``D``, ``Dz``, and ``Pi2`` share the LD panel,
+while ``Ne`` is shown separately because it has a different scale and an
+inverse relationship with ``r2D``. Nonfinite LD statistics and ``Ne`` values
+are filtered independently. A population with nonpositive aggregate ``r2D``
+therefore remains in the summary table with ``Ne`` marked not estimable even
+though it is omitted from finite-``Ne`` plots. ``Ne_Status`` is a reporting
+column added to the MultiQC table; the returned scientific result represents
+the same outcome as ``NaN`` in its ``Ne`` column.
 
 Custom Report Location
 ----------------------

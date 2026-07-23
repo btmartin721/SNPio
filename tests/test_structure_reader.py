@@ -15,6 +15,10 @@ class TestStructureReader(unittest.TestCase):
             for fn in Path().glob(ext):
                 fn.unlink(missing_ok=True)
 
+        output_dir = Path("test_structure_inline_popmap_output")
+        if output_dir.is_dir():
+            shutil.rmtree(output_dir)
+
     def _write_file(self, lines, suffix=".str"):
         tf = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode="w")
         tf.write("\n".join(lines))
@@ -246,7 +250,12 @@ class TestStructureReader(unittest.TestCase):
             popmapfile=None,
             has_marker_names=False,
             has_popids=True,
+            prefix="test_structure_inline_popmap",
             verbose=False,
+        )
+        self.assertEqual(
+            Path(reader.popmapfile),
+            Path("test_structure_inline_popmap_output/data/popmaps/popmap.txt"),
         )
         self.assertEqual(reader.marker_names, None)
         self.assertEqual(reader.samples, ["Sample1", "Sample2", "Sample3"])

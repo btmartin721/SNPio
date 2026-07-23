@@ -1,6 +1,5 @@
 import warnings
 from itertools import combinations
-from pathlib import Path
 from typing import Any, Literal, Tuple
 
 import numpy as np
@@ -8,10 +7,12 @@ import pandas as pd
 from sklearn.impute import SimpleImputer
 
 from snpio.popgenstats.fst_distance import FstDistance
+from snpio.popgenstats.fst_outlier_results import build_fst_outlier_dataframe
 from snpio.popgenstats.fst_outliers_dbscan import DBSCANOutlierDetector
 from snpio.popgenstats.fst_outliers_perm import PermutationOutlierDetector
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
+from snpio.utils.output_paths import OutputPaths
 
 
 class FstOutliers:
@@ -39,10 +40,7 @@ class FstOutliers:
             genotype_data, plotter, verbose=verbose, debug=debug
         )
 
-        if genotype_data.was_filtered:
-            outdir = Path(f"{self.genotype_data.prefix}_output", "nremover", "analysis")
-        else:
-            outdir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+        outdir = OutputPaths.from_genotype_data(genotype_data).reports("fst_outliers")
         outdir.mkdir(parents=True, exist_ok=True)
 
         logman = LoggerManager(
@@ -97,7 +95,7 @@ class FstOutliers:
         )
 
         if outliers_df.empty:
-            self.logger.warning("No Fst outliers detected. Skipping Fst outlier plot.")
+            self.logger.warning("No Fst outliers detected.")
         else:
             self.logger.info(
                 f"{len(outliers_df['Locus'].unique())} Fst outlier loci detected using DBSCAN method."
@@ -143,6 +141,7 @@ class FstOutliers:
                 for (p1, p2), df in fst_dict.items()
             ]
         )
+
         fst_wide = fst_long.pivot(
             index="Locus", columns="Population_Pair", values="Fst"
         ).sort_index()
@@ -170,20 +169,26 @@ class FstOutliers:
             verbose=self.verbose,
             debug=self.debug,
         )
+
         est.fit(df_imputed)
         p_values_1d = est.estimate_pvalues()
         is_outlier_series, q_values_series = est.identify_outliers(
             p_values_1d, alpha=alpha, correction_method=correction_method
         )
+
         is_outlier_series.index = df_imputed.index
         q_values_series.index = df_imputed.index
         significant_loci = is_outlier_series[is_outlier_series].index
 
         if significant_loci.empty:
-            self.logger.warning(
-                "No significant outliers were detected by DBSCAN method."
-            )
-            return pd.DataFrame()
+            msg = "No significant outliers were detected by DBSCAN method."
+            self.logger.warning(msg)
+            return build_fst_outlier_dataframe()
+
+        if est._scaler is None:
+            msg = "DBSCAN scaler is not fitted. Cannot compute Z-scores."
+            self.logger.error(msg)
+            raise RuntimeError(msg)
 
         # 4. Post-Hoc: Analyze which pairs contributed
         z_scores_df = pd.DataFrame(
@@ -191,6 +196,7 @@ class FstOutliers:
             index=df_imputed.index,
             columns=df_imputed.columns,
         )
+
         significant_z_scores = z_scores_df.loc[significant_loci]
         contrib_mask = significant_z_scores.abs() >= z_score_threshold
 
@@ -209,7 +215,7 @@ class FstOutliers:
                     }
                 )
 
-        return pd.DataFrame(final_results)
+        return build_fst_outlier_dataframe(final_results)
 
     def detect_outliers_permutation(
         self,
@@ -237,7 +243,9 @@ class FstOutliers:
         """Compute observed per-locus Weir & Cockerham's Fst for each population pair."""
         full_matrix = self.genotype_data.snp_data
         popmap = self.genotype_data.popmap_inverse
+
         sample_to_idx = {name: i for i, name in enumerate(self.genotype_data.samples)}
+
         pop_indices = {
             pop_name: np.array([sample_to_idx[s] for s in samples], dtype=int)
             for pop_name, samples in popmap.items()
@@ -250,9 +258,10 @@ class FstOutliers:
 
             # This helper from FstDistance computes
             # the (a) and (d) components per locus
-            a_vals, d_vals = self.fst_dist.fst_variance_components_per_locus(
+            a_vals, d_vals, _ = self.fst_dist.fst_variance_components_per_locus(
                 inds1, inds2, full_matrix
             )
+
             with np.errstate(divide="ignore", invalid="ignore"):
                 observed_fst = np.where(d_vals != 0, a_vals / d_vals, np.nan)
 

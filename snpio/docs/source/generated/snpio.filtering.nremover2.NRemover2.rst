@@ -16,6 +16,8 @@
       ~NRemover2.__init__
       ~NRemover2.filter_allele_depth
       ~NRemover2.filter_biallelic
+      ~NRemover2.filter_het
+      ~NRemover2.filter_het_pop
       ~NRemover2.filter_linked
       ~NRemover2.filter_mac
       ~NRemover2.filter_maf

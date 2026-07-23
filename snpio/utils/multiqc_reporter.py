@@ -13,56 +13,104 @@ from multiqc import config as mqc_config
 from multiqc.plots import bargraph, box, heatmap, linegraph, scatter, table, violin
 from scipy.stats import gaussian_kde
 
+from snpio.utils.output_paths import OutputPaths
 from snpio.utils.plot_queue import queued_plots
 
 LOG = logging.getLogger("snpio.multiqc")
 
 
-def custom_box(plotdata: pd.DataFrame, pconfig: dict) -> str:
-    """Generate a custom Plotly box plot with locus-level tooltips for MultiQC.
+def custom_box(plotdata: pd.DataFrame, pconfig: dict[str, Any] | None) -> str:
+    """Generate a configurable Plotly box plot for MultiQC.
 
     Args:
-        plotdata (pd.DataFrame): DataFrame with summary statistics (Ho, He, Pi) as columns and loci as index.
-        pconfig (dict): Not used directly, but passed by MultiQC.
+        plotdata: Wide locus-summary data or long-form grouped boxplot data.
+        pconfig: Plot configuration. Supplying ``x`` and ``y`` selects the
+            long-form renderer; otherwise the legacy locus-summary layout is
+            used.
 
     Returns:
-        str: HTML string for rendering in MultiQC report.
+        HTML string for rendering in a MultiQC report.
     """
-    # Reset index so "Locus (CHROM:POS)" becomes a column
-    df = plotdata.reset_index().melt(
-        id_vars=["Locus (CHROM:POS)"], var_name="Statistic", value_name="Value"
-    )
-
+    pconfig = pconfig or {}
     points = pconfig.get("points", "outliers")
-    if points not in {"all", "outliers"}:
+    if points not in {"all", "outliers", "suspectedoutliers", False}:
         LOG.warning(
             f"Invalid points value '{points}' in pconfig. Defaulting to 'outliers'."
         )
         points = "outliers"
 
-    # Create a box plot with overlaid points (jittered)
-    fig = px.box(
-        df,
-        x="Value",
-        y="Statistic",
-        orientation="h",
-        points=points,  # shows only outlier points over the boxes
-        hover_data={"Locus (CHROM:POS)": True, "Value": True},
-        title="Summary Statistics per Locus",
-    )
+    x = pconfig.get("x")
+    y = pconfig.get("y")
 
-    # Optional: customize layout
-    fig.update_traces(jitter=0.5, marker=dict(size=4))
+    if x is not None or y is not None:
+        if not isinstance(x, str) or not isinstance(y, str):
+            raise ValueError("Custom long-form boxplots require string 'x' and 'y'.")
+
+        color = pconfig.get("color")
+        required_columns = {x, y}
+        if isinstance(color, str):
+            required_columns.add(color)
+        missing_columns = sorted(required_columns.difference(plotdata.columns))
+        if missing_columns:
+            raise ValueError(
+                "Custom boxplot data is missing required column(s): "
+                f"{missing_columns}."
+            )
+
+        fig = px.box(
+            plotdata,
+            x=x,
+            y=y,
+            color=color,
+            points=points,
+            hover_data=pconfig.get("hover_data"),
+            category_orders=pconfig.get("category_orders"),
+            labels={
+                x: pconfig.get("xlab", x),
+                y: pconfig.get("ylab", y),
+                **(
+                    {color: pconfig.get("color_label", color)}
+                    if isinstance(color, str)
+                    else {}
+                ),
+            },
+            title=pconfig.get("title"),
+        )
+        default_jitter = 0.3
+    else:
+        df = plotdata.reset_index().melt(
+            id_vars=["Locus (CHROM:POS)"],
+            var_name="Statistic",
+            value_name="Value",
+        )
+        fig = px.box(
+            df,
+            x="Value",
+            y="Statistic",
+            orientation="h",
+            points=points,
+            hover_data={"Locus (CHROM:POS)": True, "Value": True},
+            title=pconfig.get("title", "Summary Statistics per Locus"),
+        )
+        default_jitter = 0.5
+
+    fig.update_traces(
+        jitter=pconfig.get("jitter", default_jitter),
+        marker=dict(size=pconfig.get("marker_size", 4)),
+    )
     fig.update_layout(
-        yaxis_title="Summary Statistic",
-        xaxis_title="Value",
+        boxmode=pconfig.get("boxmode", "group"),
         hoverlabel=dict(bgcolor="white", font_size=12),
         margin=dict(t=40, b=40, l=40, r=40),
-        height=500,
+        height=pconfig.get("height", 500),
         template="plotly_white",
     )
+    if "x_type" in pconfig:
+        fig.update_xaxes(type=pconfig["x_type"])
+    if "y_type" in pconfig:
+        fig.update_yaxes(type=pconfig["y_type"])
 
-    return pio.to_html(fig, include_plotlyjs="cdn", full_html=False)  # type: ignore
+    return str(pio.to_html(fig, include_plotlyjs="cdn", full_html=False))
 
 
 def custom_linegraph_kde_plot(
@@ -140,11 +188,13 @@ def _build_snpio_report(
     """
     # 1. Resolve core locations                                          #
     prefix = Path(prefix).expanduser().resolve()
+
     report_dir = (
         Path(output_dir).expanduser()
         if output_dir
-        else prefix.parent / f"{prefix.name}_output" / "multiqc"
+        else OutputPaths(prefix).multiqc
     )
+
     report_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Make the logo path absolute and patch MultiQC’s config
@@ -267,23 +317,41 @@ class SNPioMultiQC(BaseMultiqcModule):
         index_label: str | None,
         description: str | None = None,
     ) -> None:
-        """Queue an HTML snippet for rendering in the MultiQC report.
+        """Queue HTML content for rendering in the MultiQC report.
 
-        This method queues an HTML snippet for rendering in the MultiQC report.
+        ``str`` values beginning with an HTML tag are treated as inline HTML.
+        All other values are treated as paths and must identify an existing
+        regular file when queued.
 
         Args:
             cls: The class instance.
-            html (str | Path): The HTML snippet or file path to queue.
+            html (str | Path): Inline HTML or a path to an existing HTML file.
             panel_id (str): Unique identifier for the plot panel.
             section (str): Section name in the MultiQC report.
             title (str): Title of the plot.
             index_label (str): Label for the index column.
             description (str, optional): Description text for the plot. Defaults to None.
         """
+        html_source: str | Path
+
+        if isinstance(html, str) and cls._is_inline_html(html):
+            html_source = html
+
+        else:
+            html_path = Path(html).expanduser()
+
+            if not html_path.exists():
+                raise FileNotFoundError(f"HTML file does not exist: {html_path}")
+
+            if not html_path.is_file():
+                raise IsADirectoryError(f"HTML path is not a file: {html_path}")
+
+            html_source = html_path.resolve()
+
         queued_plots.append(
             {
                 "kind": "html",
-                "data": html,
+                "data": html_source,
                 "panel_id": panel_id,
                 "section": section,
                 "title": title,
@@ -291,6 +359,12 @@ class SNPioMultiQC(BaseMultiqcModule):
                 "description": description or "",
             }
         )
+
+    @staticmethod
+    def _is_inline_html(value: str) -> bool:
+        """Return whether a string contains inline HTML rather than a path."""
+
+        return value.lstrip("\ufeff \t\r\n").startswith("<")
 
     @classmethod
     def queue_heatmap(
@@ -319,6 +393,7 @@ class SNPioMultiQC(BaseMultiqcModule):
         """
 
         df = cls._series_to_dataframe(df, index_label=index_label, value_label="value")
+
         data = cls._df_to_plot_data(df, index_label=index_label)
 
         queued_plots.append(
@@ -537,7 +612,7 @@ class SNPioMultiQC(BaseMultiqcModule):
     @classmethod
     def queue_linegraph(
         cls,
-        data: Dict[str, Dict[int, int]],
+        data: pd.DataFrame | Dict[str, Dict[int, int]],
         *,
         panel_id: str,
         section: str,
@@ -549,7 +624,7 @@ class SNPioMultiQC(BaseMultiqcModule):
         """Queue a line graph for rendering in the MultiQC report.
 
         Args:
-            data (Dict[str, Dict[int, int]]): Data to plot, where keys are sample names and values are dictionaries with x-axis values and their corresponding y-axis values.
+            data (pd.DataFrame | Dict[str, Dict[int, int]]): Data to plot, where keys are sample names and values are dictionaries with x-axis values and their corresponding y-axis values.
             panel_id (str): Unique identifier for the plot panel.
             section (str): Section name in the MultiQC report.
             title (str): Title of the plot.
@@ -747,19 +822,33 @@ class SNPioMultiQC(BaseMultiqcModule):
         )
 
     def _add_html(self, p: Dict[str, Any]) -> Dict[str, Any | None]:
-        """Render an HTML snippet in the MultiQC report.
+        """Load inline or file-backed HTML for a MultiQC report section.
 
         Args:
             p (Dict[str, Any]): Plot parameters including data and metadata.
         """
-        html: str | Path = p["data"]
-        if isinstance(html, (str, Path)) and Path(html).exists():
-            with open(html, "r") as f:
-                html_content = f.read()
-        else:
-            msg = "Invalid HTML path."
+        html_source = p["data"]
+
+        if isinstance(html_source, str) and self._is_inline_html(html_source):
+            return {"html_content": html_source, "plot": None}
+
+        html_path = Path(html_source).expanduser()
+
+        if not html_path.exists():
+            msg = f"HTML file for panel '{p.get('panel_id', 'unknown')}' does not exist: {html_path}"
             LOG.error(msg)
-            raise IOError(msg)
+            raise FileNotFoundError(msg)
+        if not html_path.is_file():
+            msg = f"HTML path for panel '{p.get('panel_id', 'unknown')}' is not a file: {html_path}"
+            LOG.error(msg)
+            raise IsADirectoryError(msg)
+
+        try:
+            html_content = html_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            msg = f"Unable to read HTML for panel '{p.get('panel_id', 'unknown')}' from {html_path}: {exc}"
+            LOG.error(msg)
+            raise OSError(msg) from exc
 
         return {"html_content": html_content, "plot": None}
 
@@ -770,6 +859,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             p (Dict[str, Any]): Plot parameters including data and metadata.
         """
         data = p["data"]
+
         return table.plot(
             data=data, headers=data.get("headers", None), pconfig=p.get("pconfig", None)
         )
@@ -782,6 +872,7 @@ class SNPioMultiQC(BaseMultiqcModule):
         """
 
         data = p["data"]
+
         return heatmap.plot(
             data=data,
             xcats=p.get("xcats", None),
@@ -817,6 +908,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             p (Dict[str, Any]): Plot parameters including data and metadata.
         """
         data = p["data"]
+
         return violin.plot(
             data=data, headers=p.get("headers", None), pconfig=p.get("pconfig", None)
         )
@@ -828,6 +920,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             p (pd.DataFrame | pd.Series | dict): Plot parameters including data and metadata.
         """
         data = p["data"]
+
         return box.plot(list_of_data_by_sample=data, pconfig=p.get("pconfig", None))  # type: ignore
 
     def _add_custom_boxplot(self, p: pd.DataFrame | pd.Series | dict) -> Any:
@@ -837,6 +930,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             p (pd.DataFrame | pd.Series | dict): Plot parameters including data and metadata.
         """
         data = p["data"]
+
         return custom_box(plotdata=data, pconfig=p.get("pconfig", None))  # type: ignore
 
     def _add_linegraph(self, p: pd.DataFrame | pd.Series | dict) -> Any:
@@ -846,7 +940,31 @@ class SNPioMultiQC(BaseMultiqcModule):
             p (pd.DataFrame | pd.Series | dict): Plot parameters including data and metadata.
         """
         data = p["data"]
+
         return linegraph.plot(data=data, pconfig=p.get("pconfig", None))  # type: ignore
+
+    @staticmethod
+    def _sanitize_plot_data(value: Any) -> Any:
+        """Replace nonfinite numerics with MultiQC-compatible missing values."""
+
+        if isinstance(value, dict):
+            return {
+                key: SNPioMultiQC._sanitize_plot_data(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [SNPioMultiQC._sanitize_plot_data(item) for item in value]
+
+        if isinstance(value, tuple):
+            return tuple(SNPioMultiQC._sanitize_plot_data(item) for item in value)
+
+        if isinstance(value, np.generic):
+            value = value.item()
+
+        if isinstance(value, float) and not np.isfinite(value):
+            return None
+
+        return value
 
     @staticmethod
     def _df_to_plot_data(
@@ -878,7 +996,7 @@ class SNPioMultiQC(BaseMultiqcModule):
             }
         """
         if isinstance(df, dict):
-            return df
+            return SNPioMultiQC._sanitize_plot_data(df)
 
         df = df.copy()
         if index_label is not None:
@@ -890,7 +1008,8 @@ class SNPioMultiQC(BaseMultiqcModule):
                 else:
                     df.index.name = index_label
 
-        return df.to_dict(orient="index")
+        data = df.to_dict(orient="index")
+        return SNPioMultiQC._sanitize_plot_data(data)
 
     def build_report(self, **kwargs):
         """Instance-friendly alias to write the MultiQC report to an HTML file.

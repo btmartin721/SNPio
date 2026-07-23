@@ -1,315 +1,242 @@
-Example Script
-==============
+Command-Line Workflow
+=====================
 
-The file ``run_snpio.py`` is a ready-to-use template that walks through a
-complete SNPio workflow:
+The installed ``snpio`` command runs the opinionated end-to-end workflow in
+``snpio.run_snpio``. It loads a VCF and population map, records the arguments,
+generates pre-filtering diagnostics, applies ``NRemover2``, runs population-
+genetic analyses on the filtered object, and builds a MultiQC report.
 
-* Load genotype data (VCF, Structure, Phylip, or Genepop + popmap)
-* Filter and clean the data
-* Run desired population-genetic analyses
-* Generate plots and an interactive MultiQC report
+Use the Python API when you need a different analysis subset, explicit LD
+linkage groups, a non-VCF reader, or custom filter ordering. The command-line
+workflow is intended for reproducible full runs rather than as a replacement
+for every API option.
 
-Run it using the `snpio` terminal command once SNPio and its
-dependencies are installed:
+Basic invocation
+----------------
 
 .. code-block:: console
 
-   $ snpio \
-      --input   data/example.vcf.gz \
-      --popmap  data/popmap.txt \
-      --prefix  results/example_run
+   snpio \
+     --input data/example.vcf.gz \
+     --popmap data/popmap.txt \
+     --prefix results/example_run \
+     --include-pops EA GU TT ON OG \
+     --n-jobs 8 \
+     --plot-format png \
+     --random-seed 42
 
-Command-line options
---------------------
+``--prefix results/example_run`` creates
+``results/example_run_output/``. Although the parser accepts an omitted
+``--popmap``, the current full population-genetic workflow validates and uses
+one, so provide it for command-line runs.
 
-``run_snpio.py`` uses ``argparse`` for a clean CLI:
+Inspect the installed command for the exact options and defaults in your
+version:
+
+.. code-block:: console
+
+   snpio --help
+   snpio --version
+
+Input and filtering options
+---------------------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 50
+   :widths: 30 18 52
 
    * - Option
-     - Description
-   * - ``--input``
-     - Path to a VCF / PHYLIP / STRUCTURE file.
-   * - ``--popmap``
-     - Two-column file mapping *sample ID → population*.
-   * - ``--prefix``
-     - Output prefix; results go to ``<prefix>_output/``.
-   * - ``--plot-format``
-     - Plot format: ``png`` | ``pdf`` | ``svg`` | ``jpeg`` (default: ``png``).
-   * - ``--verbose``
-     - Verbose logging.
-   * - ``--debug``
-     - Extra diagnostics for troubleshooting.
+     - Default
+     - Meaning
+   * - ``--input PATH``
+     - required
+     - Input VCF for the current command-line workflow.
+   * - ``--popmap PATH``
+     - none
+     - Two-column sample-to-population map used by population analyses.
+   * - ``--prefix PREFIX``
+     - required
+     - Output prefix; artifacts are rooted at ``<prefix>_output/``.
+   * - ``--include-pops POP [POP ...]``
+     - all
+     - Restrict loading and downstream analyses to named populations.
+   * - ``--sample-missing-threshold FLOAT``
+     - ``0.8``
+     - Maximum sample missingness retained by the filtering workflow.
+   * - ``--locus-missing-threshold FLOAT``
+     - ``0.75``
+     - Maximum overall locus missingness retained.
+   * - ``--locus-missing-pop-threshold FLOAT``
+     - ``0.75``
+     - Within-population locus threshold recorded in run provenance. The
+       current bundled workflow applies ``--locus-missing-threshold`` to its
+       population-missingness filter as well; use the Python API when the two
+       thresholds must differ.
+   * - ``--maf-threshold FLOAT``
+     - ``0.01``
+     - Minor-allele-frequency threshold recorded for the run.
+   * - ``--mac-threshold INTEGER``
+     - ``2``
+     - Minor-allele-count threshold recorded for the run.
+   * - ``--exclude-heterozygous``
+     - false
+     - Exclude heterozygous calls in filters that support this policy.
+   * - ``--force-popmap``
+     - false
+     - Reconcile minor VCF/popmap sample mismatches when loading.
+   * - ``--chunk-size INTEGER``
+     - ``5000``
+     - VCF chunk size; tune this to available memory.
 
-Outputs
--------
+Parallelism, plots, and resampling
+----------------------------------
 
-The script produces:
+.. list-table::
+   :header-rows: 1
+   :widths: 30 18 52
 
-* **Filtered genotype data** (HDF5 + flat files)  
-* **Population-genetic statistics** (CSV / JSON)  
-* **Plots** (summary, PCA, distances, outliers, D-stats)  
-* **Interactive MultiQC report** in ``<prefix>_output/multiqc/``
+   * - Option
+     - Default
+     - Meaning
+   * - ``--n-jobs INTEGER``
+     - ``1``
+     - Parallel workers for analyses that support them; ``-1`` uses all CPUs.
+   * - ``--plot-format {png,pdf,svg}``
+     - ``png``
+     - Static plot format.
+   * - ``--n-boot-fst INTEGER``
+     - ``1000``
+     - Fst bootstrap replicates.
+   * - ``--n-perm-fst INTEGER``
+     - ``1000``
+     - Fst permutations, including outlier analysis.
+   * - ``--n-boot-neis INTEGER``
+     - ``1000``
+     - Nei-distance bootstrap replicates.
+   * - ``--n-perm-neis INTEGER``
+     - ``1000``
+     - Nei-distance permutations.
+   * - ``--n-boot-dstats INTEGER``
+     - ``1000``
+     - Bootstrap replicates for each D-statistic method.
+   * - ``--n-boot-ld INTEGER``
+     - ``1000``
+     - Grouped-locus bootstrap replicates for LD and recent :math:`N_e`.
 
-Source code
------------
+LD and recent effective-size options
+------------------------------------
 
-Below is the full example script bundled with SNPio.  Feel free to copy,
-adapt, or mine individual steps for your own pipelines.
+The command runs ``calculate_linkage_disequilibrium`` on the filtered
+``GenotypeData`` after the other analyses.
 
-.. code-block:: python
-   :linenos:
+.. list-table::
+   :header-rows: 1
+   :widths: 30 18 52
 
-   #!/usr/bin/env python3
+   * - Option
+     - Default
+     - Meaning
+   * - ``--include-overall``
+     - false
+     - Add a pooled all-sample estimate to the per-population estimates.
+   * - ``--assume-unlinked``
+     - false
+     - Explicitly assert that all supplied loci are unlinked.
 
-   import argparse
-   from pathlib import Path
+For an ordinary multi-chromosome VCF, leave ``--assume-unlinked`` disabled.
+SNPio infers chromosome or scaffold groups from VCF marker names and excludes
+within-group pairs. Enabling the flag overrides those labels and emits a
+warning. Use the Python API when explicit ``locus_groups`` or
+``bootstrap_groups`` are required.
 
-   from snpio import NRemover2, PopGenStatistics, SNPioMultiQC, VCFReader
+D-statistic options
+-------------------
 
-   """
-   run_snpio.py
+The workflow runs Patterson, partitioned, and DFOIL statistics. Population
+labels are provided by ``--population1`` through ``--population4`` and
+``--outgroup``; their defaults are ``EA``, ``GU``, ``TT``, ``ON``, and ``OG``.
 
-   A helper script to run SNPio programmatically from within Docker or CLI.
+.. list-table::
+   :header-rows: 1
+   :widths: 34 18 48
 
-   Usage:
-      python run_snpio.py \
-         --input /app/data/0_original_alignments/example.vcf \
-         --popmap /app/data/1_popmaps/example_popmap.txt \
-         --prefix /app/results/snpio \
-         --verbose \
-         --debug \
-         --plot-format <png|pdf|svg>
-   """
+   * - Option
+     - Default
+     - Meaning
+   * - ``--individual-selection {random,least_missing,all}``
+     - ``random``
+     - Choose a random capped subset, the deterministically least-missing
+       samples, or all samples in each population.
+   * - ``--max-individuals-per-pop INTEGER``
+     - ``5``
+     - Per-population cap for ``random`` and ``least_missing``. ``all`` ignores
+       this cap.
 
+``least_missing`` counts unusable calls in the filtered D-statistic 0/1/2
+matrix, ranks within populations, and resolves ties in alignment order. It is
+deterministic; ``--random-seed`` controls random selection and resampling but
+does not change this ranking.
 
-   def version():
-      from snpio import __version__
+Fst outlier and run-control options
+-----------------------------------
 
-      return str(__version__)
+``--use-dbscan`` selects DBSCAN for Fst outlier detection;
+``--min-samples-dbscan`` controls its neighborhood size. Permutation-based
+multiple testing uses ``--pvalue-correction-method`` with one of
+``bonferroni``, ``fdr_bh``, ``holm``, ``hochberg``, ``hommel``, or
+``fdr_tsbh``.
 
+``--random-seed`` records and applies a reproducibility seed where supported.
+``--overwrite-multiqc`` permits replacement of an existing report.
+``--verbose`` and ``--debug`` increase logging detail.
 
-   def validate_file(path: str, name: str) -> None:
-      pth = Path(path)
-      if not pth.exists() or not pth.is_file():
-         print(f"ERROR: {name} file not found at: {path}")
-         raise FileNotFoundError(f"{name} file not found: {path}")
+Generated outputs
+-----------------
 
+The command uses the shared output layout:
 
-   def parse_args():
-      parser = argparse.ArgumentParser(
-         prog="SNPio",
-         description="Run SNPio with specified input, popmap, and output prefix.",
-      )
-      parser.add_argument(
-         "--input",
-         type=str,
-         required=True,
-         help="Path to input file (VCF, PHYLIP, or STRUCTURE format).",
-      )
-      parser.add_argument(
-         "--popmap",
-         type=str,
-         required=True,
-         help="Path to popmap file mapping samples to populations. Format: <sample>\t<population>",
-      )
-      parser.add_argument(
-         "--prefix",
-         type=str,
-         required=True,
-         help="Output prefix for results (output files will be saved as <prefix>_output/*)",
-      )
-      parser.add_argument(
-         "--verbose",
-         action="store_true",
-         help="Enable verbose logging. Includes additional logging information during processing.",
-      )
-      parser.add_argument(
-         "--debug",
-         action="store_true",
-         help="Enable debug mode. Includes additional logging and checks. This may slow down processing.",
-      )
-      parser.add_argument(
-         "--plot-format",
-         type=str,
-         default="png",
-         choices=["png", "pdf", "svg"],
-         help="Format for output plots. Options: png, pdf, svg (default: png)",
-      )
+.. code-block:: text
 
-      parser.add_argument(
-         "--version",
-         default=False,
-         required=False,
-         action="store_true",
-         help="Show the version of SNPio and exit.",
-      )
+   <prefix>_output/
+   ├── data/
+   │   ├── vcf/vcf_attributes.h5
+   │   └── vcf/nremover/vcf_attributes_filtered_<state>.h5
+   ├── logs/
+   │   ├── arguments.json
+   │   └── <module>.log
+   ├── multiqc/
+   ├── plots/
+   │   ├── <operation>/
+   │   └── nremover/<operation>/
+   └── reports/
+       ├── <operation>/
+       └── nremover/<operation>/
 
-      args = parser.parse_args()
+All analyses initialized with the resolved filtered object write beneath the
+``nremover`` scope. LD reports, for example, use
+``reports/nremover/linkage_disequilibrium/`` and static figures use
+``plots/nremover/linkage_disequilibrium/``. MultiQC includes the filtered-data
+summaries plus population-aware LD and separate recent-:math:`N_e` panels.
 
-      if args.version:
-         print(f"SNPio version {version()}")
-         exit(0)
+The JSON provenance file contains the parsed input, filtering, parallelism,
+resampling, LD, D-statistic, plotting, and verbosity settings. Preserve it with
+the result bundle when sharing or publishing a run.
 
-      return args
+Equivalent module invocation
+----------------------------
 
+The console entry point calls ``snpio.run_snpio:main``. These invocations are
+equivalent after installation:
 
-   def main():
-      args = parse_args()
+.. code-block:: console
 
-      # Validate paths
-      validate_file(args.input, "Input")
-      validate_file(args.popmap, "Popmap")
+   snpio --input data/example.vcf.gz --popmap data/popmap.txt --prefix run
 
-      print(f"🧬 Running SNPio version {version()} with the following arguments:")
-      print(f"  📥 Input file:     {args.input}")
-      print(f"  🧾 Popmap file:    {args.popmap}")
-      print(f"  📁 Output prefix:  {args.prefix}")
-      print(f"  🖼️ Plot format:     {args.plot_format}")
-      print(f"  🔍 Verbose:         {args.verbose}")
-      print(f"  🐛 Debug:           {args.debug}")
-      print()
+   python -m snpio.run_snpio \
+     --input data/example.vcf.gz \
+     --popmap data/popmap.txt \
+     --prefix run
 
-      genotype_data = VCFReader(
-         filename=args.input,
-         popmapfile=args.popmap,
-         force_popmap=True,
-         chunk_size=5000,
-         include_pops=["EA", "GU", "TT", "ON", "OG"],
-         prefix=args.prefix,
-         plot_format=args.plot_format,
-         verbose=args.verbose,
-         debug=args.debug,
-         # allele_encoding={"0": "A", "1": "C", "2": "G", "3": "T", "-9": "N"},
-      )
-
-      # Generate missingness reports before filtering
-      genotype_data.missingness_reports(prefix=args.prefix)
-
-      nrm = NRemover2(genotype_data)
-
-      nrm.search_thresholds(
-         thresholds=[0.25, 0.5, 0.75],
-         maf_thresholds=[0.01, 0.05],
-         mac_thresholds=[2, 3],
-         filter_order=[
-               "filter_missing_sample",
-               "filter_missing",
-               "filter_missing_pop",
-               "filter_monomorphic",
-               "filter_singletons",
-               "filter_biallelic",
-               "filter_mac",
-               "filter_maf",
-         ],
-      )
-
-      gd_filt = (
-         nrm.filter_biallelic(exclude_heterozygous=True)
-         .filter_missing(0.75)
-         .filter_missing_pop(0.75)
-         .filter_singletons(exclude_heterozygous=True)
-         .filter_missing_sample(0.8)
-         .resolve()
-      )
-
-      nrm.plot_sankey_filtering_report()
-      gd_filt.missingness_reports(gd_filt.prefix)
-
-      pgs = PopGenStatistics(gd_filt, verbose=args.verbose, debug=args.debug)
-
-      allele_summary_stats, summary_stats = pgs.summary_statistics(
-         fst_method="observed", n_reps=1000, n_jobs=8
-      )
-      fst_dist = pgs.fst_distance(
-         method="permutation", n_reps=1000, n_jobs=8, palette="magma"
-      )
-      fst_dist = pgs.fst_distance(
-         method="bootstrap", n_reps=1000, n_jobs=8, palette="magma"
-      )
-
-      neis_dist_boot = pgs.neis_genetic_distance(
-         method="bootstrap", n_reps=1000, n_jobs=8
-      )
-
-      neis_dist_perm = pgs.neis_genetic_distance(
-         method="permutation", n_reps=1000, n_jobs=8
-      )
-
-      fst_perm = pgs.detect_fst_outliers(
-         n_permutations=100,
-         correction_method="fdr_bh",
-         use_dbscan=False,
-         n_jobs=8,
-         min_samples=5,
-         seed=42,
-      )
-
-      fst_dbscan = pgs.detect_fst_outliers(
-         n_permutations=1000,
-         correction_method="fdr_bh",
-         use_dbscan=True,
-         n_jobs=8,
-         min_samples=5,
-         seed=42,
-      )
-
-      dstats = pgs.calculate_d_statistics(
-         method="patterson",
-         population1="EA",
-         population2="GU",
-         population3="TT",
-         outgroup="ON",
-         num_bootstraps=1000,
-         individual_selection="random",
-         max_individuals_per_pop=3,
-         seed=42,
-      )
-
-      dstats_partitioned = pgs.calculate_d_statistics(
-         method="partitioned",
-         population1="EA",
-         population2="GU",
-         population3="TT",
-         population4="ON",
-         outgroup="OG",
-         num_bootstraps=1000,
-         individual_selection="random",
-         max_individuals_per_pop=3,
-         seed=42,
-      )
-
-      dstats_dfoil = pgs.calculate_d_statistics(
-         method="dfoil",
-         population1="EA",
-         population2="GU",
-         population3="TT",
-         population4="ON",
-         outgroup="OG",
-         num_bootstraps=1000,
-         individual_selection="random",
-         max_individuals_per_pop=3,
-         seed=42,
-      )
-
-      # Run PCA
-      pgs.pca()
-
-      # Build MultiQC report
-      print("📊 Building MultiQC report...")
-      SNPioMultiQC.build(
-         prefix="Example Report",
-         output_dir=f"{args.prefix}_output/multiqc",
-         overwrite=True,
-      )
-
-
-   if __name__ == "__main__":
-      main()
-
-
-.. tip::
-
-   For large analyses, adjust the ``chunk_size`` and ``n_jobs`` parameters to match your compute resources, and consider running the filtering and statistics steps in a workflow manager (e.g. Snakemake or Nextflow).
+For a modular Python workflow, begin with :doc:`getting_started`; for the full
+LD API and assumptions, see :doc:`linkage_disequilibrium`; and for the
+executable LD evidence suite, see :doc:`ld_validation`.

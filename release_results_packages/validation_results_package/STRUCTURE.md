@@ -75,5 +75,6 @@ Current counts:
 Shared Fst/Nei files.
 
 - `combined_summaries/` - Combined workbook summaries and shared allele-summary JSON files.
-- `logs/` - SNPio and nRemover logs.
+- `logs/` - SNPio and nRemover logs from the curated validation run.
 - `supporting_plots/` - Shared genotype-data and summary-statistics plots.
+- `results/` - Re-run outputs from `scripts/fst_nei/run_fst.zsh`; kept separate from curated manuscript-facing Fst/Nei results.

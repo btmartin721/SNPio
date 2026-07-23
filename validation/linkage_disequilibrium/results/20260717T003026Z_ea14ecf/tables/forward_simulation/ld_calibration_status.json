@@ -1,0 +1,12 @@
+{
+  "inferential_checks_applied": true,
+  "acceptance_contract": {
+    "model_relative_bias_tolerance": 0.05,
+    "model_bias_confidence_level": 0.95,
+    "population_coverage_required": false,
+    "chromosome_only_population_coverage_is_diagnostic": true
+  },
+  "passed": true,
+  "cells": 22,
+  "failed_cells": []
+}

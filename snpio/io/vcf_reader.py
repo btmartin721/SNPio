@@ -1,4 +1,7 @@
 import gc
+import hashlib
+import os
+import tempfile
 from collections import deque
 from functools import lru_cache
 from itertools import count
@@ -13,6 +16,7 @@ from tqdm import tqdm
 from snpio.read_input.genotype_data import GenotypeData
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
+from snpio.utils.output_paths import OutputPaths
 
 
 class VCFReader(GenotypeData):
@@ -145,7 +149,7 @@ class VCFReader(GenotypeData):
             - Setting `store_format_fields` to True slows down VCFReader. If you don't need the per-sample-per-locus metadata, leave this at False.
 
         """
-        outdir = Path(f"{prefix}_output") / "alignments" / "vcf"
+        outdir = OutputPaths(prefix).vcf_data
         outdir.mkdir(exist_ok=True, parents=True)
 
         self._vcf_attributes_fn = outdir / "vcf_attributes.h5"
@@ -161,7 +165,9 @@ class VCFReader(GenotypeData):
         self.vcf_header = None
         self.info_fields = None
 
-        logman = LoggerManager(name=__name__, verbose=verbose, debug=debug)
+        logman = LoggerManager(
+            name=__name__, prefix=prefix, verbose=verbose, debug=debug
+        )
         self.logger = logman.get_logger()
 
         self.resource_data = {}
@@ -290,10 +296,12 @@ class VCFReader(GenotypeData):
             TypeError: If the requested HDF5 object is not a dataset.
         """
         obj = group[key]
+
         if not isinstance(obj, h5py.Dataset):
-            raise TypeError(
-                f"Expected HDF5 dataset at key '{key}', found {type(obj).__name__}"
-            )
+            msg = f"Expected HDF5 dataset at key '{key}', found {type(obj).__name__}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
         return obj
 
     def _get_h5_group(self, group: h5py.File | h5py.Group, key: str) -> h5py.Group:
@@ -310,10 +318,12 @@ class VCFReader(GenotypeData):
             TypeError: If the requested HDF5 object is not a group.
         """
         obj = group[key]
+
         if not isinstance(obj, h5py.Group):
-            raise TypeError(
-                f"Expected HDF5 group at key '{key}', found {type(obj).__name__}"
-            )
+            msg = f"Expected HDF5 group at key '{key}', found {type(obj).__name__}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
         return obj
 
     def get_vcf_attributes(
@@ -474,11 +484,13 @@ class VCFReader(GenotypeData):
                     # No alleles found, treat as missing
                     alt.append(["."])
                     alt_for_hdf5 = "."
+
                 elif len(all_alleles) > 1:
                     # Site has alternate alleles (bi- or multi-allelic)
                     current_alts = all_alleles[1:]
                     alt.append(list(current_alts))
                     alt_for_hdf5 = ",".join(current_alts)
+
                 else:
                     # No alternate alleles, treat as missing
                     alt.append(["."])
@@ -614,7 +626,8 @@ class VCFReader(GenotypeData):
         Notes:
             - This method modifies `fmt_data_buf` in-place. It does not return a value.
         """
-        # Extract sample values for the current record once (dict view → list of dicts)
+        # Extract sample values for the current record once
+        # (dict view → list of dicts)
         sample_data = [record.samples[sample] for sample in samples]
 
         rows = {fmt_key: [] for fmt_key in fmt_data_buf.keys()}
@@ -637,6 +650,7 @@ class VCFReader(GenotypeData):
                 else:
                     row[s_idx] = str(val)
             rows[fmt_key].append(row)
+
         return {fmt_key: np.array(row) for fmt_key, row in rows.items()}
 
     def _is_bgzipped(self, filepath: Path) -> bool:
@@ -663,61 +677,86 @@ class VCFReader(GenotypeData):
         loci_indices: np.ndarray,
         samples: np.ndarray,
     ) -> Path | None:
-        """Updates the VCF attributes with new data in chunks.
+        """Write filtered VCF metadata to an independent HDF5 artifact.
 
-        This method updates the VCF attributes in the HDF5 file with new data. It
-        processes the data in chunks to reduce memory usage and ensures that the data
-        is written correctly.
+        The destination is derived from the source HDF5 version and the two parent-coordinate masks. A temporary sibling file is atomically moved into place only after every metadata dataset has been written.
 
         Args:
-            snp_data (np.ndarray): The SNP data to update the VCF attributes with.
-            sample_indices (np.ndarray): The indices of the samples to update.
-            loci_indices (np.ndarray): The indices of the loci to update.
-            samples (np.ndarray): The sample names to update.
+            snp_data: Filtered genotype matrix.
+            sample_indices: Boolean sample mask in source-HDF5 coordinates.
+            loci_indices: Boolean locus mask in source-HDF5 coordinates.
+            samples: Retained sample names in filtered-matrix order.
 
         Returns:
-            Path | None: Path to the new filtered HDF5 file, or None if no update
-                is performed.
-
-        Raises:
-            FileNotFoundError: If the VCF attributes file is not found.
+            Path to the completed filtered HDF5 file, or ``None`` when the
+            filtered state is empty.
         """
-        new_size = np.count_nonzero(loci_indices)
-        new_sample_size = np.count_nonzero(sample_indices)
 
-        if snp_data.size == 0 or new_size == 0 or new_sample_size == 0:
-            if snp_data.size == 0:
-                self.logger.warning("snp_data is empty. Skipping VCF attribute update.")
-            elif new_size == 0:
-                self.logger.warning(
-                    "No loci left after filtering. Skipping VCF attribute update."
-                )
-            elif new_sample_size == 0:
-                self.logger.warning(
-                    "No samples left after filtering. Skipping VCF attribute update."
-                )
-            return None
-
-        self.snp_data = snp_data
+        data = np.asarray(snp_data)
 
         if isinstance(samples, np.ndarray):
             samp_list = samples.tolist()
+
         elif isinstance(samples, list):
             samp_list = samples
-        else:
-            raise TypeError("samples must be a numpy array or a list")
 
-        self.samples = samp_list
-        self.sample_indices = sample_indices
-        self.loci_indices = loci_indices
+        else:
+            msg = f"Unexpected type for samples: {type(samples).__name__}"
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        sample_mask, locus_mask = self._validate_filtered_matrix_and_masks(
+            data, samp_list, sample_indices, loci_indices
+        )
+
+        new_size = int(np.count_nonzero(locus_mask))
+        new_sample_size = int(np.count_nonzero(sample_mask))
+
+        if data.size == 0 or new_size == 0 or new_sample_size == 0:
+            if data.size == 0:
+                msg = "snp_data is empty. Skipping VCF attribute update."
+                self.logger.warning(msg)
+            elif new_size == 0:
+                msg = "No loci left after filtering. Skipping VCF attribute update."
+                self.logger.warning(msg)
+            else:
+                msg = "No samples left after filtering. Skipping VCF attribute update."
+                self.logger.warning(msg)
+            return None
 
         hdf5_file_path = Path(self.vcf_attributes_fn)
-        hdf5_file_filt = hdf5_file_path.with_name("vcf_attributes_filtered.h5")
-
         if not hdf5_file_path.exists():
             msg = f"VCF attributes file {hdf5_file_path} not found."
             self.logger.error(msg)
             raise FileNotFoundError(msg)
+
+        source_stat = hdf5_file_path.stat()
+        state_hash = hashlib.sha256()
+        state_hash.update(str(hdf5_file_path.resolve()).encode("utf-8"))
+        state_hash.update(str(source_stat.st_size).encode("ascii"))
+        state_hash.update(str(source_stat.st_mtime_ns).encode("ascii"))
+        for mask in (sample_mask, locus_mask):
+            state_hash.update(np.asarray([mask.size], dtype=np.int64).tobytes())
+            state_hash.update(np.packbits(mask).tobytes())
+
+        state_id = state_hash.hexdigest()[:16]
+        filtered_directory = OutputPaths(self.prefix).vcf_data / "nremover"
+        filtered_directory.mkdir(parents=True, exist_ok=True)
+        hdf5_file_filt = filtered_directory / f"vcf_attributes_filtered_{state_id}.h5"
+
+        if hdf5_file_filt.resolve() == hdf5_file_path.resolve():
+            msg = "Filtered HDF5 output must differ from its source file. Please check the filtering masks."
+            self.logger.error(msg)
+            raise RuntimeError(msg)
+
+        tmp_handle = tempfile.NamedTemporaryFile(
+            dir=filtered_directory,
+            prefix=f".{hdf5_file_filt.stem}.",
+            suffix=".tmp.h5",
+            delete=False,
+        )
+        tmp_path = Path(tmp_handle.name)
+        tmp_handle.close()
 
         def process_chunk(
             dataset_name: str,
@@ -726,15 +765,6 @@ class VCFReader(GenotypeData):
             fr: h5py.File,
             sample_size: int | None = None,
         ) -> None:
-            """Process a chunk of data and write it to the HDF5 file.
-
-            Args:
-                dataset_name (str): The name of the dataset to process.
-                dtype (Any): The data type of the dataset.
-                fw (h5py.File): The HDF5 file to write to.
-                fr (h5py.File): The HDF5 file to read from.
-                sample_size (int | None): The size of the sample to process. Defaults to None.
-            """
             src_ds = self._get_h5_dataset(fr, dataset_name)
 
             new_shape = (
@@ -763,77 +793,88 @@ class VCFReader(GenotypeData):
 
             while start_idx < dset_size:
                 end_idx = min(start_idx + chunk_size_inner, dset_size)
-
-                # Get the chunk of data from the original dataset
                 chunk = src_ds[start_idx:end_idx]
                 chunk_indices = global_indices[start_idx:end_idx]
-                mask = loci_indices[chunk_indices]
+                mask = locus_mask[chunk_indices]
 
                 if sample_size is None:
                     filtered_chunk = chunk[mask]
-                else:
-                    filtered_chunk = chunk[mask, :][:, self.sample_indices]
 
-                # Cast to proper dtype to avoid HDF5 conversion errors
-                filtered_chunk = np.array(filtered_chunk, dtype=dtype)
+                else:
+                    if chunk.ndim != 2 or chunk.shape[1] != sample_mask.size:
+                        msg = f"VCF FORMAT dataset '{dataset_name}' has incompatible shape={chunk.shape}; expected {sample_mask.size} samples."
+                        self.logger.error(msg)
+                        raise ValueError(msg)
+
+                    filtered_chunk = chunk[mask, :][:, sample_mask]
+
+                filtered_chunk = np.asarray(filtered_chunk, dtype=dtype)
+                stop = write_idx + filtered_chunk.shape[0]
 
                 if sample_size is None:
-                    dst_ds[write_idx : write_idx + filtered_chunk.shape[0]] = (
-                        filtered_chunk
-                    )
+                    dst_ds[write_idx:stop] = filtered_chunk
                 else:
-                    dst_ds[write_idx : write_idx + filtered_chunk.shape[0], :] = (
-                        filtered_chunk
-                    )
+                    dst_ds[write_idx:stop, :] = filtered_chunk
 
-                write_idx += filtered_chunk.shape[0]
+                write_idx = stop
                 start_idx = end_idx
-
                 del chunk, filtered_chunk, mask
                 gc.collect()
 
-        with h5py.File(hdf5_file_filt, "w") as fw, h5py.File(hdf5_file_path, "r") as fr:
-            datasets_to_process = [
-                ("chrom", h5py.string_dtype(encoding="utf-8")),
-                ("pos", np.int64),
-                ("id", h5py.string_dtype(encoding="utf-8")),
-                ("ref", h5py.string_dtype(encoding="utf-8", length=1)),
-                ("alt", h5py.string_dtype(encoding="utf-8", length=10)),
-                ("qual", h5py.string_dtype(encoding="utf-8", length=10)),
-                ("filt", h5py.string_dtype(encoding="utf-8", length=4)),
-                ("fmt", h5py.string_dtype(encoding="utf-8")),
-            ]
+        try:
+            with h5py.File(hdf5_file_path, "r") as fr:
+                chrom_ds = self._get_h5_dataset(fr, "chrom")
+                if chrom_ds.shape[0] != locus_mask.size:
+                    msg = f"Locus mask does not match the source VCF metadata: mask length={locus_mask.size}, loci={chrom_ds.shape[0]}."
+                    self.logger.error(msg)
+                    raise ValueError(msg)
 
-            for dataset_name, dtype in datasets_to_process:
-                process_chunk(dataset_name, dtype, fw, fr)
+                with h5py.File(tmp_path, "w") as fw:
+                    datasets_to_process = [
+                        ("chrom", h5py.string_dtype(encoding="utf-8")),
+                        ("pos", np.int64),
+                        ("id", h5py.string_dtype(encoding="utf-8")),
+                        ("ref", h5py.string_dtype(encoding="utf-8", length=1)),
+                        ("alt", h5py.string_dtype(encoding="utf-8", length=10)),
+                        ("qual", h5py.string_dtype(encoding="utf-8", length=10)),
+                        ("filt", h5py.string_dtype(encoding="utf-8", length=4)),
+                        ("fmt", h5py.string_dtype(encoding="utf-8")),
+                    ]
 
-            if "info" in fr:
-                fw.create_group("info")
-                info_grp = self._get_h5_group(fr, "info")
+                    for dataset_name, dtype in datasets_to_process:
+                        process_chunk(dataset_name, dtype, fw, fr)
 
-                for key in info_grp:
-                    process_chunk(
-                        f"info/{key}",
-                        h5py.string_dtype(encoding="utf-8"),
-                        fw,
-                        fr,
-                    )
+                    if "info" in fr:
+                        fw.create_group("info")
+                        info_grp = self._get_h5_group(fr, "info")
+                        for key in info_grp:
+                            process_chunk(
+                                f"info/{key}",
+                                h5py.string_dtype(encoding="utf-8"),
+                                fw,
+                                fr,
+                            )
 
-            if self.store_format_fields and "fmt_metadata" in fr:
-                fw.create_group("fmt_metadata")
-                fmt_metadata_grp = self._get_h5_group(fr, "fmt_metadata")
+                    if self.store_format_fields and "fmt_metadata" in fr:
+                        fw.create_group("fmt_metadata")
+                        fmt_metadata_grp = self._get_h5_group(fr, "fmt_metadata")
+                        for fmt_key in fmt_metadata_grp:
+                            process_chunk(
+                                f"fmt_metadata/{fmt_key}",
+                                h5py.string_dtype(encoding="utf-8"),
+                                fw,
+                                fr,
+                                sample_size=new_sample_size,
+                            )
 
-                for fmt_key in fmt_metadata_grp:
-                    process_chunk(
-                        f"fmt_metadata/{fmt_key}",
-                        h5py.string_dtype(encoding="utf-8"),
-                        fw,
-                        fr,
-                        sample_size=new_sample_size,
-                    )
+            os.replace(tmp_path, hdf5_file_filt)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            msg = "An error occurred while updating VCF attributes. Temporary file has been removed."
+            self.logger.error(msg)
+            raise
 
-        self.vcf_attributes_fn = hdf5_file_filt
-        return self.vcf_attributes_fn
+        return hdf5_file_filt
 
     @property
     def vcf_attributes_fn(self) -> Path:

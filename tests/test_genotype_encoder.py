@@ -115,6 +115,37 @@ class TestGenotypeEncoder(unittest.TestCase):
         result = self.vcf_encoder.genotypes_012
         np.testing.assert_array_equal(result, expected)
 
+    def test_filtered_vcf_keeps_ref_alt_metadata_aligned(self):
+        """Filtering VCF loci must subset REF/ALT metadata with the same mask."""
+
+        locus_mask = np.array([False, True, False, True], dtype=bool)
+        sample_mask = np.ones(len(self.vcf_genotype_data.samples), dtype=bool)
+        filtered = self.vcf_genotype_data.copy()
+        filtered.set_alignment(
+            snp_data=self.vcf_genotype_data.snp_data[:, locus_mask],
+            samples=self.vcf_genotype_data.samples,
+            sample_indices=sample_mask,
+            loci_indices=locus_mask,
+            reset_attributes=True,
+        )
+
+        assert filtered.ref == ["G", "A"]
+        assert filtered.alt == [["A"], ["G"]]
+        assert len(filtered.ref) == filtered.num_snps == 2
+        np.testing.assert_array_equal(
+            GenotypeEncoder(filtered).genotypes_012,
+            np.array(
+                [
+                    [2, 0],
+                    [1, 2],
+                    [0, 2],
+                    [-9, 2],
+                    [1, 1],
+                ],
+                dtype=np.int8,
+            ),
+        )
+
     def test_convert_onehot(self):
         # One-hot columns are [A, C, G, T]
         expected = np.array(

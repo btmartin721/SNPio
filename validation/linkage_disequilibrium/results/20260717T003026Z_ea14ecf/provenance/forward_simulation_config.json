@@ -1,0 +1,32 @@
+{
+  "population_sizes": [
+    10,
+    25,
+    50,
+    100,
+    400
+  ],
+  "sample_sizes": [
+    4,
+    6,
+    8,
+    20,
+    50
+  ],
+  "replicates": 250,
+  "chromosomes": 8,
+  "chromosome_length": 1000000.0,
+  "crossovers_per_chromosome": 0.5,
+  "mutation_rate": 2e-06,
+  "loci_per_chromosome": 100,
+  "burnin_multiplier": 10,
+  "allow_residual_selfing": true,
+  "n_bootstraps": 200,
+  "n_bootstrap_blocks": 20,
+  "minimum_model_population_size": 100,
+  "minimum_coverage_sample_size": 8,
+  "model_relative_bias_tolerance": 0.05,
+  "require_population_coverage": false,
+  "seed": 20260715,
+  "n_jobs": 8
+}

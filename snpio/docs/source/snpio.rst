@@ -17,6 +17,7 @@ This is the main public API for the ``snpio`` package.
    GenePopReader
    NRemover2
    PopGenStatistics
+   LinkageDisequilibriumResult
    GenotypeEncoder
    Plotting
    TreeParser

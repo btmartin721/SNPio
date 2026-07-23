@@ -1,8 +1,11 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 
 from snpio.analysis.genotype_encoder import GenotypeEncoder
+from snpio.popgenstats.d_statistics import DStatistics
 from snpio.popgenstats.dstat import PattersonDStats
 
 MISSING = -9
@@ -31,6 +34,22 @@ class DummyGenotypeData:
         self.snp_data = arr
         self.was_filtered = True
         self.from_vcf = False
+
+
+def test_dstatistics_results_use_filtered_report_scope(tmp_path):
+    analysis = object.__new__(DStatistics)
+    analysis.genotype_data = SimpleNamespace(
+        prefix=str(tmp_path / "dstat_case"),
+        was_filtered=True,
+    )
+
+    assert analysis._make_results_dir() == (
+        tmp_path
+        / "dstat_case_output"
+        / "reports"
+        / "nremover"
+        / "d_statistics"
+    )
 
 
 class TestPattersonD(unittest.TestCase):
@@ -106,6 +125,95 @@ class TestPattersonD(unittest.TestCase):
         pds = PattersonDStats(gd, enc.genotypes_012)
         results, _ = pds.calculate(*self.pops, n_boot=200, seed=3)
         self.assertGreaterEqual(results["D"], 0.7)  # still strongly positive
+
+
+class TestDStatisticIndividualSelection(unittest.TestCase):
+    """Test D-statistic population sampling independently of the algorithms."""
+
+    def setUp(self):
+        samples = ["A", "B", "C", "D", "E", "F"]
+        popmap_inverse = {
+            "P1": ["D", "C", "B", "A"],
+            "P2": ["E", "F"],
+        }
+        geno012 = np.array(
+            [
+                [0, 0, 0, 0],
+                [0, MISSING, 0, 0],
+                [MISSING, 0, 0, 0],
+                [MISSING, 0, MISSING, MISSING],
+                [0, 0, 0, 0],
+                [MISSING, MISSING, 0, 0],
+            ],
+            dtype=int,
+        )
+
+        self.selector = DStatistics.__new__(DStatistics)
+        self.selector.genotype_data = SimpleNamespace(
+            samples=samples,
+            popmap_inverse=popmap_inverse,
+        )
+        self.selector.geno012 = geno012
+        self.selector.logger = Mock()
+
+    def test_least_missing_selects_most_complete_with_stable_ties(self):
+        selected = self.selector._get_single_pop_indices(
+            "P1",
+            max_individuals_per_pop=3,
+            individual_selection="least_missing",
+            seed=999,
+        )
+
+        self.assertEqual(selected, [0, 1, 2])
+
+    def test_least_missing_is_seed_independent(self):
+        selected_a = self.selector._get_single_pop_indices(
+            "P1", 2, "least_missing", seed=1
+        )
+        selected_b = self.selector._get_single_pop_indices(
+            "P1", 2, "least_missing", seed=9876
+        )
+
+        self.assertEqual(selected_a, selected_b)
+        self.assertEqual(selected_a, [0, 1])
+
+    def test_all_selection_ignores_population_cap(self):
+        selected = self.selector._get_single_pop_indices(
+            "P1",
+            max_individuals_per_pop=1,
+            individual_selection="all",
+            seed=None,
+        )
+
+        self.assertEqual(selected, [3, 2, 1, 0])
+
+    def test_explicit_selection_is_honored_without_population_cap(self):
+        selected = self.selector._get_single_pop_indices(
+            "P1",
+            max_individuals_per_pop=None,
+            individual_selection={"P1": ["C", "A"]},
+            seed=None,
+        )
+
+        self.assertEqual(selected, [2, 0])
+
+    def test_invalid_strategy_is_rejected_without_population_cap(self):
+        with self.assertRaisesRegex(ValueError, "Invalid individual_selection"):
+            self.selector._get_single_pop_indices(
+                "P2",
+                max_individuals_per_pop=None,
+                individual_selection="unknown",  # type: ignore[arg-type]
+                seed=None,
+            )
+
+    def test_nonpositive_population_cap_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "positive integer"):
+            self.selector._get_single_pop_indices(
+                "P1",
+                max_individuals_per_pop=0,
+                individual_selection="least_missing",
+                seed=None,
+            )
 
 
 if __name__ == "__main__":
