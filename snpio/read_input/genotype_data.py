@@ -27,11 +27,12 @@ from snpio.plotting.plotting import Plotting
 from snpio.read_input.genotype_data_base import BaseGenotypeData
 from snpio.read_input.popmap_file import ReadPopmap
 from snpio.utils.containers import IOConfig, PlotConfig, PopState
+from snpio.utils.custom_exceptions import AlignmentFormatError
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
 from snpio.utils.missing_stats import MissingStats
 from snpio.utils.multiqc_reporter import SNPioMultiQC
-from snpio.utils.custom_exceptions import AlignmentFormatError
+from snpio.utils.output_paths import OutputPaths
 
 
 class GenotypeData(BaseGenotypeData):
@@ -402,6 +403,7 @@ class GenotypeData(BaseGenotypeData):
         self.pop_state.populations = self._populations
         self.pop_state.popmap = self._popmap
         self.pop_state.popmap_inverse = self._popmap_inverse
+        self.pop_state.refresh_num_pops()
 
         self.logger.info(f"Population map reading complete.")
 
@@ -1193,12 +1195,14 @@ class GenotypeData(BaseGenotypeData):
 
         stats = plotting.visualize_missingness(df, **params)
 
-        # Location for all reports and plots.
+        # Location for all missingness report artifacts.
+        report_root = OutputPaths(
+            prefix,
+            filtered=bool(self.was_filtered),
+        ).reports("missingness")
         if self.was_filtered:
-            report_root = Path(f"{prefix}_output", "nremover", "gtdata", "reports")
             description_prefix = "Missingness Report (Post-NRemover2 Filtering): "
         else:
-            report_root = Path(f"{prefix}_output", "gtdata", "reports")
             description_prefix = "Missingness Report (Pre-filtering): "
 
         report_root.mkdir(exist_ok=True, parents=True)
@@ -1840,6 +1844,7 @@ class GenotypeData(BaseGenotypeData):
             value (list[str | int]): List of populations in the dataset. This should be a list of population IDs corresponding to the samples in the dataset. The length of the population list should match the number of samples, and each entry should indicate the population that the corresponding sample belongs to.
         """
         self.pop_state.populations = value
+        self.pop_state.refresh_num_pops()
         self._populations = value
 
     @property
@@ -2125,18 +2130,18 @@ class GenotypeData(BaseGenotypeData):
         Returns:
             Path: Path to the root output directory. This is typically constructed using the prefix attribute of the GenotypeData instance, with a suffix of "_output". The output directory is used as the base location for saving any results, reports, or plots generated from the dataset. If the prefix attribute is not set, it defaults to "default_output".
         """
-        return Path(f"{self.prefix}_output")
+        return OutputPaths.from_genotype_data(self).root
 
     @property
     def reports_dir(self) -> Path:
         """Standardized location for reports (pre/post-filtering aware).
 
         Returns:
-            Path: Path to the reports directory. This is determined based on whether the dataset has been filtered or not. If the dataset has been filtered (indicated by the was_filtered attribute), the reports directory is set to a subdirectory within the output directory that reflects the filtering process (e.g., "nremover/gtdata/reports"). If the dataset has not been filtered, the reports directory is set to a standard location within the output directory (e.g., "gtdata/reports"). This allows for organized storage of reports based on the state of the dataset.
+            Path: The report root for the current dataset. Filtered datasets use
+            ``<prefix>_output/reports/nremover``; unfiltered datasets use
+            ``<prefix>_output/reports``.
         """
-        if self.was_filtered:
-            return self.output_dir / "nremover" / "gtdata" / "reports"
-        return self.output_dir / "gtdata" / "reports"
+        return OutputPaths.from_genotype_data(self).reports()
 
     @property
     def plot_kwargs(self) -> dict:
@@ -2152,11 +2157,11 @@ class GenotypeData(BaseGenotypeData):
         """Standardized location for plots (pre/post-filtering aware).
 
         Returns:
-            Path: Path to the plots directory. This is determined based on whether the dataset has been filtered or not. If the dataset has been filtered (indicated by the was_filtered attribute), the plots directory is set to a subdirectory within the output directory that reflects the filtering process (e.g., "nremover/gtdata/plots"). If the dataset has not been filtered, the plots directory is set to a standard location within the output directory (e.g., "gtdata/plots"). This allows for organized storage of plots based on the state of the dataset.
+            Path: The plot root for the current dataset. Filtered datasets use
+            ``<prefix>_output/plots/nremover``; unfiltered datasets use
+            ``<prefix>_output/plots``.
         """
-        if self.was_filtered:
-            return self.output_dir / "nremover" / "gtdata" / "plots"
-        return self.output_dir / "gtdata" / "plots"
+        return OutputPaths.from_genotype_data(self).plots()
 
     @cached_property
     def het_mask(self) -> np.ndarray:
@@ -2365,6 +2370,7 @@ class GenotypeData(BaseGenotypeData):
     def _invalidate_caches(self) -> None:
         """Clear cached_property results after data changes."""
         for attr in (
+            "missing_mask",
             "valid_mask",
             "is_missing_locus",
             "observed_iupac_per_locus",
@@ -2379,6 +2385,90 @@ class GenotypeData(BaseGenotypeData):
         ):
             if attr in self.__dict__:  # cached_property stores value here
                 self.__dict__.pop(attr, None)
+
+    @staticmethod
+    def _validate_filtered_matrix_and_masks(
+        snp_data: np.ndarray,
+        samples: Sequence[str],
+        sample_indices: np.ndarray,
+        loci_indices: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Validate a filtered matrix against its parent-coordinate masks."""
+
+        data = np.asarray(snp_data)
+        sample_mask = np.asarray(sample_indices)
+        locus_mask = np.asarray(loci_indices)
+
+        if data.ndim != 2:
+            msg = f"Filtered SNP data must be two-dimensional; got shape={data.shape}."
+            raise AlignmentFormatError(msg)
+
+        for name, mask in (
+            ("sample_indices", sample_mask),
+            ("loci_indices", locus_mask),
+        ):
+            if mask.ndim != 1:
+                raise AlignmentFormatError(
+                    f"{name} must be one-dimensional; got shape={mask.shape}."
+                )
+            if mask.dtype != bool:
+                raise TypeError(
+                    f"{name} must have boolean dtype; got dtype={mask.dtype}."
+                )
+
+        expected_shape = (
+            int(np.count_nonzero(sample_mask)),
+            int(np.count_nonzero(locus_mask)),
+        )
+        if data.shape != expected_shape:
+            raise AlignmentFormatError(
+                "Filtered SNP data shape does not match the retained-mask counts: "
+                f"data shape={data.shape}, expected={expected_shape}."
+            )
+
+        if len(samples) != data.shape[0]:
+            raise AlignmentFormatError(
+                "Filtered sample metadata does not match the genotype rows: "
+                f"samples={len(samples)}, rows={data.shape[0]}."
+            )
+
+        return sample_mask, locus_mask
+
+    def _validate_alignment_update(
+        self,
+        snp_data: np.ndarray,
+        samples: Sequence[str],
+        sample_indices: np.ndarray,
+        loci_indices: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Validate a filtered alignment and its parent-coordinate masks.
+
+        The masks describe retained rows and columns in the parent alignment,
+        while ``snp_data`` and ``samples`` already contain only the retained
+        data. Their nonzero counts must therefore match the filtered matrix.
+        """
+
+        sample_mask, locus_mask = self._validate_filtered_matrix_and_masks(
+            snp_data,
+            samples,
+            sample_indices,
+            loci_indices,
+        )
+
+        marker_names = getattr(self, "marker_names", None)
+        if marker_names is not None and len(marker_names) != locus_mask.size:
+            raise AlignmentFormatError(
+                "Cannot align locus names with the filtered genotype matrix: "
+                f"mask length={locus_mask.size}, marker names={len(marker_names)}."
+            )
+
+        if self.from_vcf:
+            if len(self.ref) != locus_mask.size or len(self.alt) != locus_mask.size:
+                raise AlignmentFormatError(
+                    f"Cannot align filtered VCF REF/ALT metadata with the genotype matrix: mask length={locus_mask.size}, REF length={len(self.ref)}, ALT length={len(self.alt)}."
+                )
+
+        return sample_mask, locus_mask
 
     def set_alignment(
         self,
@@ -2403,23 +2493,55 @@ class GenotypeData(BaseGenotypeData):
             TypeError: If the input data types are not as expected. This ensures that the method is called with the correct types of data for proper functionality.
             AlignmentFormatError: If sample information is missing when attempting to update VCF attributes. This ensures that the necessary information is available for updating VCF attributes when required.
         """
+        sample_mask, locus_mask = self._validate_alignment_update(
+            snp_data,
+            samples,
+            sample_indices,
+            loci_indices,
+        )
+        original_was_filtered = bool(self.was_filtered)
+        original_ref = list(self.ref) if self.from_vcf else []
+        original_alt = list(self.alt) if self.from_vcf else []
+
+        if self.filetype is None:
+            msg = (
+                "filetype is not set; cannot determine if VCF attributes "
+                "need to be updated."
+            )
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        samps = list(samples)
+        updated_vcf_attributes: Path | None = None
+        if reset_attributes and self.filetype.startswith("vcf"):
+            # Complete the derived metadata artifact before mutating this
+            # object, so a failed HDF5 write leaves the current state intact.
+            updated_vcf_attributes = self.update_vcf_attributes(
+                snp_data=snp_data,
+                sample_indices=sample_mask,
+                loci_indices=locus_mask,
+                samples=np.asarray(samps, dtype=str),
+            )
+
         self.snp_data = snp_data
-        self.samples = samples
-        self.sample_indices = sample_indices
-        self.loci_indices = loci_indices
+        self.samples = samps
+        self.sample_indices = sample_mask
+        self.loci_indices = locus_mask
 
         if hasattr(self, "marker_names"):
             self.marker_names = (
-                np.array(self.marker_names)[self.loci_indices].tolist()
+                np.asarray(self.marker_names)[locus_mask].tolist()
                 if self.marker_names is not None
                 else None
             )
         else:
             self.marker_names = None
 
-        self.num_inds = np.count_nonzero(self.sample_indices)
-        self.num_snps = np.count_nonzero(self.loci_indices)
-        self.was_filtered = True
+        self.num_inds = self.snp_data.shape[0]
+        self.num_snps = self.snp_data.shape[1]
+        self.was_filtered = original_was_filtered or (
+            not np.all(sample_mask) or not np.all(locus_mask)
+        )
 
         if self.popmap is not None:
             self.popmap = {str(s): self.popmap[str(s)] for s in samples}
@@ -2435,30 +2557,22 @@ class GenotypeData(BaseGenotypeData):
             self.ref = ref_alleles
             self.alt = alt_alleles
 
-        if self.filetype is None:
-            msg = "filetype is not set; cannot determine if VCF attributes need to be updated."
-            self.logger.error(msg)
-            raise TypeError(msg)
+        if updated_vcf_attributes is not None:
+            self.vcf_attributes_fn = updated_vcf_attributes
 
-        samps_raw: List[str] | None = getattr(self, "samples", None)
+        if self.from_vcf:
+            retained = np.flatnonzero(locus_mask)
+            self.ref = [original_ref[i] for i in retained]
+            self.alt = [original_alt[i] for i in retained]
 
-        if samps_raw is None:
-            msg = (
-                "Samples are not set; cannot update VCF attributes without "
-                "sample information."
-            )
-            self.logger.error(msg)
-            raise AlignmentFormatError(msg)
+        # Encoder-generated locus indices are relative to the previous
+        # alignment. Clear them so they cannot be applied to the new columns.
+        self.all_missing_idx = []
 
-        samps = cast(List[str], samps_raw)
+        if hasattr(self, "num_records"):
+            self.num_records = self.num_snps
 
-        if reset_attributes and self.filetype.startswith("vcf"):
-            self.vcf_attributes_fn = self.update_vcf_attributes(
-                snp_data=self.snp_data,
-                sample_indices=self.sample_indices,
-                loci_indices=self.loci_indices,
-                samples=np.array(samps, dtype=str),
-            )
+        self.pop_state.refresh_num_pops()
 
         self._invalidate_caches()
 
@@ -2486,7 +2600,8 @@ class GenotypeData(BaseGenotypeData):
             NotImplementedError: If the subclass does not support VCF attributes.
         """
         nm = self.__class__.__name__
-        msg = f"{nm} does not implement update_vcf_attributes()."
+        msg = f"{nm} does not implement 'update_vcf_attributes()'."
+        self.logger.error(msg)
         raise NotImplementedError(msg)
 
     def __len__(self) -> int:

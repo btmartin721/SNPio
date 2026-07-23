@@ -47,18 +47,43 @@
    .. autosummary::
    
       ~VCFReader.alt
+      ~VCFReader.biallelic_mask
+      ~VCFReader.has_multiallelic
+      ~VCFReader.has_popmap
+      ~VCFReader.het_mask
       ~VCFReader.inputs
+      ~VCFReader.is_empty
+      ~VCFReader.is_missing_locus
       ~VCFReader.loci_indices
+      ~VCFReader.locus_names
+      ~VCFReader.missing_mask
+      ~VCFReader.missing_rate
+      ~VCFReader.nbytes
       ~VCFReader.num_inds
+      ~VCFReader.num_pops
       ~VCFReader.num_snps
+      ~VCFReader.observed_iupac_per_locus
+      ~VCFReader.output_dir
+      ~VCFReader.per_individual_het_rate
+      ~VCFReader.per_individual_missing
+      ~VCFReader.per_locus_het_rate
+      ~VCFReader.per_locus_missing
+      ~VCFReader.plot_kwargs
+      ~VCFReader.plots_dir
+      ~VCFReader.pop_sizes
+      ~VCFReader.pop_to_indices
       ~VCFReader.popmap
       ~VCFReader.popmap_inverse
       ~VCFReader.populations
       ~VCFReader.ref
+      ~VCFReader.reports_dir
+      ~VCFReader.sample_index_map
       ~VCFReader.sample_indices
       ~VCFReader.samples
+      ~VCFReader.shape
       ~VCFReader.snp_data
       ~VCFReader.snpsdict
+      ~VCFReader.valid_mask
       ~VCFReader.vcf_attributes_fn
    
    

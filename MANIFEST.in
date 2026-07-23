@@ -3,4 +3,3 @@ include LICENSE
 include pyproject.toml
 
 recursive-include snpio *.py
-recursive-exclude snpio __pycache__ *.py[cod] .DS_Store

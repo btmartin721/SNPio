@@ -31,8 +31,8 @@ sphinxcontrib.bibtex.plugin.register_plugin(
 
 # -- Project information -----------------------------------------------------
 project = "SNPio"
-copyright = "2023, Bradley T. Martin and Tyler K. Chafin"
-author = "Drs. Bradley T. Martin and Tyler K. Chafin"
+copyright = "2023-2026, SNPio developers"
+author = "Bradley T. Martin et al."
 release = "1.6.16"
 
 # -- Path setup -----------------------------------------------------------
@@ -68,7 +68,7 @@ html_context = {
     "github_user": "btmartin721",  # GitHub username
     "github_repo": "SNPio",  # GitHub repo
     "github_version": "master",  # Branch to use
-    "conf_py_path": "/docs/source/",  # Path to docs in the repo
+    "conf_py_path": "/snpio/docs/source/",  # Path to docs in the repo
     "current_version": "v1.6.16",  # Project version
     "display_version": True,  # Display version number in the theme
     "latest_version": "master",  # Define the latest stable version

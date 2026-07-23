@@ -6,6 +6,7 @@ import pandas as pd
 from snpio.popgenstats.fst_distance import FstDistance
 from snpio.popgenstats.genetic_distance import GeneticDistance
 from snpio.utils.logging import LoggerManager
+from snpio.utils.numeric import safe_divide
 
 if TYPE_CHECKING:
     from snpio.plotting.plotting import Plotting
@@ -206,22 +207,14 @@ class SummaryStatistics:
         if observed:
             # Calculate observed heterozygosity
             heterozygous_counts = np.sum(alignment == 1, axis=0)
-            ho = np.divide(heterozygous_counts, n_individuals, where=n_individuals > 0)
-            ho[n_individuals == 0] = np.nan  # Handle loci with no valid data
-            return ho
-        else:
-            # Calculate expected heterozygosity
-            alt_allele_counts = np.nansum(alignment, axis=0, dtype=np.float64)
-            total_alleles = 2 * n_individuals  # Assuming diploid organisms
-            with np.errstate(divide="ignore", invalid="ignore"):
-                # Frequency of alternate alleles
-                p = np.divide(alt_allele_counts, total_alleles, where=total_alleles > 0)
-                q = 1 - p
-                he = 2 * p * q  # He = 2pq
+            return safe_divide(heterozygous_counts, n_individuals)
 
-                # Handle loci with no valid data
-                he[total_alleles == 0] = np.nan
-            return he
+        # Calculate expected heterozygosity
+        alt_allele_counts = np.nansum(alignment, axis=0, dtype=np.float64)
+        total_alleles = 2 * n_individuals  # Assuming diploid organisms
+        p = safe_divide(alt_allele_counts, total_alleles)
+        q = 1 - p
+        return 2 * p * q  # He = 2pq
 
     def nucleotide_diversity(self) -> np.ndarray:
         """Calculate nucleotide diversity (Pi) for each locus.

@@ -5,6 +5,7 @@ import pandas as pd
 
 from snpio.plotting.plotting import Plotting
 from snpio.utils.logging import LoggerManager
+from snpio.utils.numeric import safe_divide
 from snpio import GenotypeEncoder
 
 if TYPE_CHECKING:
@@ -83,16 +84,10 @@ class AlleleSummaryStats:
         # 2. Sample- / locus-level missingness & het
         sample_miss = missing_mask.mean(axis=1)  # (n_samples,)
         locus_miss = missing_mask.mean(axis=0)  # (n_loci,)
-        sample_het = np.divide(
-            het_mask.sum(axis=1),
-            non_missing.sum(axis=1),
-            where=non_missing.sum(axis=1) > 0 & np.isfinite(non_missing.sum(axis=1)),
-        )
-        locus_het = np.divide(
-            het_mask.sum(axis=0),
-            non_missing.sum(axis=0),
-            where=non_missing.sum(axis=0) > 0 & np.isfinite(non_missing.sum(axis=0)),
-        )
+        sample_non_missing = non_missing.sum(axis=1)
+        locus_non_missing = non_missing.sum(axis=0)
+        sample_het = safe_divide(het_mask.sum(axis=1), sample_non_missing)
+        locus_het = safe_divide(het_mask.sum(axis=0), locus_non_missing)
 
         # 3. Allele counts per locus
         # (2*n_samples, n_loci)
@@ -103,25 +98,17 @@ class AlleleSummaryStats:
         n_alleles = np.sum(counts > 0, axis=1)  # distinct alleles per locus
         tot_alleles = counts.sum(axis=1)
         # allele_freqs per locus
-        freqs = np.divide(
-            counts,
-            tot_alleles[:, None],
-            where=tot_alleles[:, None] > 0 & np.isfinite(tot_alleles[:, None]),
-        )
+        freqs = safe_divide(counts, tot_alleles[:, None])
         minor_counts = tot_alleles - counts.max(axis=1)
 
         # minor allele frequency per locus
         # (n_loci,)
-        maf = np.divide(
-            minor_counts, tot_alleles, where=tot_alleles > 0 & np.isfinite(tot_alleles)
-        )
+        maf = safe_divide(minor_counts, tot_alleles)
 
         # 4. Derived metrics
         # per locus
         biallelic = np.sum(freqs**2, axis=1)  # check for biallelic loci
-        effective_alleles = np.divide(
-            1.0, biallelic, where=biallelic > 0 & np.isfinite(biallelic)
-        )
+        effective_alleles = safe_divide(1.0, biallelic)
         exp_het = 1.0 - np.sum(freqs**2, axis=1)  # expected heterozygosity
 
         # 1) Build an explicit boolean mask
@@ -154,7 +141,9 @@ class AlleleSummaryStats:
             "Locus Miss Q1": np.percentile(locus_miss, 25),
             "Locus Miss Q3": np.percentile(locus_miss, 75),
             # Heterozygosity
-            "Overall Heterozygosity Prop.": het_mask.sum() / n_non_missing,
+            "Overall Heterozygosity Prop.": safe_divide(
+                het_mask.sum(), n_non_missing
+            ).item(),
             "Mean Sample Heterozygosity Prop.": np.nanmean(sample_het),
             "Mean Locus Heterozygosity Prop.": np.nanmean(locus_het),
             "Sample Heterozygosity Q1": np.nanpercentile(sample_het, 25),
@@ -167,7 +156,7 @@ class AlleleSummaryStats:
             "Prop. Triallelic": np.mean(n_alleles == 3),
             "Prop. Quadallelic": np.mean(n_alleles == 4),
             "Mean Alleles per Locus": np.mean(n_alleles),
-            "Mean Effective Alleles": np.mean(effective_alleles),
+            "Mean Effective Alleles": np.nanmean(effective_alleles),
             # Expected het & F_IS
             "Mean Expected Heterozygosity": np.nanmean(exp_het),
             "Mean F_IS": np.nanmean(F_IS),

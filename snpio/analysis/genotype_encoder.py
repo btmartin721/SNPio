@@ -8,6 +8,7 @@ import pandas as pd
 from snpio.utils import misc
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC, validate_input_type
+from snpio.utils.output_paths import OutputPaths
 
 if TYPE_CHECKING:
     from snpio.read_input.genotype_data import GenotypeData
@@ -853,10 +854,9 @@ class GenotypeEncoder:
         )
         prefix = getattr(self, "prefix", "snpio")
 
-        if was_filtered:
-            return Path(f"{prefix}_output", "nremover", "logs")
-
-        return Path(f"{prefix}_output", "logs")
+        return OutputPaths(prefix, filtered=was_filtered).reports(
+            "genotype_encoding"
+        )
 
     @staticmethod
     def _write_012_indices_file(path: Path, indices: list[int]) -> None:

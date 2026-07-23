@@ -231,6 +231,11 @@ BOX_analysis_final*
 BOX_analysis*_output/
 adegenet_analysis.R
 validation/
+!snpio/validation/
+!snpio/validation/**
+!scripts/validation/
+!scripts/validation/**
+/validation_results/
 *.RData
 *.Rhistory
 *.R
@@ -299,6 +304,14 @@ benchmarking_results/
 benchmarking_memory_results/
 benchmarking_time_results/
 results/
+!validation/
+!validation/**
+**/__pycache__/
+*.py[cod]
+/snpio_ld_output/
+/snpio_ld_run_output/
+/snpio_analysis_files_*.zip
 Benchmarking.zip
 Validations.zip
 test.vcf
+fullruntest*_output/

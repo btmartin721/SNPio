@@ -1,0 +1,20 @@
+key	value
+started_at	2026-07-17T00:30:38Z
+repository	.
+git_commit	ea14ecfb14cdab75c96cc67e7253454efd4c97e5
+git_branch	codex/unbiased-unlinked-ld
+git_dirty	true
+python	python (isolated validation environment)
+jobs	8
+seed	20260715
+simulation_replicates	250
+vcf	snpio/example_data/vcf_files/phylogen_subset14K.vcf.gz
+popmap	snpio/example_data/popmaps/phylogen_nomx.popmap
+genepop	external/published_island_fox/GP_NO_grays.txt (not redistributed)
+platform	Darwin 25.5.0 arm64
+source_snpio_version	1.6.16
+packages	snpio=1.6.16;numpy=2.4.6;pandas=3.0.3;scipy=1.18.0;matplotlib=3.11.0;fwdpy11=0.24.5;msprime=1.3.4;tskit=0.6.4
+completed_at	2026-07-17T01:29:31Z
+passed_steps	01_unit_tests,02_exact_expectations,03_golden_reference,04_published_island_fox,05_forward_simulation
+failed_steps	
+skipped_steps	06_pair_convergence

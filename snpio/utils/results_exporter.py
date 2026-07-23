@@ -13,19 +13,33 @@ class ResultsExporter:
     This class can save results to JSON or CSV files. If a dictionary contains nested sub-dictionaries or DataFrames, it properly separates them, ensuring JSON remains valid and DataFrames are saved as separate CSVs.
     """
 
-    def __init__(self, output_dir: str | Path = "snpio_output"):
+    def __init__(
+        self,
+        output_dir: str | Path = "snpio_output",
+        operation: str = "exported_results",
+    ):
         """Initialize the ResultsExporter object.
 
         This class can save results to JSON or CSV files. If a dictionary contains nested sub-dictionaries or DataFrames, it properly separates them, ensuring JSON remains valid and DataFrames are saved as separate CSVs.
 
         Args:
-            output_dir (str | Path): Directory where results will be saved.
+            output_dir (str | Path): Root directory where results will be saved.
+            operation (str): Named report subdirectory for these exported results.
         """
-        self._output_dir = (
-            Path(output_dir, "reports", "analysis")
-            if not isinstance(output_dir, Path)
-            else output_dir / "reports" / "analysis"
-        )
+        self._operation = operation
+        self._output_dir = self._normalize_output_dir(output_dir)
+
+    def _normalize_output_dir(self, value: str | Path) -> Path:
+        """Normalize a run root or reports root to a named report directory."""
+
+        path = Path(value)
+        if path.name == self._operation:
+            return path
+        if path.name == "reports":
+            return path / self._operation
+        if "reports" in path.parts:
+            return path
+        return path / "reports" / self._operation
 
     def _flatten_and_save(self, data: Dict, filename_prefix: str) -> dict:
         """Recursively processes nested dictionaries, saving DataFrames as CSVs while preserving non-DataFrame data for JSON export.
@@ -154,12 +168,6 @@ class ResultsExporter:
     def output_dir(self) -> Path:
         """Returns the directory where results are saved."""
 
-        if not isinstance(self._output_dir, Path):
-            self._output_dir = Path(self._output_dir)
-
-        if not self._output_dir.name == "analysis":
-            self._output_dir = self._output_dir / "analysis"
-
         self._output_dir.mkdir(parents=True, exist_ok=True)
 
         return self._output_dir
@@ -172,12 +180,5 @@ class ResultsExporter:
             value (str | Path): Directory where results will be saved.
         """
 
-        if not isinstance(value, Path):
-            value = Path(value)
-
-        if not value.name == "analysis":
-            value = value / "analysis"
-
-        value.mkdir(parents=True, exist_ok=True)
-
-        self._output_dir = value
+        self._output_dir = self._normalize_output_dir(value)
+        self._output_dir.mkdir(parents=True, exist_ok=True)

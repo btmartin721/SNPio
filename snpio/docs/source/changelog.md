@@ -2,6 +2,152 @@
 
 This document outlines the changes made to the project with each release.
 
+## Version 1.7.0 (2026-07-23)
+
+### Release Engineering
+
+- Gated automated version tagging and GitHub release creation on warning-free
+  unit tests, a strict warning-as-error Sphinx build, and successful wheel and
+  source-distribution checks.
+- Modernized package licensing metadata to the SPDX format and removed
+  redundant manifest exclusions so source and wheel builds complete without
+  packaging deprecation or unmatched-pattern warnings.
+
+### Output Organization
+
+- Centralized output-path resolution so plots live beneath `plots/` and CSV,
+  JSON, and tabular analysis artifacts live beneath `reports/`.
+- Added named operation directories and placed filtered outputs beneath the
+  corresponding `plots/nremover/` or `reports/nremover/` scope.
+- Replaced the ambiguous `alignments/` cache directory with `data/vcf/` for
+  HDF5 VCF metadata and `data/popmaps/` for generated population maps.
+- Moved genotype-encoding site-classification reports out of log directories
+  while leaving runtime log locations unchanged.
+- Added a shared output-layout contract for CLI provenance, MultiQC bundles,
+  generated population maps, VCF metadata caches, analysis tables, and plots.
+  Directories are created lazily, and repeated or branched filtered VCF states
+  receive independent files beneath `data/vcf/nremover/`.
+
+### Filtering and Data Consistency
+
+- Fixed `NRemover2.resolve()` so the returned `GenotypeData` consistently
+  propagates the filtered alignment to sample and locus metadata, population
+  mappings and counts, REF/ALT alleles, record counts, filtering history, and
+  cached data-dependent properties.
+- Added strict validation that filtered matrices agree with their parent-
+  coordinate sample and locus masks before any object state is changed.
+- Made filtered VCF HDF5 generation transactional. SNPio writes a temporary
+  sibling artifact, atomically installs it only after successful completion,
+  and leaves the source `GenotypeData` and HDF5 file unchanged on failure.
+  Repeated and branched filtering operations no longer overwrite one another.
+- Ensured analyses constructed from an `NRemover2` result, including
+  D-statistics and LD, consume the filtered genotype matrix and synchronized
+  metadata rather than stale pre-filtering state.
+
+### Population Genetics
+
+- Added finite-sample unbiased estimators of `D`, `D2`, `Dz`, and `pi2` for
+  unphased diploid genotypes following Ragsdale and Gravel (2020), together
+  with aggregate `r2D`, `rDz`, recent effective population-size estimates,
+  and grouped-locus bootstrap confidence intervals.
+- Added deterministic thread-parallel locus-pair evaluation, uniform pair
+  subsampling, per-population analysis, VCF chromosome inference, and explicit
+  linkage-group handling without adding `moments-popgen` or `tskit` runtime
+  dependencies.
+- Added dedicated report and plot subdirectories, three LD visualizations,
+  MultiQC summary integration, unit tests, and user documentation.
+- Hardened MultiQC output for nonpositive `r2D` estimates: undefined `Ne`
+  values remain scientifically missing and are labeled as not estimable in
+  the summary table, omitted from the `Ne` bar plot, and safely serialized
+  instead of causing report generation to fail.
+- Added an isolated LD validation suite with exact multinomial expectations,
+  1,000 frozen `moments-popgen 1.6.0` cases, exhaustive pipeline and bootstrap
+  oracles, optional `fwdpy11`/`tskit` calibration, published island-fox
+  reproduction, and target-dataset pair-convergence commands.
+- Added PNG/PDF validation plots for exact-enumeration error, golden-reference
+  error, forward-simulation calibration, published island-fox estimates, and
+  locus-pair convergence, with consistent per-workflow `plots/` directories.
+- Added a portable zsh runner for the complete LD validation hierarchy, with
+  robust default grids, isolated timestamped outputs, step logs, status
+  summaries, environment metadata, dry-run support, and explicit skip flags.
+- Added budget-weighted progress, per-run timing, and ETA reporting for the
+  long-running target-dataset pair-convergence validation.
+- Corrected forward calibration to pool component moments before forming the
+  paper's ratio-of-expectations statistics, use standard Wright-Fisher parent
+  sampling with replacement, distinguish matched from independently
+  ascertained census checks, and use a chromosome node-cluster bootstrap.
+- Corrected effective-size confidence intervals to invert the complete `r2D`
+  bootstrap interval, retaining an unbounded upper endpoint when the data do
+  not exclude zero LD.
+- Corrected forward-validation acceptance so `N >= 100` model checks detect
+  demonstrated bias outside a predeclared 5% practical margin, while exact-
+  zero Z scores remain diagnostics. Matched-census coverage is now diagnostic
+  by default because chromosome-only resampling does not include individual-
+  sampling uncertainty; an explicit strict coverage flag remains available.
+- Canonicalized reported unordered locus pairs so randomized block assignment
+  cannot reverse `locus_i` and `locus_j` in pairwise output.
+- Improved LD plots for small or zero-inflated population subsets with linear
+  signed-statistic axes, selective positive-value log scaling, sample-size
+  labels, color-blind-safe `rDz` assumption flags, non-zero pairwise
+  distributions, and an informative-pair percentage panel. VCF runs now warn
+  when `assume_unlinked=True` overrides available chromosome or scaffold
+  labels.
+- Added population-grouped MultiQC bootstrap boxplots for `r2D`, `rDz`, `D`,
+  `Dz`, and `Pi2` using replicate-level observations, plus a separate
+  population-specific `Ne` panel. Nonfinite LD and `Ne` values are filtered
+  independently so population boundaries and scientific missing values are
+  preserved.
+- Added deterministic `individual_selection="least_missing"` support for
+  Patterson, partitioned, and DFOIL statistics. Samples are ranked within each
+  population by unusable genotype count in the filtered 0/1/2 matrix, with
+  stable alignment-order tie breaking. `"all"` now explicitly ignores the
+  per-population cap, while explicit population-to-sample mappings are
+  validated before analysis.
+- Improved D-statistic validation and reporting for invalid selection modes,
+  nonpositive individual caps, missing mapping entries, sample/alignment
+  mismatches, and non-estimable combinations. Non-estimable values remain
+  `NaN` and are excluded from multiple-test correction.
+- Archived the accepted, not-yet-typeset SNPio manuscript under the Sphinx
+  documentation static assets with a SHA-256 checksum.
+
+### Reporting and Command Line
+
+- Reorganized the SNPio MultiQC configuration into an explicit biological
+  panel order and added LD and recent effective-size panels.
+- Hardened MultiQC serialization of `NaN` and infinite values and made HTML
+  report inputs explicit: inline HTML is accepted, while file-backed HTML must
+  resolve to an existing regular file.
+- Expanded the `snpio` command with filtering thresholds, population
+  selection, threading, Fst/Nei/D-statistic/LD resampling controls, LD options,
+  D-statistic individual-selection controls, plotting, reproducibility, and
+  MultiQC overwrite options. Parsed settings are recorded in
+  `<prefix>_output/logs/arguments.json`.
+
+### Additional Bug Fixes
+
+- Made PCA drop and report zero-variance loci before scaling instead of
+  allowing them to produce invalid standardized values.
+- Made allele and population-summary divisions deterministic and warning-free.
+  Fully missing samples and loci now retain non-estimable heterozygosity,
+  allele-frequency, MAF, and effective-allele ratios as `NaN` instead of
+  exposing uninitialized NumPy output.
+- Hardened D-statistic plotting against nonfinite and duplicate rows, improved
+  significance-count output, and routed every generated HTML/static artifact
+  through the shared `d_statistics` operation directory.
+- Standardized permutation and DBSCAN Fst-outlier results on the stable
+  `Locus`, `Population_Pair`, `Fst`, and `q_value` schema, including when no
+  outliers are detected. Empty results now skip plotting cleanly.
+- Fixed capped Fst-outlier plotting and MultiQC output, validated required
+  columns explicitly, and corrected heatmap metadata to describe Fst rather
+  than q-values.
+- Made DBSCAN Fst-outlier handling fail clearly if model scaling state is
+  unavailable.
+- Corrected the command-line workflow so `--use-dbscan` selects one Fst
+  outlier method instead of running the selected method twice.
+- Corrected STRUCTURE-derived population-map output, Fst and Nei report
+  destinations, filtering plots, missingness plots, PCA, and exported-result
+  paths to use the shared layout.
+
 ## Version 1.6.16 (2026-05-20)
 
 ### Packaging

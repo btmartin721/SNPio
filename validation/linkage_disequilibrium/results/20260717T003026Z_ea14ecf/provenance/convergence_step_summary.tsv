@@ -1,0 +1,7 @@
+step	status	exit_code	seconds	detail
+01_unit_tests	PASS	0	5	source log not promoted; primary run supplies current test evidence
+02_exact_expectations	PASS	0	3	source artifacts not promoted; primary run supersedes them
+03_golden_reference	PASS	0	3	source artifacts not promoted; primary run supersedes them
+04_published_island_fox	PASS	0	50	source artifacts not promoted; primary run supersedes them
+05_forward_simulation	FAIL	1	3300	superseded diagnostic acceptance contract; primary run passed the finalized contract
+06_pair_convergence	PASS	0	5470	logs/pair_budget_convergence.log

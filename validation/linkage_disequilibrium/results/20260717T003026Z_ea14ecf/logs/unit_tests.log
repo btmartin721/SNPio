@@ -1,0 +1,3 @@
+Command: python -m pytest tests/test_linkage_disequilibrium.py tests/test_ld_validation.py -q
+......................................                                   [100%]
+38 passed in 4.10s

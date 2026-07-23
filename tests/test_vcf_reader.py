@@ -74,6 +74,11 @@ class TestVCFReader(unittest.TestCase):
             prefix="test_read_vcf",
         )
 
+        self.assertEqual(
+            reader.vcf_attributes_fn,
+            Path("test_read_vcf_output/data/vcf/vcf_attributes.h5"),
+        )
+
         self.assertEqual(len(reader.samples), 3)
         expected_snp_data = np.array(
             [["R", "T", "G"], ["G", "Y", "A"], ["A", "C", "R"]]

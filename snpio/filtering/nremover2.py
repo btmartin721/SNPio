@@ -736,7 +736,7 @@ class NRemover2:
         self.logger.info("Plotting filtering results...")
 
         kwargs = self.genotype_data.plot_kwargs
-        plotting = Plotting(self.genotype_data, **kwargs)
+        plotting = Plotting(self.genotype_data, force_nremover=True, **kwargs)
 
         # Call the plot_search_results method from the Plotting class
         plotting.plot_search_results(df_combined=df_combined)
@@ -764,7 +764,7 @@ class NRemover2:
         self.logger.info("Plotting Sankey filtering report diagram...")
 
         kwargs = self.genotype_data.plot_kwargs
-        plotting = Plotting(self.genotype_data, **kwargs)
+        plotting = Plotting(self.genotype_data, force_nremover=True, **kwargs)
 
         df = pd.concat(self.df_global_list)
         plotting._plot_sankey_filtering_report(

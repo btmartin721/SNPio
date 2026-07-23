@@ -2,6 +2,8 @@ import logging
 import sys
 from pathlib import Path
 
+from snpio.utils.output_paths import OutputPaths
+
 
 class LoggerManager:
     """A logger class for managing logging across modules.
@@ -95,7 +97,7 @@ class LoggerManager:
                     log_file = Path(log_file)
                 elif prefix:
                     # Construct log_file path using prefix
-                    log_file = Path(f"{prefix}_output") / "logs" / f"{name}.log"
+                    log_file = OutputPaths(prefix).logs / f"{name}.log"
                 else:
                     log_file = Path("logs") / f"{name}.log"
 

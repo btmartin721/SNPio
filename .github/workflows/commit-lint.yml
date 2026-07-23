@@ -17,17 +17,19 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Fetch full git history for all commits in the PR
-        run: git fetch --prune --unshallow || true
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Get commit messages
         id: commits
         run: |
           delimiter="EOF_$(date +%s)_$RANDOM"
           echo "messages<<${delimiter}" >> $GITHUB_OUTPUT
-          git log origin/${{ github.base_ref }}..HEAD --pretty=format:%s%n >> $GITHUB_OUTPUT
+          git log \
+            "${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}" \
+            --pretty=format:%s%n >> $GITHUB_OUTPUT
           echo "${delimiter}" >> $GITHUB_OUTPUT
 
       - name: Lint commit messages

@@ -1,7 +1,8 @@
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, cast
+from time import perf_counter
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Sequence, Tuple, cast
 
 import numpy as np
 import pandas as pd
@@ -12,9 +13,12 @@ from snpio.analysis.genotype_encoder import GenotypeEncoder
 from snpio.popgenstats.dfoil import DfoilStats
 from snpio.popgenstats.dstat import PattersonDStats
 from snpio.popgenstats.partd import PartitionedDStats
+from snpio.utils.output_paths import OutputPaths
 
 if TYPE_CHECKING:
     from snpio.read_input.genotype_data import GenotypeData
+
+IndividualSelection = Literal["random", "least_missing", "all"] | Dict[str, List[str]]
 
 
 class DStatistics:
@@ -100,7 +104,7 @@ class DStatistics:
         outgroup: str | List[str] | None = None,
         num_bootstraps: int = 1000,
         max_individuals_per_pop: int | None = None,
-        individual_selection: Literal["random"] | Dict[str, List[str]] = "random",
+        individual_selection: IndividualSelection = "random",
         seed: int | None = None,
         per_combination: bool = True,
         calc_overall: bool = True,
@@ -114,12 +118,14 @@ class DStatistics:
             population1 (str | List[str]): First population.
             population2 (str | List[str]): Second population.
             population3 (str | List[str]): Third population.
-            population4 (str | List[str] | None): Fourth population. Required for
-                partitioned D and DFOIL.
+            population4 (str | List[str] | None): Fourth population. Required for partitioned D and DFOIL.
             outgroup (str | List[str] | None): Outgroup population.
             num_bootstraps (int): Number of bootstrap replicates.
             max_individuals_per_pop (int | None): Maximum individuals per population.
-            individual_selection (Literal["random"] | Dict[str, List[str]]): Individual selection mode.
+            individual_selection (IndividualSelection): ``"random"``,
+                ``"least_missing"``, ``"all"``, or a population-to-sample
+                mapping. ``"least_missing"`` prioritizes samples with the
+                most usable D-statistic genotypes.
             seed (int | None): Random seed.
             per_combination (bool): Whether to calculate per-combination statistics.
             calc_overall (bool): Whether to calculate overall statistics.
@@ -152,10 +158,8 @@ class DStatistics:
         overall_stats: Dict[str, Any] = {}
         df = pd.DataFrame()
 
-        self.logger.warning(
-            f"D-stat run settings: method={method}, "
-            f"per_combination={per_combination}, calc_overall={calc_overall}, "
-            f"use_jackknife={use_jackknife}, block_size={block_size}"
+        self.logger.info(
+            f"D-stat run settings: method={method}, per_combination={per_combination}, calc_overall={calc_overall}, use_jackknife={use_jackknife}, block_size={block_size}"
         )
 
         pops = (population1, population2, population3, population4, outgroup)
@@ -168,7 +172,7 @@ class DStatistics:
         )
 
         ds_lengths = [None if x is None else len(x) for x in ds]
-        self.logger.warning(f"D-stat population index lengths: {ds_lengths}")
+        self.logger.info(f"D-stat population index lengths: {ds_lengths}")
 
         args = (method, self.geno012, *ds, num_bootstraps, seed)
         kwargs = {"use_jackknife": use_jackknife, "block_size": block_size}
@@ -181,15 +185,16 @@ class DStatistics:
         if per_combination:
             self.logger.info("Calculating per-combination D-statistics...")
             df = self._d_stats_per_combination(*args, **kwargs)
-            self.logger.warning(
-                f"Raw per-combination D-stat output: shape={df.shape}, "
-                f"columns={df.columns.tolist()}"
+            self._log_dstat_estimability_summary(df, method)
+
+            self.logger.debug(
+                f"Raw per-combination D-stat output: shape={df.shape}, columns={df.columns.tolist()}"
             )
+
             self.logger.info("Per-combination D-statistics calculation completed.")
         else:
             self.logger.warning(
-                "per_combination=False, so no per-combination D-statistics "
-                "DataFrame will be generated."
+                "per_combination=False, so no per-combination D-statistics DataFrame will be generated."
             )
 
         df, overall_stats = self._proc_all_dstat_results(
@@ -201,13 +206,54 @@ class DStatistics:
             overall_stats,
         )
 
-        self.logger.warning(
-            f"Processed D-stat output: shape={df.shape}, "
-            f"columns={df.columns.tolist()}, "
-            f"overall_keys={list(overall_stats.keys()) if isinstance(overall_stats, dict) else 'NA'}"
+        self.logger.debug(
+            f"Processed D-stat output: shape={df.shape}, columns={df.columns.tolist()}, overall_keys={list(overall_stats.keys()) if isinstance(overall_stats, dict) else 'NA'}"
+        )
+
+        self.logger.info(
+            f"D-statistic result processing complete: method={method}, combinations={len(df)}."
         )
 
         return df, overall_stats
+
+    def _log_dstat_estimability_summary(
+        self,
+        df: pd.DataFrame,
+        method: Literal["patterson", "partitioned", "dfoil"],
+    ) -> None:
+        """Log one run-level summary of non-estimable D-statistic results."""
+
+        if df.empty:
+            return
+
+        stats = {
+            "patterson": [("D", "D-statistic", "Z")],
+            "partitioned": [(stat, stat, f"Z_{stat}") for stat in ("D1", "D2", "D12")],
+            "dfoil": [
+                (stat, stat, f"Z_{stat}") for stat in ("DFO", "DFI", "DOL", "DIL")
+            ],
+        }[method]
+
+        summaries = []
+        has_non_estimable = False
+
+        for label, observed_col, z_col in stats:
+            observed_missing = int(df[observed_col].isna().sum())
+            inference_missing = int(df[z_col].isna().sum())
+            has_non_estimable |= observed_missing > 0 or inference_missing > 0
+
+            summaries.append(
+                f"{label}: observed NaN={observed_missing}, Z/P NaN={inference_missing}"
+            )
+
+        message = (
+            f"D-stat estimability summary for {method} ({len(df)} combinations): "
+            + "; ".join(summaries)
+            + ". Non-estimable values remain NaN and are excluded from multiple-test correction."
+        )
+
+        log = self.logger.warning if has_non_estimable else self.logger.info
+        log(message)
 
     def _d_stats_per_combination(
         self,
@@ -243,6 +289,7 @@ class DStatistics:
         """
         class_args = (self.genotype_data, geno012)
         class_kwargs = {"verbose": self.verbose, "debug": self.debug}
+
         if method == "patterson":
             dstat = PattersonDStats(*class_args, **class_kwargs)
         elif method == "partitioned":
@@ -280,6 +327,9 @@ class DStatistics:
             raise ValueError(msg)
 
         if method == "patterson":
+            expected_combinations = (
+                len(population1) * len(population2) * len(population3) * len(outgroup)
+            )
             all_pop_combinations = product(
                 population1,
                 population2,
@@ -289,11 +339,21 @@ class DStatistics:
                 desc=f"{method.capitalize()} D-stats",
                 unit=" quartets",
             )
+
         else:
             if population4 is None:
                 msg = f"`population4` is required for method='{method}', but got None."
                 self.logger.error(msg)
                 raise ValueError(msg)
+
+            expected_combinations = (
+                len(population1)
+                * len(population2)
+                * len(population3)
+                * len(population4)
+                * len(outgroup)
+            )
+
             # Prepare the population lists for itertools.product
             # For patterson's D, pop4 is not used, so we use a placeholder.
             all_pop_combinations = product(
@@ -305,6 +365,18 @@ class DStatistics:
                 desc=f"{method.capitalize()} D-stats",
                 unit=" quintets",
             )
+
+        inference_label = (
+            f"block jackknife (block_size={block_size})"
+            if use_jackknife
+            else f"{num_bootstraps} locus-bootstrap replicates"
+        )
+
+        self.logger.info(
+            f"Starting {method} per-combination inference for {expected_combinations} combinations with {inference_label}."
+        )
+
+        loop_started = perf_counter()
 
         for i1, i2, i3, i4, out in all_pop_combinations:
             if method == "patterson":
@@ -354,6 +426,7 @@ class DStatistics:
                         combo["Seed"],
                     )
                 )
+
             elif method == "partitioned":
                 results_list.append(
                     (
@@ -378,6 +451,7 @@ class DStatistics:
                         combo["Seed"],
                     )
                 )
+
             else:  # dfoil
                 results_list.append(
                     (
@@ -407,6 +481,10 @@ class DStatistics:
                         combo["Seed"],
                     )
                 )
+
+        self.logger.info(
+            f"{method.capitalize()} per-combination inference loop complete: processed {len(results_list)} of {expected_combinations}  combinations in {perf_counter() - loop_started:.2f} seconds. Assembling the results table."
+        )
 
         # 3. Create DataFrame from results
         if method == "patterson":
@@ -477,11 +555,7 @@ class DStatistics:
 
         if df.empty:
             self.logger.warning(
-                f"No per-combination {method} D-statistics were calculated. "
-                f"Input population sizes were: "
-                f"P1={len(population1)}, P2={len(population2)}, P3={len(population3)}, "
-                f"P4={None if population4 is None else len(population4)}, "
-                f"outgroup={None if outgroup is None else len(outgroup)}."
+                f"No per-combination {method} D-statistics were calculated.  Input population sizes were: P1={len(population1)}, P2={len(population2)}, P3={len(population3)}, P4={None if population4 is None else len(population4)}, outgroup={None if outgroup is None else len(outgroup)}."
             )
         else:
             self.logger.info(f"Calculated {len(df)} per-combination D-statistics.")
@@ -545,6 +619,7 @@ class DStatistics:
                     "Method": method,
                     "Bootstraps": num_bootstraps,
                 }
+
                 overall_stats = {
                     k: (
                         v[0]
@@ -578,10 +653,9 @@ class DStatistics:
         Returns:
             Path: The base directory for saving results.
         """
-        base = Path(self.genotype_data.prefix + "_output")
-        if self.genotype_data.was_filtered:
-            base = base / "nremover"
-        base = base / "analysis" / "d_stats"
+        base = OutputPaths.from_genotype_data(self.genotype_data).reports(
+            "d_statistics"
+        )
         base.mkdir(parents=True, exist_ok=True)
         return base
 
@@ -632,7 +706,9 @@ class DStatistics:
 
             # Significance flags
             df.loc[mask, "Significant (Raw)"] = df.loc[mask, "P"] < 0.05
+
             df.loc[mask, "Significant (Bonferroni)"] = df.loc[mask, bonf_key] < 0.05
+
             df.loc[mask, "Significant (FDR-BH)"] = df.loc[mask, fdr_key] < 0.05
 
         elif method == "partitioned":
@@ -664,9 +740,11 @@ class DStatistics:
 
                 # significance flags
                 df.loc[mask, f"Significant (Raw) {stat}"] = df.loc[mask, key_p] < 0.05
+
                 df.loc[mask, f"Significant (Bonferroni) {stat}"] = (
                     df.loc[mask, bonf_key] < 0.05
                 )
+
                 df.loc[mask, f"Significant (FDR-BH) {stat}"] = (
                     df.loc[mask, fdr_key] < 0.05
                 )
@@ -700,14 +778,16 @@ class DStatistics:
 
                 # significance flags
                 df.loc[mask, f"Significant (Raw) {stat}"] = df.loc[mask, key_p] < 0.05
+
                 df.loc[mask, f"Significant (Bonferroni) {stat}"] = (
                     df.loc[mask, bonf_key] < 0.05
                 )
+
                 df.loc[mask, f"Significant (FDR-BH) {stat}"] = (
                     df.loc[mask, fdr_key] < 0.05
                 )
         else:
-            msg = f"Unknown method: {method}. Supported: 'patterson', 'partitioned'."
+            msg = f"Unknown method: {method}. Supported: 'patterson', 'partitioned', 'dfoil'."
             self.logger.error(msg)
             raise NotImplementedError(msg)
 
@@ -831,6 +911,7 @@ class DStatistics:
         dfs = DfoilStats(
             self.genotype_data, self.geno012, verbose=self.verbose, debug=self.debug
         )
+
         return dfs.calculate(
             population1=d1,
             population2=d2,
@@ -878,6 +959,7 @@ class DStatistics:
         pds = PartitionedDStats(
             self.genotype_data, self.geno012, verbose=self.verbose, debug=self.debug
         )
+
         return pds.calculate(
             d1,
             d2,
@@ -923,6 +1005,7 @@ class DStatistics:
         pds = PattersonDStats(
             self.genotype_data, self.geno012, verbose=self.verbose, debug=self.debug
         )
+
         return pds.calculate(
             population1=d1,
             population2=d2,
@@ -966,21 +1049,88 @@ class DStatistics:
 
         return cast(Literal["patterson", "partitioned", "dfoil"], mthd)
 
+    def _select_least_missing_samples(
+        self, samples: Sequence[str], limit: int, population: str
+    ) -> list[str]:
+        """Select the most complete D-statistic samples from one population.
+
+        Missingness is counted from the encoded D-statistic matrix, where negative values are unusable genotypes. Ties are resolved by original alignment order, making this strategy deterministic and seed-free.
+
+        Args:
+            samples (Sequence[str]): List of sample IDs to select from.
+            limit (int): Maximum number of samples to select.
+            population (str): Population name for logging.
+
+        Returns:
+            list[str]: List of selected sample IDs, sorted by increasing missingness.
+        """
+
+        if self.geno012.ndim != 2:
+            msg = f"The D-statistic genotype matrix must be two-dimensional; got shape={self.geno012.shape}."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        all_samples = self.genotype_data.samples
+
+        if self.geno012.shape[0] != len(all_samples):
+            msg = f"The D-statistic genotype rows do not match the sample metadata: rows={self.geno012.shape[0]}, samples={len(all_samples)}."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        sample_to_index = {sample: idx for idx, sample in enumerate(all_samples)}
+
+        unknown = [sample for sample in samples if sample not in sample_to_index]
+
+        if unknown:
+            msg = f"Population '{population}' contains samples absent from the genotype alignment: {unknown}."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        missing_counts = getattr(self, "_missing_genotype_counts", None)
+
+        if missing_counts is None or missing_counts.shape != (self.geno012.shape[0],):
+            missing_counts = np.count_nonzero(self.geno012 < 0, axis=1)
+            self._missing_genotype_counts = missing_counts
+
+        ranked = sorted(
+            samples,
+            key=lambda sample: (
+                int(missing_counts[sample_to_index[sample]]),
+                sample_to_index[sample],
+            ),
+        )
+
+        chosen = ranked[:limit]
+
+        chosen_counts = [
+            int(missing_counts[sample_to_index[sample]]) for sample in chosen
+        ]
+
+        self.logger.info(
+            f"Selected {len(chosen)} least-missing individuals from population '{population}'; missing-genotype count range={min(chosen_counts)}-{max(chosen_counts)} across {self.geno012.shape[1]} loci."
+        )
+
+        self.logger.debug(
+            f"Least-missing selection for population '{population}': {list(zip(chosen, chosen_counts))}",
+        )
+
+        return chosen
+
     def _get_single_pop_indices(
         self,
         pop: str | List[str],
         max_individuals_per_pop: int | None,
-        individual_selection: Literal["random"] | Dict[str, List[str]],
+        individual_selection: IndividualSelection,
         seed: int | None,
     ) -> List[int]:
         """Get indices of individuals from specified populations.
 
-        This method selects individuals from specified populations based on the provided selection strategy. It supports both random selection and predefined lists of individual IDs.
+        This method selects individuals from specified populations using random, least-missing, all-individual, or explicit sample-list selection.
 
         Args:
             pop (str | List[str]): Population ID or list of IDs to select individuals from.
             max_individuals_per_pop (int | None): Maximum number of individuals to select from each population.
-            individual_selection (Literal["random"] | Dict[str, List[str]]): Selection strategy for individuals, either 'random' or a dictionary mapping population IDs to lists of individual IDs.
+            individual_selection (IndividualSelection): Selection strategy.
             seed (int | None): Random seed for reproducibility.
 
         Returns:
@@ -991,11 +1141,36 @@ class DStatistics:
             ValueError: If the individual selection strategy is invalid or if no individuals are selected.
             ValueError: If no individuals are selected after applying the selection criteria.
         """
-        # Establish a random seed for reproducibility
+        if max_individuals_per_pop is not None and (
+            isinstance(max_individuals_per_pop, bool)
+            or not isinstance(max_individuals_per_pop, int)
+            or max_individuals_per_pop <= 0
+        ):
+            raise ValueError(
+                "max_individuals_per_pop must be a positive integer or None."
+            )
+
+        named_strategies = {"random", "least_missing", "all"}
+        if isinstance(individual_selection, str):
+            if individual_selection not in named_strategies:
+                msg = (
+                    "Invalid individual_selection argument supplied: "
+                    f"{individual_selection!r}. Expected one of "
+                    f"{sorted(named_strategies)} or a population-to-sample mapping."
+                )
+                self.logger.error(msg)
+                raise ValueError(msg)
+
+        elif not isinstance(individual_selection, dict):
+            msg = f"individual_selection must be 'random', 'least_missing', 'all', or a dictionary mapping population IDs to sample IDs; got {type(individual_selection).__name__}."
+            self.logger.error(msg)
+            raise TypeError(msg)
+
+        # Establish a random seed for reproducibility.
         rng = np.random.default_rng(seed)
 
         pops = [pop] if isinstance(pop, str) else pop
-        selected = []
+        selected: List[str] = []
 
         if self.genotype_data.popmap_inverse is None:
             msg = "Population map inverse is not available. Ensure that the genotype data has a valid population map."
@@ -1008,34 +1183,77 @@ class DStatistics:
                 self.logger.error(msg)
                 raise KeyError(msg)
 
-            samples = self.genotype_data.popmap_inverse[p]
+            samples = list(self.genotype_data.popmap_inverse[p])
 
-            if (
-                max_individuals_per_pop is not None
-                and len(samples) > max_individuals_per_pop
-            ):
-                if individual_selection == "random":
-                    chosen = rng.choice(samples, max_individuals_per_pop, replace=False)
-                elif isinstance(individual_selection, dict):
-                    if max_individuals_per_pop is not None:
-                        chosen = individual_selection[p][:max_individuals_per_pop]
-                    else:
-                        chosen = individual_selection[p]
-                else:
-                    msg = f"Invalid individual_selection argument supplied: {individual_selection}. Must be 'random' or a dictionary mapping population IDs to lists of individual IDs. But got: {individual_selection} of type {type(individual_selection)}"
+            if isinstance(individual_selection, dict):
+                if p not in individual_selection:
+                    msg = f"No individual_selection entry was provided for population '{p}'."
+                    self.logger.error(msg)
+                    raise KeyError(msg)
+
+                requested = individual_selection[p]
+
+                if not isinstance(requested, list):
+                    msg = f"individual_selection['{p}'] must be a list of sample IDs."
+                    self.logger.error(msg)
+                    raise TypeError(msg)
+
+                invalid_samples = [
+                    sample for sample in requested if sample not in samples
+                ]
+
+                if invalid_samples:
+                    msg = f"Samples selected for population '{p}' are absent from that population: {invalid_samples}."
                     self.logger.error(msg)
                     raise ValueError(msg)
-                selected.extend(chosen)
+
+                chosen = (
+                    requested[:max_individuals_per_pop]
+                    if max_individuals_per_pop is not None
+                    else requested
+                )
+            elif individual_selection == "all":
+                # Explicit all-individual selection takes precedence over
+                # the cap.
+                chosen = samples
+            elif (
+                max_individuals_per_pop is None
+                or len(samples) <= max_individuals_per_pop
+            ):
+                chosen = samples
+            elif individual_selection == "random":
+                chosen = rng.choice(
+                    samples,
+                    max_individuals_per_pop,
+                    replace=False,
+                ).tolist()
             else:
-                selected.extend(samples)
+                chosen = self._select_least_missing_samples(
+                    samples,
+                    max_individuals_per_pop,
+                    population=p,
+                )
+
+            selected.extend(chosen)
 
         if not selected:
             msg = f"No individuals selected for population(s): {pops}. Check your population definitions and individual selection criteria."
             self.logger.error(msg)
             raise ValueError(msg)
 
-        # Map selected sample IDs to their indices in the genotype data
-        return [self.genotype_data.samples.index(s) for s in selected]
+        # Map selected sample IDs to their indices in the genotype data.
+        sample_to_index = {
+            sample: idx for idx, sample in enumerate(self.genotype_data.samples)
+        }
+
+        unknown = [sample for sample in selected if sample not in sample_to_index]
+
+        if unknown:
+            msg = f"Selected samples are absent from the genotype alignment: {unknown}."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        return [sample_to_index[sample] for sample in selected]
 
     def _get_all_pop_indices(
         self,
@@ -1045,7 +1263,7 @@ class DStatistics:
         population4: str | List[str] | None,
         outgroup: str | List[str],
         max_individuals_per_pop: int | None = None,
-        individual_selection: Literal["random"] | Dict[str, List[str]] = "random",
+        individual_selection: IndividualSelection = "random",
         seed: int | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray]:
         """Get population index arrays in Comp-D partitioned D-statistics order using user-defined labels.
@@ -1057,7 +1275,9 @@ class DStatistics:
             population4 (str | List[str]): Label of P4 population or list of individuals to use.
             outgroup (str | List[str]): Label of outgroup or list of individuals to use.
             max_individuals_per_pop (int | None): Max number of individuals per population. Defaults to None (use all individuals).
-            individual_selection (Literal["random"] | Dict[str, List[str]]): 'random' or dict[str, list[str]] for custom individual choices. Defaults to 'random'.
+            individual_selection (IndividualSelection): ``"random"``,
+                ``"least_missing"``, ``"all"``, or ``dict[str, list[str]]``
+                for explicit individual choices. Defaults to ``"random"``.
             seed (int | None): Optional seed for reproducibility.
 
         Returns:
@@ -1076,16 +1296,19 @@ class DStatistics:
                     population4, max_individuals_per_pop, individual_selection, seed
                 )
             )
+
         p3_inds = np.array(
             self._get_single_pop_indices(
                 population3, max_individuals_per_pop, individual_selection, seed
             )
         )
+
         p2_inds = np.array(
             self._get_single_pop_indices(
                 population2, max_individuals_per_pop, individual_selection, seed
             )
         )
+
         p1_inds = np.array(
             self._get_single_pop_indices(
                 population1, max_individuals_per_pop, individual_selection, seed

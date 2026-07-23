@@ -7,6 +7,7 @@ from statsmodels.stats.multitest import multipletests
 
 from snpio.plotting.plotting import Plotting
 from snpio.popgenstats.fst_distance import FstDistance
+from snpio.popgenstats.fst_outlier_results import build_fst_outlier_dataframe
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
 
@@ -120,7 +121,7 @@ class PermutationOutlierDetector:
         self.logger.info(
             f"Permutation method found {len(all_results)} significant outlier entries. Analysis complete."
         )
-        return pd.DataFrame(all_results)
+        return build_fst_outlier_dataframe(all_results)
 
     def _compute_per_locus_fst(
         self, pop1_inds: np.ndarray, pop2_inds: np.ndarray

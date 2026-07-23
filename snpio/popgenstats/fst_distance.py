@@ -2,7 +2,6 @@ import itertools
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
@@ -12,6 +11,7 @@ from tqdm import tqdm
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
 from snpio.utils.multiqc_reporter import SNPioMultiQC
+from snpio.utils.output_paths import OutputPaths
 
 if TYPE_CHECKING:
     from snpio.plotting.plotting import Plotting
@@ -46,12 +46,7 @@ class FstDistance:
         self.verbose = verbose
         self.seed = seed
 
-        if self.genotype_data.was_filtered:
-            self.outdir = Path(
-                f"{genotype_data.prefix}_output", "nremover", "analysis", "fst"
-            )
-        else:
-            self.outdir = Path(f"{genotype_data.prefix}_output", "analysis", "fst")
+        self.outdir = OutputPaths.from_genotype_data(genotype_data).reports("fst")
         self.outdir.mkdir(parents=True, exist_ok=True)
 
         logman = LoggerManager(

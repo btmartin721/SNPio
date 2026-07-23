@@ -10,6 +10,11 @@ SNPio Includes:
 - Genotype filtering (NRemover2)
 - Genotype encoding for AI & machine learning applications (GenotypeEncoder)
 - Population genetic statistics & Principal Component Analysis (PopGenStatistics)
+- Finite-sample-unbiased unphased LD and LD-based recent effective population
+  size (Ne), with grouped-locus bootstrap intervals and validation evidence
+- Patterson, partitioned, and DFOIL statistics with random, deterministic
+  least-missing, all-sample, or explicit individual selection
+- Artifact-aware output organization and interactive MultiQC reporting
 - Experimental: Phylogenetic tree parsing (TreeParser)
 
 ---
@@ -86,15 +91,54 @@ gd = VCFReader(
 
 You can also specify `include_pops` and `exclude_pops` to control population-level filtering.
 
+### LD and Recent Effective Population Size
+
+```python
+from snpio import PopGenStatistics
+
+ld = PopGenStatistics(gd).calculate_linkage_disequilibrium(
+    n_bootstraps=200,
+    n_jobs=-1,
+    max_pairs=1_000_000,
+    seed=42,
+)
+
+print(ld.summary[["Population", "r2D", "rDz", "Ne"]])
+```
+
+The returned scientific table represents non-estimable `Ne` values as `NaN`.
+The MultiQC population summary adds a human-readable `Ne_Status` column.
+
+For ordinary VCF input, SNPio infers chromosome or scaffold groups and uses
+only between-group locus pairs. Coordinate-free data must provide explicit
+`locus_groups` or deliberately set `assume_unlinked=True`. See the
+[LD method guide](https://snpio.readthedocs.io/en/latest/linkage_disequilibrium.html)
+and [validation protocol](https://snpio.readthedocs.io/en/latest/ld_validation.html).
+
+### Output Layout
+
+SNPio separates generated data, logs, MultiQC bundles, plots, and tabular
+reports under `<prefix>_output/`. Results derived from an `NRemover2` object
+are placed under `plots/nremover/<operation>/` and
+`reports/nremover/<operation>/`; VCF metadata caches use `data/vcf/` with
+independent filtered states under `data/vcf/nremover/`.
+
 ---
 
 ## 🧪 Development Notes
 
-To run unit all tests:
+To run the unit tests:
 
 ```bash
-pip install snpio[dev]
-pytest tests/
+python -m pip install -e '.[dev]'
+python -m pytest tests/
+```
+
+The optional forward-time LD calibration dependencies are isolated from the
+runtime installation:
+
+```bash
+python -m pip install -e '.[dev,ld-validation]'
 ```
 
 ---
@@ -103,7 +147,15 @@ pytest tests/
 
 SNPio is licensed under the [GPL-3.0 License](https://github.com/btmartin721/SNPio/blob/master/LICENSE).  
 
-Please cite any publication(s) when using SNPio in your research. A manuscript is currently in development, and this section will be updated upon acceptance.
+Please cite:
+
+> Martin, B. T., Monaco, D. R., Sharabi, N., Mussmann, S. M., and Chafin,
+> T. K. (2026). SNPio: a Python interface for population genomic data
+> processing. *BMC Bioinformatics*.
+> https://doi.org/10.1186/s12859-026-06546-5
+
+When reporting unphased LD or LD-based recent Ne, also cite Ragsdale and
+Gravel (2020), *Molecular Biology and Evolution*, 37(3), 923–932.
 
 ---
 

@@ -13,6 +13,7 @@ from snpio.utils.custom_exceptions import (
 )
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC
+from snpio.utils.output_paths import OutputPaths
 
 
 class StructureReader(GenotypeData):
@@ -24,7 +25,7 @@ class StructureReader(GenotypeData):
 
     The `allele_start_col` parameter specifies the zero-based index where the alleles begin. If `has_popids=True`, the second column must be the population IDs. If `has_marker_names=True`, the first line must be the marker names.
 
-    If no popmap filename is provided and `has_popids=True`, the class will create a default population map based on the population IDs in the STRUCTURE file, saved to `{prefix}_output/alignments/popmap.txt` or `{prefix}_output/nremover/alignments/popmap.txt`.
+    If no popmap filename is provided and `has_popids=True`, the class will create a default population map based on the population IDs in the STRUCTURE file, saved to `{prefix}_output/data/popmaps/popmap.txt`.
     """
 
     def __init__(
@@ -51,7 +52,7 @@ class StructureReader(GenotypeData):
 
         The `allele_start_col` parameter specifies the zero-based index where the alleles begin. If `has_popids=True`, the second column must be the population IDs. If `has_marker_names=True`, the first line must be the marker names.
 
-        If no popmap filename is provided and `has_popids=True`, the class will create a default population map based on the population IDs in the STRUCTURE file, saved to `{prefix}_output/alignments/popmap.txt` or `{prefix}_output/nremover/alignments/popmap.txt`.
+        If no popmap filename is provided and `has_popids=True`, the class will create a default population map based on the population IDs in the STRUCTURE file, saved to `{prefix}_output/data/popmaps/popmap.txt`.
 
         Args:
             filename (str): path to STRUCTURE file.
@@ -404,15 +405,7 @@ class StructureReader(GenotypeData):
                 self.logger.error(msg)
                 raise AlignmentFormatError(msg)
 
-            if self.was_filtered:
-                out_path = Path(
-                    f"{self.prefix}_output", "nremover", "alignments", "popmap.txt"
-                )
-            else:
-                # Default path for popmap
-                # If not filtered, save to alignments directory
-                # If filtered, save to nremover/alignments directory
-                out_path = Path(f"{self.prefix}_output", "alignments", "popmap.txt")
+            out_path = OutputPaths(self.prefix).popmaps / "popmap.txt"
             out_path.parent.mkdir(parents=True, exist_ok=True)
             with open(out_path, "w") as fout:
                 for sample, pop in zip(self.samples, populations):

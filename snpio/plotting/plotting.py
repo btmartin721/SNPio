@@ -2,6 +2,7 @@ import json
 import warnings
 from logging import Logger
 from pathlib import Path
+from time import perf_counter
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple
 
 import holoviews as hv
@@ -25,6 +26,7 @@ from snpio.utils import misc
 from snpio.utils.logging import LoggerManager
 from snpio.utils.misc import IUPAC, build_dataframe
 from snpio.utils.multiqc_reporter import SNPioMultiQC
+from snpio.utils.output_paths import OutputPaths
 
 if TYPE_CHECKING:
     from snpio.read_input.genotype_data import GenotypeData
@@ -79,6 +81,7 @@ class Plotting:
         despine: bool = True,
         verbose: bool = False,
         debug: bool = False,
+        force_nremover: bool = False,
     ) -> None:
         """Initialize the Plotting class.
 
@@ -94,11 +97,14 @@ class Plotting:
             despine (bool): Whether to remove the top and right plot axis spines. Defaults to `genotype_data.despine` if available, otherwise `True`.
             verbose (bool): Whether to enable verbose logging. Defaults to `genotype_data.verbose` if available, otherwise `False`.
             debug (bool): Whether to enable debug logging. Defaults to `genotype_data.debug` if available, otherwise `False`.
+            force_nremover (bool): Route filtering-operation plots beneath the
+                ``plots/nremover`` scope even if the source dataset itself has
+                not yet been replaced by its filtered copy.
 
         Note:
             - The `show`, `plot_format`, `dpi`, `plot_fontsize`, `plot_title_fontsize`, `despine`, `verbose`, and `debug` attributes are set based on the provided values, the `genotype_data` object, or default values.
 
-            - The `output_dir` attribute is set to the `prefix_output/nremover/plots` directory or the `prefix_output/plots` directory if the genotype data was not filtered when initializing the `Plotting` class.
+            - Plot artifacts are written beneath ``<prefix>_output/plots``. Filtered datasets use its ``nremover`` subdirectory.
 
             - The `mpl_params` dictionary contains default Matplotlib parameters for the plots and are updated with the `mpl_params` dictionary.
 
@@ -107,19 +113,18 @@ class Plotting:
         self.genotype_data = genotype_data
         self.prefix: str = getattr(genotype_data, "prefix", "plot")
 
-        self.output_dir: Path = Path(f"{self.prefix}_output")
-        if self.genotype_data.was_filtered:
-            self.output_dir: Path = self.output_dir / "nremover"
+        self.output_paths = OutputPaths.from_genotype_data(
+            genotype_data,
+            force_filtered=force_nremover,
+        )
+        self.output_dir: Path = self.output_paths.root
 
-        self.output_dir_gd: Path = self.output_dir / "plots" / "gtdata"
-        self.output_dir_analysis: Path = self.output_dir / "plots" / "analysis"
-        self.report_dir_gd: Path = self.output_dir / "reports" / "gtdata"
-        self.report_dir_analysis: Path = self.output_dir / "reports" / "analysis"
-
-        self.output_dir_gd.mkdir(parents=True, exist_ok=True)
-        self.output_dir_analysis.mkdir(parents=True, exist_ok=True)
-        self.report_dir_gd.mkdir(parents=True, exist_ok=True)
-        self.report_dir_analysis.mkdir(parents=True, exist_ok=True)
+        # Retain these long-standing attributes as overridable artifact roots.
+        # Named operation directories are added lazily by _plot_dir/_report_dir.
+        self.output_dir_gd: Path = self.output_paths.plots()
+        self.output_dir_analysis: Path = self.output_paths.plots()
+        self.report_dir_gd: Path = self.output_paths.reports()
+        self.report_dir_analysis: Path = self.output_paths.reports()
 
         self.verbose: bool = (
             verbose if verbose is not None else getattr(genotype_data, "verbose", False)
@@ -216,6 +221,8 @@ class Plotting:
 
         despine = self._provided_values.get("despine", self._defaults["despine"])
 
+        self.despine = despine
+
         self.mpl_params = {
             "xtick.labelsize": plot_fontsize,
             "ytick.labelsize": plot_fontsize,
@@ -246,6 +253,78 @@ class Plotting:
         mpl.rcParams.update(self.mpl_params)
 
         self.snpio_mqc = SNPioMultiQC
+
+    def _plot_dir(self, operation: str, *, genotype: bool = False) -> Path:
+        """Return and create a named plot directory.
+
+        Explicit overrides of the legacy output-root attributes remain direct
+        destinations for backwards compatibility with callers and tests.
+        """
+
+        attribute = "output_dir_gd" if genotype else "output_dir_analysis"
+        base = Path(getattr(self, attribute))
+        output_paths = getattr(self, "output_paths", None)
+        if output_paths is None:
+            directory = base
+        else:
+            default_base = output_paths.plots()
+            directory = base if base != default_base else default_base / operation
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    def _report_dir(self, operation: str, *, genotype: bool = False) -> Path:
+        """Return and create a named report directory."""
+
+        attribute = "report_dir_gd" if genotype else "report_dir_analysis"
+        base = Path(getattr(self, attribute))
+        output_paths = getattr(self, "output_paths", None)
+        if output_paths is None:
+            directory = base
+        else:
+            default_base = output_paths.reports()
+            directory = base if base != default_base else default_base / operation
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory
+
+    @staticmethod
+    def _distance_operation(dist_type: str) -> str:
+        """Map distance labels to intuitive operation-directory names."""
+
+        normalized = dist_type.strip().lower()
+        return "nei_distance" if normalized == "nei" else normalized
+
+    def plot_linkage_disequilibrium(
+        self, summary: pd.DataFrame, pairwise: pd.DataFrame
+    ) -> dict[str, Path]:
+        """Plot unbiased linkage-disequilibrium summaries and diagnostics.
+
+        Args:
+            summary: Per-population table returned by
+                :meth:`PopGenStatistics.calculate_linkage_disequilibrium`.
+            pairwise: Sampled pairwise LD estimates used for distribution
+                diagnostics. The aggregate ``r2D`` estimate is read from
+                ``summary`` and is not calculated from these sampled ratios.
+
+        Returns:
+            Mapping from plot identifiers to the generated output paths.
+        """
+
+        from snpio.plotting.linkage_disequilibrium import (
+            LinkageDisequilibriumPlotter,
+        )
+
+        ld_plotter = LinkageDisequilibriumPlotter(
+            self._plot_dir("linkage_disequilibrium"),
+            plot_format=self.plot_format,
+            dpi=self.dpi,
+            fontsize=self.plot_fontsize,
+            title_fontsize=self.plot_title_fontsize,
+            despine=self.despine,
+            show=self.show,
+            logger=self.logger,
+        )
+
+        return ld_plotter.plot_all(summary, pairwise)
 
     def _get_attribute_value(self, attr: str) -> Any:
         """Determine the value for an attribute based on the provided argument.
@@ -349,6 +428,7 @@ class Plotting:
             _, ax = plt.subplots()
 
         pop_stats = pd.DataFrame(columns=["Ho", "He", "Pi"])
+
         for pop_id, stats_df in per_population_stats.items():
             stats_df = stats_df.copy()
 
@@ -440,6 +520,7 @@ class Plotting:
                 fill=True,
                 legend=True,
             )
+
         except Exception as e:
             self.logger.warning(
                 f"Error plotting permutation histogram for populations {pop1_label} and {pop2_label}: {e}"
@@ -449,23 +530,25 @@ class Plotting:
         plt.axvline(obs_fst, color="orange", linestyle="--", label="Observed Fst")
 
         plt.axvline(
-            dist.mean(),
-            color="limegreen",
-            linestyle="--",
-            label="Mean Permuted Fst",
+            dist.mean(), color="limegreen", linestyle="--", label="Mean Permuted Fst"
         )
 
         plt.title(f"Permutation Dist: {pop1_label} vs {pop2_label}")
         plt.xlabel("Fst")
         plt.ylabel("Frequency")
+
         plt.legend(loc="center", bbox_to_anchor=(0.5, -0.4), shadow=True, fancybox=True)
 
         out_file = (
             f"{dist_type}_permutation_dist_{pop1_label}_{pop2_label}.{self.plot_format}"
         )
-        plt.savefig(self.output_dir_analysis / out_file)
+
+        operation = self._distance_operation(dist_type)
+        plt.savefig(self._plot_dir(operation) / out_file)
+
         if self.show:
             plt.show()
+
         plt.close()
 
         dist_data = {
@@ -478,7 +561,7 @@ class Plotting:
         }
 
         with open(
-            self.report_dir_analysis
+            self._report_dir(operation)
             / f"{dist_type}_permutation_dist_{pop1_label}_{pop2_label}.json",
             "w",
         ) as f:
@@ -644,7 +727,7 @@ class Plotting:
             cbar.set_label(cbar_label, fontsize=cbar_fontsize)
 
         out_file = f"{dist_type}_between_populations_heatmap.{self.plot_format}"
-        plt.savefig(self.output_dir_analysis / out_file)
+        plt.savefig(self._plot_dir(self._distance_operation(dist_type)) / out_file)
         if self.show:
             plt.show()
         plt.close()
@@ -694,9 +777,7 @@ class Plotting:
 
         if not rows:
             self.logger.warning(
-                "No significance columns found for %s D-statistics. "
-                "Skipping significance-count plot/table.",
-                method_name,
+                f"No significance columns found for {method_name} D-statistics. Skipping significance-count plot/table."
             )
             return pd.DataFrame(
                 columns=["Statistic", "Correction", "Significance", "Count"]
@@ -873,9 +954,7 @@ class Plotting:
             method_mask = df["Method"].eq(method_key)
             if not method_mask.any():
                 self.logger.warning(
-                    "No D-statistics rows matched method='%s'. Available Method values: %s",
-                    method_key,
-                    sorted(df["Method"].dropna().astype(str).unique().tolist()),
+                    f"No D-statistics rows matched method='{method_key}'. Available Method values: {sorted(df['Method'].dropna().astype(str).unique().tolist())}"
                 )
                 return df.iloc[0:0].copy()
 
@@ -894,8 +973,7 @@ class Plotting:
 
         if not numeric_cols:
             self.logger.warning(
-                "No recognizable D-statistic numeric columns found. Columns present: %s",
-                df.columns.tolist(),
+                f"No recognizable D-statistic numeric columns found. Columns present: {df.columns.tolist()}",
             )
             return df.iloc[0:0].copy()
 
@@ -912,8 +990,7 @@ class Plotting:
         removed = before - len(df_clean)
         if removed:
             self.logger.warning(
-                "Removed %d D-statistics rows with no finite plotting values.",
-                removed,
+                f"Removed {removed} D-statistics rows with no finite plotting values.",
             )
 
         sample_key = "Sample Combo" if "Sample Combo" in df_clean.columns else None
@@ -922,7 +999,7 @@ class Plotting:
             df_clean = df_clean.drop_duplicates(subset=["Method", sample_key])
             removed = before - len(df_clean)
             if removed:
-                self.logger.warning("Removed %d duplicate D-statistics rows.", removed)
+                self.logger.warning(f"Removed {removed} duplicate D-statistics rows.")
 
         return df_clean
 
@@ -968,12 +1045,26 @@ class Plotting:
             )
             return
 
-        self.plot_d_statistics_heatmap(df_clean, method_name=method)
-        self.plot_dstat_significance_counts(df_clean, method_name=method)
-        self.plot_dstat_chi_square_distribution(df_clean, method_name=method)
-        self.plot_dstat_pvalue_distribution(df_clean, method_name=method)
-        self.plot_stacked_significance_barplot(df_clean, method_name=method)
-        self._queue_d_stats_multiqc_reports(df_clean, method)
+        plot_steps = (
+            ("P-value heatmap", self.plot_d_statistics_heatmap),
+            ("significance-count plot", self.plot_dstat_significance_counts),
+            ("chi-square distribution", self.plot_dstat_chi_square_distribution),
+            ("P-value distribution", self.plot_dstat_pvalue_distribution),
+            ("stacked-significance plot", self.plot_stacked_significance_barplot),
+            ("MultiQC summary panels", self._queue_d_stats_multiqc_reports),
+        )
+        all_plots_started = perf_counter()
+        for label, plot_method in plot_steps:
+            step_started = perf_counter()
+            self.logger.info(f"Generating {method_key} {label}...")
+            plot_method(df_clean, method)
+            self.logger.info(
+                f"Finished {method_key} {label} in {perf_counter() - step_started:.2f} seconds."
+            )
+
+        self.logger.info(
+            f"All {method_key} D-statistic plots and report panels completed in {perf_counter() - all_plots_started:.2f} seconds."
+        )
 
     def plot_d_statistics_heatmap(
         self,
@@ -1073,17 +1164,11 @@ class Plotting:
             zmin=0,
             zmax=finite_max,
         )
-        for i, j in np.ndindex(annotations.shape):
-            if annotations[i, j]:
-                fig.add_annotation(
-                    text=annotations[i, j],
-                    x=j,
-                    y=i,
-                    showarrow=False,
-                    font=dict(color="black", size=14),
-                    xanchor="center",
-                    yanchor="middle",
-                )
+        fig.update_traces(
+            text=annotations,
+            texttemplate="%{text}",
+            textfont=dict(color="black", size=14),
+        )
 
         title = f"{method_name.title()} D-statistics Heatmap"
         fig.update_layout(
@@ -1097,7 +1182,7 @@ class Plotting:
         fig.update_yaxes(showticklabels=False)
 
         output_path = (
-            self.output_dir_analysis / f"d_statistics_heatmap_{method_name}.html"
+            self._plot_dir("d_statistics") / f"d_statistics_heatmap_{method_name}.html"
         )
         fig.write_html(output_path, full_html=False, include_plotlyjs="cdn")
 
@@ -1164,7 +1249,7 @@ class Plotting:
             fig = g.fig  # unify handle
 
         output_path = (
-            self.output_dir_analysis
+            self._plot_dir("d_statistics")
             / f"d_statistics_significance_counts_{method_name}.html"
         )
         img_path = Path(str(output_path).replace(".html", f".{self.plot_format}"))
@@ -1173,13 +1258,29 @@ class Plotting:
             plt.show()
         plt.close(fig)
 
+        interactive_fig = px.bar(
+            counts_df,
+            x="Correction" if method_name == "patterson" else "Statistic",
+            y="Count",
+            color="Significance",
+            facet_col=None if method_name == "patterson" else "Correction",
+            barmode="group",
+            title=f"{method_title} D-Statistics Significance Counts",
+            template="plotly_white",
+            labels={"Count": "Number of Tests"},
+        )
+        interactive_fig.write_html(
+            output_path,
+            full_html=False,
+            include_plotlyjs="cdn",
+        )
+
         # queue to MultiQC
         panel_id = f"d_statistics_significance_counts_plot_{method_name}"
         title = f"SNPio: {method_title} D-Statistics Significance Counts"
         desc = "Counts across Uncorrected, Bonferroni, and FDR-BH corrections."
         try:
             if hasattr(self, "snpio_mqc") and hasattr(self.snpio_mqc, "queue_html"):
-                # create a tiny wrapper html alongside the image
                 self.snpio_mqc.queue_html(
                     output_path,
                     panel_id=panel_id,
@@ -1234,7 +1335,7 @@ class Plotting:
         )
 
         output_path = (
-            self.output_dir_analysis
+            self._plot_dir("d_statistics")
             / f"dstat_chi_square_distribution_{method_name}.html"
         )
         fig.write_html(output_path)
@@ -1282,7 +1383,8 @@ class Plotting:
         )
 
         output_path = (
-            self.output_dir_analysis / f"dstat_pvalue_distribution_{method_name}.html"
+            self._plot_dir("d_statistics")
+            / f"dstat_pvalue_distribution_{method_name}.html"
         )
         fig.write_html(output_path)
         if self.show:
@@ -1353,7 +1455,7 @@ class Plotting:
         )
 
         output_path = (
-            self.output_dir_analysis
+            self._plot_dir("d_statistics")
             / f"dstat_stacked_significance_barplot_{method_name}.html"
         )
         fig.write_html(output_path)
@@ -1523,21 +1625,42 @@ class Plotting:
         Raises:
             ValueError: If the method is not "dbscan" or "permutation".
             ValueError: If max_outliers_to_plot is not positive.
+            ValueError: If a non-empty result lacks required columns.
         """
+
+        if method not in {"dbscan", "permutation"}:
+            msg = f"Method must be either 'dbscan' or 'permutation', but got: {method}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if max_outliers_to_plot is not None and (
+            isinstance(max_outliers_to_plot, bool)
+            or not isinstance(max_outliers_to_plot, int)
+            or max_outliers_to_plot <= 0
+        ):
+            msg = f"Invalid max_outliers_to_plot value: {max_outliers_to_plot}. Must be a positive integer or None."
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        if outlier_snps.empty:
+            self.logger.warning(
+                f"No Fst outliers available to plot for {method} method."
+            )
+            return
+
+        required_columns = {"Locus", "Population_Pair", "Fst", "q_value"}
+        missing_columns = sorted(required_columns.difference(outlier_snps.columns))
+        if missing_columns:
+            msg = (
+                "Fst outlier results are missing required column(s): "
+                f"{missing_columns}."
+            )
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         # Copy the DataFrame to avoid modifying the original data
         data = outlier_snps.copy()
         data = data.rename(columns={"Locus": "SNP"})
-
-        data["Contributing_Pairs"] = data["Population_Pair"]
-
-        # Create a column for fast lookup
-        data["Contributing_Pairs_Set"] = data["Contributing_Pairs"].apply(set)
-
-        # Add boolean column for highlighting
-        data["Contributing"] = data.apply(
-            lambda row: row["Population_Pair"] in row["Contributing_Pairs_Set"], axis=1
-        )
 
         # Check for duplicates before pivoting
         dupes = data.duplicated(subset=["SNP", "Population_Pair"])
@@ -1550,13 +1673,21 @@ class Plotting:
         # Create mask after deduplicating
         fst_pivot = data.pivot(index="SNP", columns="Population_Pair", values="Fst")
 
-        cols = []
-        for col in fst_pivot.columns:
-            if col != "Population_Pair":
-                cols.append(col.replace("_", "-"))
-        fst_pivot.columns = cols
+        fst_pivot.columns = [
+            str(population_pair).replace("_", "-")
+            for population_pair in fst_pivot.columns
+        ]
 
         self.logger.debug(f"Fst pivot table:\n{fst_pivot}")
+
+        if (
+            max_outliers_to_plot is not None
+            and len(fst_pivot) > max_outliers_to_plot
+        ):
+            self.logger.warning(
+                f"More than {max_outliers_to_plot} outlier SNPs detected. Plotting only the first {max_outliers_to_plot} SNPs."
+            )
+            fst_pivot = fst_pivot.head(max_outliers_to_plot)
 
         # Plot the heatmap
         fig, ax = plt.subplots(1, 1, figsize=(15, max(8, len(fst_pivot) // 2)))
@@ -1564,13 +1695,6 @@ class Plotting:
         sns.set_style("white")
 
         cmap = sns.diverging_palette(220, 20, as_cmap=True)
-
-        if max_outliers_to_plot is not None:
-            if len(fst_pivot) > max_outliers_to_plot:
-                self.logger.warning(
-                    f"More than {max_outliers_to_plot} outlier SNPs detected. Plotting only the first {max_outliers_to_plot} SNPs."
-                )
-                fst_pivot = fst_pivot.head(max_outliers_to_plot)
 
         sns.heatmap(
             fst_pivot,
@@ -1598,74 +1722,49 @@ class Plotting:
         ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
         ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
 
-        if method not in {"dbscan", "permutation"}:
-            msg = f"Method must be either 'dbscan' or 'permutation', but got: {method}"
-            self.logger.error(msg)
-            raise ValueError(msg)
-
         # Save the plot
         of = f"outlier_snps_heatmap_{method}.{self.plot_format}"
-        outpath = self.output_dir_analysis / of
+        outpath = self._plot_dir("fst_outliers") / of
         fig.savefig(outpath, bbox_inches="tight")
 
         if self.show:
             plt.show()
         plt.close()
 
+        method_pretty = "DBSCAN" if method == "dbscan" else "Permutation"
         if max_outliers_to_plot is None:
-            method_pretty = "DBSCAN" if method == "dbscan" else "Permutation"
-
-            self.snpio_mqc.queue_heatmap(
-                df=fst_pivot,
-                panel_id=f"fst_outliers_{method}_method",
-                section="outliers",
-                title=f"SNPio: Fst Outliers ({method_pretty} Method)",
-                description=f"This heatmap displays Fst outliers detected using the {method_pretty} method. The table includes locus names for Fst outliers, their adjusted P-values (q-values), the population pairs contributing to each outlier, and the observed Weir and Cockerham (1984) Fst values. All outliers are shown. Q-values represent adjusted P-values based on the chosen multiple test correction method.",
-                index_label="Contributing Population Pair",
-                pconfig={
-                    "id": f"fst_outliers_{method}_method",
-                    "title": f"SNPio: Fst Outliers ({method_pretty} Method)",
-                    "xlab": "Population 1",
-                    "ylab": "Population 2",
-                    "zlab": "Q-value (Adjusted P-value)",
-                    "min": 0.0,
-                    "max": 1.0,
-                    "display_values": False,
-                    "height": 1000,
-                },
-            )
-        elif (
-            max_outliers_to_plot is not None
-            and isinstance(max_outliers_to_plot, int)
-            and max_outliers_to_plot > 0
-        ):
-            method_pretty = "DBSCAN" if method == "dbscan" else "Permutation"
-
-            self.snpio_mqc.queue_heatmap(
-                df=fst_pivot[["Locus", "q_value", "Population_Pair"]]
-                .set_index(["Locus", "Population_Pair"])
-                .head(max_outliers_to_plot),
-                panel_id=f"fst_outliers_{method}_method",
-                section="outliers",
-                title=f"SNPio: Fst Outliers ({method_pretty} Method)",
-                description=f"This heatmap displays Fst outliers detected using the {method_pretty} method. The table includes locus names for Fst outliers, their adjusted P-values (q-values), the population pairs contributing to each outlier, and the observed Weir and Cockerham (1984) Fst values. For space reasons, only the top {max_outliers_to_plot} outliers are displayed. Q-values represent adjusted P-values based on the chosen multiple test correction method.",
-                index_label="Contributing Population Pair",
-                pconfig={
-                    "id": f"fst_outliers_{method}_method",
-                    "title": f"SNPio: Fst Outliers ({method_pretty} Method)",
-                    "xlab": "Population 1",
-                    "ylab": "Population 2",
-                    "zlab": "Q-value (Adjusted P-value)",
-                    "min": 0.0,
-                    "max": 1.0,
-                    "display_values": False,
-                    "height": max(max_outliers_to_plot, 1000),
-                },
-            )
+            scope_description = "All outliers are shown."
         else:
-            msg = f"Invalid max_outliers_to_plot value: {max_outliers_to_plot}. Must be a positive integer or None."
-            self.logger.error(msg)
-            raise ValueError(msg)
+            scope_description = (
+                f"At most the first {max_outliers_to_plot} outlier loci are shown."
+            )
+
+        self.snpio_mqc.queue_heatmap(
+            df=fst_pivot,
+            panel_id=f"fst_outliers_{method}_method",
+            section="outliers",
+            title=f"SNPio: Fst Outliers ({method_pretty} Method)",
+            description=(
+                f"This heatmap displays observed Weir and Cockerham (1984) Fst "
+                f"values for outliers detected using the {method_pretty} method. "
+                "Rows are outlier loci, columns are contributing population pairs, "
+                "and blank cells indicate pairs that did not contribute to a locus. "
+                f"{scope_description} Adjusted P-values are retained in the "
+                "tabular Fst outlier results."
+            ),
+            index_label="Outlier locus",
+            pconfig={
+                "id": f"fst_outliers_{method}_method",
+                "title": f"SNPio: Fst Outliers ({method_pretty} Method)",
+                "xlab": "Contributing population pair",
+                "ylab": "Outlier locus",
+                "zlab": "Fst",
+                "min": 0.0,
+                "max": 1.0,
+                "display_values": False,
+                "height": 1000,
+            },
+        )
 
     def plot_summary_statistics(
         self,
@@ -1713,7 +1812,7 @@ class Plotting:
         fig.suptitle("Summary Statistics Overview", fontsize=16, y=1.05)
         fig.tight_layout()
         of: str = f"summary_statistics.{self.plot_format}"
-        outpath: Path = self.output_dir_analysis / of
+        outpath: Path = self._plot_dir("summary_statistics") / of
         fig.savefig(outpath)
 
         if self.show:
@@ -1974,7 +2073,7 @@ class Plotting:
     ) -> None:
         """Plot a Sankey diagram for the filtering report.
 
-        This method plots a Sankey diagram for the filtering report. The Sankey diagram shows the flow of loci through the filtering steps. The loci are filtered based on the missing data proportion, MAF, MAC, and other filtering thresholds. The Sankey diagram shows the number of loci kept and removed at each step. The Sankey diagram is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/nremover/plots/sankey_plot_{thresholds}.{plot_format}``. The plot is saved in the format specified by the ``plot_format`` attribute.
+        This method plots a Sankey diagram for the filtering report. The Sankey diagram shows the flow of loci through the filtering steps. The loci are filtered based on the missing data proportion, MAF, MAC, and other filtering thresholds. The Sankey diagram shows the number of loci kept and removed at each step. The plot is saved beneath ``<prefix>_output/plots/nremover/filtering``.
 
         Args:
             df (pd.DataFrame): The input DataFrame containing the filtering report.
@@ -1999,7 +2098,7 @@ class Plotting:
             # Import Holoviews and Bokeh
             hv.extension("bokeh")  # type: ignore
 
-        plot_dir: Path = self.output_dir_gd / "sankey_plots"
+        plot_dir: Path = self._plot_dir("filtering", genotype=True)
         plot_dir.mkdir(exist_ok=True, parents=True)
 
         # Copy the DataFrame to avoid modifying the original
@@ -2216,7 +2315,7 @@ class Plotting:
     def plot_gt_distribution(self, df: pd.DataFrame, annotation_size: int = 15) -> None:
         """Plot the distribution of genotype counts.
 
-        This method plots the distribution of genotype counts as a bar plot. The bar plot shows the genotype counts for each genotype. The plot is saved to a file. If the `show` attribute is True, the plot is displayed. The plot is saved to the `output_dir` directory with the filename: ``<prefix>_output/gtdata/plots/genotype_distribution.{plot_format}``. The plot is saved in the format specified by the `plot_format` attribute.
+        This method plots the distribution of genotype counts as a bar plot. The plot is saved beneath ``<prefix>_output/plots/genotype_distribution`` or its filtered ``plots/nremover/genotype_distribution`` counterpart.
 
         Args:
             df (pd.DataFrame): The input dataframe containing the genotype counts.
@@ -2284,7 +2383,7 @@ class Plotting:
                 )
 
         of: str = f"genotype_distribution.{self.plot_format}"
-        outpath: Path = self.output_dir_gd / of
+        outpath: Path = self._plot_dir("genotype_distribution", genotype=True) / of
         fig.savefig(outpath)
 
         if self.show:
@@ -2305,7 +2404,7 @@ class Plotting:
     def plot_search_results(self, df_combined: pd.DataFrame) -> None:
         """Plot and save the filtering results based on the available data.
 
-        This method plots the filtering results based on the available data. The filtering results are plotted for the per-sample and per-locus missing data proportions, MAF, and boolean filtering thresholds. The plots are saved to files in the output directory. If the `show` attribute is True, the plots are displayed. The plots are saved in the format specified by the `plot_format` attribute into the `output_dir` directory in the format: ``<prefix>_output/gtdata/plots/filtering_results_{method}.{plot_format}``.
+        This method plots filtering results for per-sample and per-locus missing data, MAF, MAC, and boolean thresholds. Filtering plots are saved beneath ``<prefix>_output/plots/nremover/filtering``.
 
         Args:
             df_combined (pd.DataFrame): The input dataframe containing the filtering results.
@@ -2333,7 +2432,10 @@ class Plotting:
         self._plot_maf(df_combined)
         self._plot_boolean(df_combined)
 
-        msg: str = f"Plotting complete. Plots saved to directory {self.output_dir_gd}."
+        msg: str = (
+            "Plotting complete. Plots saved to directory "
+            f"{self._plot_dir('filtering', genotype=True)}."
+        )
         self.logger.info(msg)
 
         self.snpio_mqc.queue_table(
@@ -2415,7 +2517,7 @@ class Plotting:
                 )
 
             of: str = f"filtering_results_missing_loci_samples.{self.plot_format}"
-            fig.savefig(self.output_dir_gd / of)
+            fig.savefig(self._plot_dir("filtering", genotype=True) / of)
 
             if self.show:
                 plt.show()
@@ -2489,7 +2591,8 @@ class Plotting:
         fig.update_yaxes(range=[-0.05, 1.12])
 
         outpath: Path = (
-            self.output_dir_gd / "filtering_results_missing_loci_samples.html"
+            self._plot_dir("filtering", genotype=True)
+            / "filtering_results_missing_loci_samples.html"
         )
         fig.write_html(str(outpath), include_plotlyjs="cdn")
         return outpath
@@ -2536,7 +2639,7 @@ class Plotting:
     def _plot_pops(self, df: pd.DataFrame) -> None:
         """Plot population-level missing data proportions.
 
-        This method plots the proportion of loci removed and kept for each population-level missing data threshold. The plot is saved to a file. The plot shows the proportion of loci removed and kept for each missing data threshold at the population level. The plot is saved to a file in the output directory with the filename: ``<prefix>_output/gtdata/plots/filtering_results_missing_population.{plot_format}``.
+        This method plots the proportion of loci removed and kept for each population-level missing data threshold. The plot is saved in the active filtering operation directory.
 
         Args:
             df (pd.DataFrame): The input dataframe containing the population-level missing data.
@@ -2581,7 +2684,7 @@ class Plotting:
                 )
 
             of: str = f"filtering_results_missing_population.{self.plot_format}"
-            outpath: Path = self.output_dir_gd / of
+            outpath: Path = self._plot_dir("filtering", genotype=True) / of
             fig.savefig(outpath)
 
             if self.show:
@@ -2649,7 +2752,10 @@ class Plotting:
         )
         fig.update_yaxes(range=[-0.05, 1.12])
 
-        outpath = self.output_dir_gd / "filtering_results_missing_population.html"
+        outpath = (
+            self._plot_dir("filtering", genotype=True)
+            / "filtering_results_missing_population.html"
+        )
         fig.write_html(str(outpath), include_plotlyjs="cdn")
         return outpath
 
@@ -2707,7 +2813,7 @@ class Plotting:
                 ax.set_xticks(df["MAF_Threshold"].astype(float).unique(), minor=False)
 
             of: str = f"filtering_results_maf.{self.plot_format}"
-            outpath: Path = self.output_dir_gd / of
+            outpath: Path = self._plot_dir("filtering", genotype=True) / of
             fig.savefig(outpath)
 
             if self.show:
@@ -2744,7 +2850,7 @@ class Plotting:
                 ax.set_xticks(df_mac["MAC_Threshold"].astype(int).unique(), minor=False)
 
             of: str = f"filtering_results_mac.{self.plot_format}"
-            outpath: Path = self.output_dir_gd / of
+            outpath: Path = self._plot_dir("filtering", genotype=True) / of
             fig.savefig(outpath)
 
             if self.show:
@@ -2796,6 +2902,7 @@ class Plotting:
             self.logger.warning(
                 "Both MAF and MAC data are empty. Try checking the 'filter_mac' and/or 'filter_maf' filtering thresholds."
             )
+
             return None, None
 
         if df_mac.empty or df_maf.empty:
@@ -2832,7 +2939,11 @@ class Plotting:
             )
             fig_maf.update_yaxes(range=[-0.05, 1.12])
 
-            maf_outpath = self.output_dir_gd / "filtering_results_maf.html"
+            maf_outpath = (
+                self._plot_dir("filtering", genotype=True)
+                / "filtering_results_maf.html"
+            )
+
             fig_maf.write_html(str(maf_outpath), include_plotlyjs="cdn")
 
         # --- MAC Plot (unchanged) ---
@@ -2861,7 +2972,10 @@ class Plotting:
             )
             fig_mac.update_yaxes(range=[-0.05, 1.12])
 
-            mac_outpath = self.output_dir_gd / "filtering_results_mac.html"
+            mac_outpath = (
+                self._plot_dir("filtering", genotype=True)
+                / "filtering_results_mac.html"
+            )
             fig_mac.write_html(str(mac_outpath), include_plotlyjs="cdn")
 
         return maf_outpath, mac_outpath
@@ -2913,11 +3027,11 @@ class Plotting:
                 )
 
                 ax.legend(
-                    title="Filter Method", loc="center", bbox_to_anchor=(0.5, 1.2)
+                    title="Filter Method", loc="center", bbox_to_anchor=(0.5, 1.3)
                 )
 
             of: str = f"filtering_results_bool.{self.plot_format}"
-            outpath: Path = self.output_dir_gd / of
+            outpath: Path = self._plot_dir("filtering", genotype=True) / of
             fig.savefig(outpath)
 
             if self.show:
@@ -2995,7 +3109,10 @@ class Plotting:
         fig.update_yaxes(title_text="Proportion", range=[-0.05, 1.12])
 
         # Save to file
-        outpath: Path = self.output_dir_gd / "filtering_results_bool.html"
+        outpath: Path = (
+            self._plot_dir("filtering", genotype=True) / "filtering_results_bool.html"
+        )
+
         fig.write_html(str(outpath), include_plotlyjs="cdn")
         return outpath
 
@@ -3030,6 +3147,7 @@ class Plotting:
         colors = sns.color_palette("colorblind")
 
         df = pd.DataFrame({"Population ID": counts.index, "Count": counts})
+
         df_perc = pd.DataFrame(
             {"Population ID": proportions.index, "Proportion": proportions}
         )
@@ -3086,7 +3204,10 @@ class Plotting:
             ax.set_ylabel(ylabel)
             ax.legend([median_line], ["Median"], loc="upper right")
 
-        of: Path = self.output_dir_gd / f"population_counts.{self.plot_format}"
+        of: Path = (
+            self._plot_dir("population_counts", genotype=True)
+            / f"population_counts.{self.plot_format}"
+        )
         fig.savefig(of)
 
         if self.show:
@@ -3141,7 +3262,9 @@ class Plotting:
 
         # Plot 1: Per-Individual barplot
         ax = axes[0, 0] if has_popmap else axes[0]
+
         ax.barh(stats.per_individual.index, stats.per_individual, color=bar_color)
+
         ax.set_xlim([0, 1] if not zoom else None)
         ax.set_xlabel("Missing Prop.")
         ax.set_ylabel("Sample")
@@ -3158,7 +3281,9 @@ class Plotting:
         # Plot 3: Per-Population totals (if available)
         if has_popmap and stats.per_population is not None:
             ax = axes[0, 2]
+
             ax.barh(stats.per_population.index, stats.per_population, color=bar_color)
+
             ax.set_xlim([0, 1] if not zoom else None)
             ax.set_xlabel("Missing Prop.")
             ax.set_ylabel("Population")
@@ -3202,6 +3327,7 @@ class Plotting:
                 var_name="Locus",
                 value_name="Missing",
             )
+
             melt_df["Missing"] = melt_df["Missing"].replace(
                 {False: "Present", True: "Missing"}
             )
@@ -3235,7 +3361,10 @@ class Plotting:
                 ax.get_legend().set_title(None)
 
         # Save figure
-        out_path = self.output_dir_gd / f"missingness_report.{self.plot_format}"
+        out_path = (
+            self._plot_dir("missingness", genotype=True)
+            / f"missingness_report.{self.plot_format}"
+        )
         fig.savefig(out_path)
 
         if self.show:
@@ -3413,7 +3542,10 @@ class Plotting:
         axs[1, 1].set(title="MAF Summary & Spectrum", xlim=(0, 1))
 
         # save & (optionally) show
-        savepath: Path = self.output_dir_gd / f"allele_summary.{self.plot_format}"
+        savepath: Path = (
+            self._plot_dir("allele_summary", genotype=True)
+            / f"allele_summary.{self.plot_format}"
+        )
         fig.savefig(savepath)
         if self.show:
             plt.show()
@@ -3469,6 +3601,7 @@ class Plotting:
             "Locus Miss Q1",
             "Locus Miss Q3",
         ]
+
         het_orig = [
             "Overall Heterozygosity Prop.",
             "Mean Sample Heterozygosity Prop.",
@@ -3478,6 +3611,7 @@ class Plotting:
             "Locus Heterozygosity Q1",
             "Locus Heterozygosity Q3",
         ]
+
         spec_orig = [
             "Prop. Monomorphic",
             "Prop. Biallelic",
@@ -3486,6 +3620,7 @@ class Plotting:
             "Mean Expected Heterozygosity",
             "Mean F_IS",
         ]
+
         maf_orig = [
             "Prop. Singleton Loci",
             "MAF Mean",

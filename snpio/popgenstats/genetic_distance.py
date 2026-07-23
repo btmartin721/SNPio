@@ -2,7 +2,6 @@ import itertools
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -11,6 +10,7 @@ from tqdm import tqdm
 
 from snpio.utils.logging import LoggerManager
 from snpio.utils.multiqc_reporter import SNPioMultiQC
+from snpio.utils.output_paths import OutputPaths
 
 if TYPE_CHECKING:
     from snpio.read_input.genotype_data import GenotypeData
@@ -32,12 +32,9 @@ class GeneticDistance:
         self.plotter = plotter
         self.seed = seed
 
-        if self.genotype_data.was_filtered:
-            self.outdir = Path(
-                f"{self.genotype_data.prefix}_output", "nremover", "analysis"
-            )
-        else:
-            self.outdir = Path(f"{self.genotype_data.prefix}_output", "analysis")
+        self.outdir = OutputPaths.from_genotype_data(genotype_data).reports(
+            "nei_distance"
+        )
 
         self.outdir.mkdir(parents=True, exist_ok=True)
 
