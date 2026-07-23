@@ -39,6 +39,40 @@ class AlleleSummaryStats:
         ge = GenotypeEncoder(self.genotype_data)
         self.alleles = ge.two_channel_alleles
 
+    @staticmethod
+    def _safe_divide(
+        numerator: np.ndarray | float | int,
+        denominator: np.ndarray | float | int,
+    ) -> np.ndarray:
+        """Divide finite values and retain non-estimable ratios as ``NaN``.
+
+        Args:
+            numerator: Scalar or array-like dividend.
+            denominator: Scalar or array-like divisor. Values must be finite
+                and strictly positive to produce an estimate.
+
+        Returns:
+            A floating-point array with the broadcast shape of the inputs.
+        """
+        numerator_array = np.asarray(numerator, dtype=np.float64)
+        denominator_array = np.asarray(denominator, dtype=np.float64)
+        output_shape = np.broadcast_shapes(
+            numerator_array.shape,
+            denominator_array.shape,
+        )
+        output = np.full(output_shape, np.nan, dtype=np.float64)
+        valid = (
+            np.isfinite(numerator_array)
+            & np.isfinite(denominator_array)
+            & (denominator_array > 0.0)
+        )
+        return np.divide(
+            numerator_array,
+            denominator_array,
+            out=output,
+            where=valid,
+        )
+
     def summarise(self, sample_indices: np.ndarray | None = None) -> pd.Series:
         """Summarize allele data from the genotype data.
 
@@ -83,15 +117,13 @@ class AlleleSummaryStats:
         # 2. Sample- / locus-level missingness & het
         sample_miss = missing_mask.mean(axis=1)  # (n_samples,)
         locus_miss = missing_mask.mean(axis=0)  # (n_loci,)
-        sample_het = np.divide(
-            het_mask.sum(axis=1),
-            non_missing.sum(axis=1),
-            where=non_missing.sum(axis=1) > 0 & np.isfinite(non_missing.sum(axis=1)),
+        sample_non_missing = non_missing.sum(axis=1)
+        locus_non_missing = non_missing.sum(axis=0)
+        sample_het = self._safe_divide(
+            het_mask.sum(axis=1), sample_non_missing
         )
-        locus_het = np.divide(
-            het_mask.sum(axis=0),
-            non_missing.sum(axis=0),
-            where=non_missing.sum(axis=0) > 0 & np.isfinite(non_missing.sum(axis=0)),
+        locus_het = self._safe_divide(
+            het_mask.sum(axis=0), locus_non_missing
         )
 
         # 3. Allele counts per locus
@@ -103,25 +135,17 @@ class AlleleSummaryStats:
         n_alleles = np.sum(counts > 0, axis=1)  # distinct alleles per locus
         tot_alleles = counts.sum(axis=1)
         # allele_freqs per locus
-        freqs = np.divide(
-            counts,
-            tot_alleles[:, None],
-            where=tot_alleles[:, None] > 0 & np.isfinite(tot_alleles[:, None]),
-        )
+        freqs = self._safe_divide(counts, tot_alleles[:, None])
         minor_counts = tot_alleles - counts.max(axis=1)
 
         # minor allele frequency per locus
         # (n_loci,)
-        maf = np.divide(
-            minor_counts, tot_alleles, where=tot_alleles > 0 & np.isfinite(tot_alleles)
-        )
+        maf = self._safe_divide(minor_counts, tot_alleles)
 
         # 4. Derived metrics
         # per locus
         biallelic = np.sum(freqs**2, axis=1)  # check for biallelic loci
-        effective_alleles = np.divide(
-            1.0, biallelic, where=biallelic > 0 & np.isfinite(biallelic)
-        )
+        effective_alleles = self._safe_divide(1.0, biallelic)
         exp_het = 1.0 - np.sum(freqs**2, axis=1)  # expected heterozygosity
 
         # 1) Build an explicit boolean mask
@@ -154,7 +178,9 @@ class AlleleSummaryStats:
             "Locus Miss Q1": np.percentile(locus_miss, 25),
             "Locus Miss Q3": np.percentile(locus_miss, 75),
             # Heterozygosity
-            "Overall Heterozygosity Prop.": het_mask.sum() / n_non_missing,
+            "Overall Heterozygosity Prop.": self._safe_divide(
+                het_mask.sum(), n_non_missing
+            ).item(),
             "Mean Sample Heterozygosity Prop.": np.nanmean(sample_het),
             "Mean Locus Heterozygosity Prop.": np.nanmean(locus_het),
             "Sample Heterozygosity Q1": np.nanpercentile(sample_het, 25),
@@ -167,7 +193,7 @@ class AlleleSummaryStats:
             "Prop. Triallelic": np.mean(n_alleles == 3),
             "Prop. Quadallelic": np.mean(n_alleles == 4),
             "Mean Alleles per Locus": np.mean(n_alleles),
-            "Mean Effective Alleles": np.mean(effective_alleles),
+            "Mean Effective Alleles": np.nanmean(effective_alleles),
             # Expected het & F_IS
             "Mean Expected Heterozygosity": np.nanmean(exp_het),
             "Mean F_IS": np.nanmean(F_IS),

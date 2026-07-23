@@ -136,6 +136,10 @@ Additional Bug Fixes
 
 - Made PCA drop and report zero-variance loci before scaling instead of
   allowing them to produce invalid standardized values.
+- Made allele-summary divisions deterministic and warning-free. Fully missing
+  samples and loci now retain non-estimable heterozygosity, allele-frequency,
+  MAF, and effective-allele ratios as ``NaN`` instead of exposing uninitialized
+  NumPy output.
 - Hardened D-statistic plotting against nonfinite and duplicate rows, improved
   significance-count output, and routed every generated HTML/static artifact
   through the shared ``d_statistics`` operation directory.
