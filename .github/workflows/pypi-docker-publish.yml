@@ -1,6 +1,6 @@
 # This GitHub Actions workflow builds and publishes a Python package to TestPyPI and PyPI,
 # and builds and pushes a multi-architecture Docker image to Docker Hub.
-# It is triggered by pushes to tags that match the pattern v*.*.*.
+# It is triggered by semantic-version tag pushes or an explicit dispatch at a tag.
 # It also updates version files in the repository before building and publishing.
 # The workflow includes steps to set up Python, install dependencies, build the package,
 # and publish to TestPyPI and PyPI using Twine.
@@ -10,6 +10,7 @@
 name: Publish to TestPyPI, PyPI, and DockerHub
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'  # Only run on semantic version tag pushes
