@@ -4,6 +4,19 @@ Changelog
 
 This document outlines the changes made to the project with each release.
 
+Unreleased
+----------
+
+Release Engineering
+~~~~~~~~~~~~~~~~~~~
+
+- Made Docker image tests block publication, included the repository resources
+  required by the complete test suite, and promoted warnings to errors through
+  the packaged pytest configuration.
+- Updated Docker and Conda setup actions for Node 24, removed deprecated action
+  inputs and the commercial default Conda channel, and added non-publishing
+  manual validation modes for released package artifacts.
+
 Version 1.7.0 (2026-07-23)
 --------------------------
 

@@ -4,7 +4,9 @@ FROM continuumio/miniconda3
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CONDA_ENV=snpioenv
+    CONDA_ENV=snpioenv \
+    CONDA_NO_PLUGINS=true \
+    PIP_ROOT_USER_ACTION=ignore
 
 # Install system-level dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,24 +22,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     libncurses-dev \
     libhdf5-dev \
+    xz-utils \
     ca-certificates \
     unzip \
     procps \
+    zsh \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a new Conda environment and install dependencies
-RUN conda create -y -n $CONDA_ENV -c conda-forge -c btmartin721 \
+RUN conda create --yes --solver classic --override-channels \
+    --name "$CONDA_ENV" -c conda-forge -c btmartin721 \
     python=3.12 \
     numpy=2.2.6 \
     pandas=2.2.3 \
     pip && \
     conda clean -afy && \
-    conda init bash && \
     echo "conda activate $CONDA_ENV" > ~/.bashrc
 
-ENV PATH /opt/conda/envs/$CONDA_ENV/bin:$PATH
+ENV PATH=/opt/conda/envs/$CONDA_ENV/bin:$PATH
 
-RUN conda run -n $CONDA_ENV pip install --no-cache-dir \
+RUN conda run -n "$CONDA_ENV" python -m pip install --no-cache-dir \
     snpio \
     pytest \
     jupyterlab && \
@@ -45,7 +49,9 @@ RUN conda run -n $CONDA_ENV pip install --no-cache-dir \
 
 # Create a non-root user and set home directory
 RUN useradd -ms /bin/bash snpiouser && \
-    mkdir -p /home/snpiouser/.config/matplotlib /app/results /app/docs /app/example_data && \
+    mkdir -p /home/snpiouser/.cache/numba \
+    /home/snpiouser/.config/matplotlib \
+    /app/results /app/docs /app/example_data && \
     chown -R snpiouser:snpiouser /app /home/snpiouser
 
 # Set working directory
@@ -53,8 +59,10 @@ WORKDIR /app
 
 # Copy application files with correct permissions
 COPY --chown=snpiouser:snpiouser tests/ tests/
+COPY --chown=snpiouser:snpiouser scripts/ scripts/
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/ scripts_and_notebooks/
 COPY --chown=snpiouser:snpiouser snpio/example_data/ example_data/
+COPY --chown=snpiouser:snpiouser multiqc_config.yml pyproject.toml ./
 COPY --chown=snpiouser:snpiouser README.md docs/README.md
 COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpiouser/.bashrc
 
@@ -62,10 +70,11 @@ COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpio
 USER snpiouser
 ENV HOME=/home/snpiouser
 ENV MPLCONFIGDIR=$HOME/.config/matplotlib
-RUN chmod -R u+w $HOME/.config/matplotlib
+ENV NUMBA_CACHE_DIR=$HOME/.cache/numba
+RUN chmod -R u+w "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR"
 
-# Run tests (non-blocking; allows image to build even if tests fail)
-RUN conda run -n $CONDA_ENV pytest tests/ || echo "Tests failed during build; continuing..."
+# Validate the installed release before publishing the image.
+RUN conda run -n "$CONDA_ENV" python -m pytest -q
 
 # Default container command
 CMD ["bash"]
