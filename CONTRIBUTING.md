@@ -100,9 +100,32 @@ pytest tests/test_vcf_reader.py
 
 ## 📝 Changelog
 
-Version numbers are automatically calculated using [GitVersion](https://gitversion.net) based on commit history. Do **not** manually change version numbers in `pyproject.toml` or `meta.yaml` — this is handled by CI.
+The release workflow can calculate versions using
+[GitVersion](https://gitversion.net), while the repository release script
+accepts an explicit `MAJOR.MINOR.PATCH` version for predictable releases. Do
+**not** manually change version numbers in `pyproject.toml`, `meta.yaml`, or the
+Sphinx configuration; CI updates them atomically.
 
-For details, see [docs/dev/versioning.md](docs/dev/versioning.md)
+## 🚀 Creating a Release
+
+After the release changes and changelog are merged into `master`, run:
+
+```bash
+./scripts/release.zsh 1.7.5
+```
+
+The script validates the version, checks for an existing tag, blocks overlapping
+release/publisher runs, asks for confirmation, and triggers the guarded GitHub
+Actions workflow from `origin/master`. By default, it monitors the release plus
+the PyPI/Docker and Conda publishers through completion.
+
+Use `--dry-run` to perform only the preflight checks, `--no-wait` to exit after
+dispatching the workflow, or `--yes` to skip confirmation. Run
+`./scripts/release.zsh --help` for the complete interface.
+
+Do **not** create or push the tag manually. The workflow creates the version
+commit, `vMAJOR.MINOR.PATCH` tag, and GitHub Release, then dispatches the package
+publishers.
 
 ---
 
