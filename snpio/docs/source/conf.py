@@ -33,7 +33,7 @@ sphinxcontrib.bibtex.plugin.register_plugin(
 project = "SNPio"
 copyright = "2023-2026, SNPio developers"
 author = "Bradley T. Martin et al."
-release = "1.7.3"
+release = "1.7.4"
 
 # -- Path setup -----------------------------------------------------------
 # Add the project's root directory to sys.path
@@ -69,7 +69,7 @@ html_context = {
     "github_repo": "SNPio",  # GitHub repo
     "github_version": "master",  # Branch to use
     "conf_py_path": "/snpio/docs/source/",  # Path to docs in the repo
-    "current_version": "v1.7.3",  # Project version
+    "current_version": "v1.7.4",  # Project version
     "display_version": True,  # Display version number in the theme
     "latest_version": "master",  # Define the latest stable version
     "display_edit_on_github": True,  # Add 'Edit on GitHub' link
