@@ -7,6 +7,16 @@ This document outlines the changes made to the project with each release.
 Unreleased
 ----------
 
+Version 1.7.3 (2026-07-23)
+--------------------------
+
+Release Engineering
+~~~~~~~~~~~~~~~~~~~
+
+- Kept Conda package builds on both supported Python versions while uploading
+  the shared ``noarch`` archive from only one matrix job, preventing concurrent
+  Anaconda.org uploads from racing on the same filename.
+
 Version 1.7.2 (2026-07-23)
 --------------------------
 
