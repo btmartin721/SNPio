@@ -17,6 +17,30 @@ if TYPE_CHECKING:
     from snpio.read_input.genotype_data import GenotypeData
     from snpio.plotting.plotting import Plotting
 
+# Per-process state for pool workers. The pool initializer sets it once per
+# worker, so the genotype matrix is not pickled with every task.
+_WORKER_STATE: dict = {}
+
+
+def _set_worker_state(state: dict) -> None:
+    _WORKER_STATE.clear()
+    _WORKER_STATE.update(state)
+
+
+def _permutation_task(pair: tuple, n_reps: int, seed: int):
+    return GeneticDistance._permutation_worker(
+        pair,
+        _WORKER_STATE["pop_indices"],
+        _WORKER_STATE["full_matrix"],
+        _WORKER_STATE["iupac_decoder"],
+        n_reps,
+        seed,
+    )
+
+
+def _bootstrap_task(seed: int):
+    return GeneticDistance._bootstrap_replicate(seed, **_WORKER_STATE)
+
 
 class GeneticDistance:
     """Class for computing pairwise Nei's genetic distance between populations with optional permutation and bootstrap inference."""
@@ -437,11 +461,12 @@ class GeneticDistance:
             from concurrent.futures import as_completed
 
             max_workers = mp.cpu_count() if n_jobs == -1 else n_jobs
+            max_workers = max(1, min(max_workers, len(pop_pairs)))
+            desc = f"Nei population pairs ({n_reps} permutations each)"
 
-            with ProcessPoolExecutor(max_workers=max_workers) as pool:
-                futures = [
-                    pool.submit(
-                        GeneticDistance._permutation_worker,
+            if max_workers == 1:
+                for pair in tqdm(pop_pairs, desc=desc, total=len(pop_pairs)):
+                    pop_pair, res_dict = GeneticDistance._permutation_worker(
                         pair,
                         pop_indices,
                         full_matrix,
@@ -449,16 +474,29 @@ class GeneticDistance:
                         n_reps,
                         pair_seeds[pair],
                     )
-                    for pair in pop_pairs
-                ]
-
-                for fut in tqdm(
-                    as_completed(futures),
-                    desc=f"Nei population pairs ({n_reps} permutations each)",
-                    total=len(futures),
-                ):
-                    pop_pair, res_dict = fut.result()
                     perm_result[pop_pair] = res_dict
+            else:
+                state = {
+                    "pop_indices": pop_indices,
+                    "full_matrix": full_matrix,
+                    "iupac_decoder": iupac_decoder,
+                }
+                with ProcessPoolExecutor(
+                    max_workers=max_workers,
+                    initializer=_set_worker_state,
+                    initargs=(state,),
+                ) as pool:
+                    futures = [
+                        pool.submit(_permutation_task, pair, n_reps, pair_seeds[pair])
+                        for pair in pop_pairs
+                    ]
+
+                    for fut in tqdm(as_completed(futures), desc=desc, total=len(futures)):
+                        pop_pair, res_dict = fut.result()
+                        perm_result[pop_pair] = res_dict
+
+                # Completion order varies between runs; restore pair order
+                perm_result = {pair: perm_result[pair] for pair in pop_pairs}
 
             for (p1_key, p2_key), res_dict in perm_result.items():
                 obs_value = res_dict["nei"]
@@ -522,22 +560,19 @@ class GeneticDistance:
                     "boot_dist": np.zeros(n_reps, dtype=float),
                 }
 
-            worker_func = partial(
-                GeneticDistance._bootstrap_replicate,
-                n_loci=n_loci,
-                full_matrix=full_matrix,
-                iupac_decoder=iupac_decoder,
-                pop_pairs=pop_pairs,
-                pop_indices=pop_indices,
-            )
+            state = {
+                "n_loci": n_loci,
+                "full_matrix": full_matrix,
+                "iupac_decoder": iupac_decoder,
+                "pop_pairs": pop_pairs,
+                "pop_indices": pop_indices,
+            }
 
             seeds = rng.integers(0, 1_000_000_000, size=n_reps)
+            max_workers = mp.cpu_count() if n_jobs == -1 else n_jobs
+            max_workers = max(1, min(max_workers, n_reps))
 
-            with ProcessPoolExecutor(
-                max_workers=(mp.cpu_count() if n_jobs == -1 else n_jobs)
-            ) as pool:
-                reps = pool.map(worker_func, seeds)
-
+            def collect(reps) -> None:
                 for i, rep_data in tqdm(
                     enumerate(reps),
                     desc="Nei bootstrapping",
@@ -548,6 +583,23 @@ class GeneticDistance:
 
                         if isinstance(boot_dist, np.ndarray):
                             boot_dist[i] = dist_val
+
+            if max_workers == 1:
+                worker_func = partial(GeneticDistance._bootstrap_replicate, **state)
+                collect(map(worker_func, seeds))
+            else:
+                with ProcessPoolExecutor(
+                    max_workers=max_workers,
+                    initializer=_set_worker_state,
+                    initargs=(state,),
+                ) as pool:
+                    collect(
+                        pool.map(
+                            _bootstrap_task,
+                            seeds,
+                            chunksize=max(1, n_reps // (4 * max_workers)),
+                        )
+                    )
 
             self.logger.info("Nei distance bootstrap complete!")
             return bootstrap_result
