@@ -39,7 +39,7 @@ class PermutationOutlierDetector:
         self.popmap_inverse = genotype_data.popmap_inverse
         self.pop_names = list(self.popmap_inverse.keys())
 
-        self.plotter = Plotting(self.genotype_data, genotype_data.plot_kwargs)
+        self.plotter = Plotting(self.genotype_data, **genotype_data.plot_kwargs)
 
         self.fst_dist = FstDistance(
             self.genotype_data, self.plotter, verbose=verbose, debug=debug
