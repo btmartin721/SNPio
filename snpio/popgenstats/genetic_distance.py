@@ -11,6 +11,7 @@ from tqdm import tqdm
 from snpio.utils.logging import LoggerManager
 from snpio.utils.multiqc_reporter import SNPioMultiQC
 from snpio.utils.output_paths import OutputPaths
+from snpio.utils.misc import fill_diagonal_df
 
 if TYPE_CHECKING:
     from snpio.read_input.genotype_data import GenotypeData
@@ -676,10 +677,9 @@ class GeneticDistance:
                 fill_symmetric(df_lower, pop1, pop2, lower_val)
                 fill_symmetric(df_upper, pop1, pop2, upper_val)
 
-            np.fill_diagonal(df_obs.values, 0.0)
-            np.fill_diagonal(df_lower.values, 0.0)
-            np.fill_diagonal(df_upper.values, 0.0)
-
+            df_obs = fill_diagonal_df(df_obs, 0.0)
+            df_lower = fill_diagonal_df(df_lower, 0.0)
+            df_upper = fill_diagonal_df(df_upper, 0.0)
             return df_obs, df_lower, df_upper, None
 
         # ------------------------------------------------------------------
@@ -718,10 +718,9 @@ class GeneticDistance:
                 fill_symmetric(df_lower, pop1, pop2, lower_val)
                 fill_symmetric(df_upper, pop1, pop2, upper_val)
 
-            np.fill_diagonal(df_mean.values, 0.0)
-            np.fill_diagonal(df_lower.values, 0.0)
-            np.fill_diagonal(df_upper.values, 0.0)
-
+            df_mean = fill_diagonal_df(df_mean, 0.0)
+            df_lower = fill_diagonal_df(df_lower, 0.0)
+            df_upper = fill_diagonal_df(df_upper, 0.0)
             return df_mean, df_lower, df_upper, None
 
         # ------------------------------------------------------------------
@@ -754,12 +753,11 @@ class GeneticDistance:
                         fill_symmetric(df_upper, pop1, pop2, upper_val)
                         has_perm_dist = True
 
-            np.fill_diagonal(df_obs.values, 0.0)
-            np.fill_diagonal(df_pval.values, 1.0)
-
+            df_obs = fill_diagonal_df(df_obs, 0.0)
+            df_pval = fill_diagonal_df(df_pval, 1.0)
             if has_perm_dist:
-                np.fill_diagonal(df_lower.values, 0.0)
-                np.fill_diagonal(df_upper.values, 0.0)
+                df_lower = fill_diagonal_df(df_lower, 0.0)
+                df_upper = fill_diagonal_df(df_upper, 0.0)
             else:
                 df_lower = None
                 df_upper = None

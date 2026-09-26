@@ -9,7 +9,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from snpio.utils.logging import LoggerManager
-from snpio.utils.misc import IUPAC
+from snpio.utils.misc import IUPAC, fill_diagonal_df
 from snpio.utils.multiqc_reporter import SNPioMultiQC
 from snpio.utils.output_paths import OutputPaths
 
@@ -763,10 +763,9 @@ class FstDistance:
                 df_lower.loc[p1, p2] = df_lower.loc[p2, p1] = lower_val
                 df_upper.loc[p1, p2] = df_upper.loc[p2, p1] = upper_val
 
-            np.fill_diagonal(df_obs.values, 0.0)
-            np.fill_diagonal(df_lower.values, 0.0)
-            np.fill_diagonal(df_upper.values, 0.0)
-
+            df_obs = fill_diagonal_df(df_obs, 0.0)
+            df_lower = fill_diagonal_df(df_lower, 0.0)
+            df_upper = fill_diagonal_df(df_upper, 0.0)
             df_ul_combined = self._combine_upper_lower_ci(
                 df_upper,
                 df_lower,
@@ -862,12 +861,11 @@ class FstDistance:
                     df_lower.loc[p1, p2] = df_lower.loc[p2, p1] = lower_val
                     df_upper.loc[p1, p2] = df_upper.loc[p2, p1] = upper_val
 
-            np.fill_diagonal(df_obs.values, 0.0)
-            np.fill_diagonal(df_pval.values, 1.0)
-            np.fill_diagonal(df_mean.values, 0.0)
-            np.fill_diagonal(df_lower.values, 0.0)
-            np.fill_diagonal(df_upper.values, 0.0)
-
+            df_obs = fill_diagonal_df(df_obs, 0.0)
+            df_pval = fill_diagonal_df(df_pval, 1.0)
+            df_mean = fill_diagonal_df(df_mean, 0.0)
+            df_lower = fill_diagonal_df(df_lower, 0.0)
+            df_upper = fill_diagonal_df(df_upper, 0.0)
             self.snpio_mqc.queue_heatmap(
                 df=df_obs,
                 panel_id="wc_fst_permutation_observed",

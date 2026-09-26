@@ -631,19 +631,14 @@ class Plotting:
         mode = "fst"
 
         if df_fst_lower is not None and df_fst_upper is not None:
+            # Lower CI in the lower triangle, upper CI in the upper triangle.
+            # Built on a NumPy copy: writing through ``DataFrame.values`` fails
+            # under pandas copy-on-write.
+            ci_arr = np.full(df_fst_lower.shape, np.nan)
+            ci_arr[mask_lower] = df_fst_lower.to_numpy()[mask_lower]
+            ci_arr[mask_upper] = df_fst_upper.to_numpy()[mask_upper]
             df_fst_ci = pd.DataFrame(
-                np.full(df_fst_lower.shape, np.nan),
-                index=df_fst_lower.index,
-                columns=df_fst_lower.columns,
-            )
-
-            # Create a mask for the lower triangle
-            df_fst_ci.values[mask_lower] = (
-                df_fst_lower.values[mask_lower] if df_fst_lower is not None else None
-            )
-
-            df_fst_ci.values[mask_upper] = (
-                df_fst_upper.values[mask_upper] if df_fst_upper is not None else None
+                ci_arr, index=df_fst_lower.index, columns=df_fst_lower.columns
             )
 
             # Set the diagonal to NaN to avoid displaying self-comparisons
