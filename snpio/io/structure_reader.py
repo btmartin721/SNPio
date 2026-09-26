@@ -40,6 +40,7 @@ class StructureReader(GenotypeData):
         exclude_pops: List[str] | None = None,
         include_pops: List[str] | None = None,
         plot_format: Literal["png", "pdf", "jpg", "jpeg"] = "png",
+        save_plots: bool = True,
         prefix: str = "snpio",
         verbose: bool = False,
         debug: bool = False,
@@ -68,6 +69,7 @@ class StructureReader(GenotypeData):
             exclude_pops (list[str]): list of populations to exclude.
             include_pops (list[str]): list of populations to include.
             plot_format (str): format for plots (png, pdf, jpg, svg).
+            save_plots (bool): If False, skip rendering static plot images (PNG/PDF/JPG). All data exports, MultiQC tables and interactive HTML panels are still written. Defaults to True.
             prefix (str): prefix for log files.
             verbose (bool): if True, print verbose messages.
             debug (bool): if True, print debug messages.
@@ -157,6 +159,7 @@ class StructureReader(GenotypeData):
             exclude_pops=exclude_pops,
             include_pops=include_pops,
             plot_format=plot_format,
+            save_plots=save_plots,
             prefix=prefix,
             verbose=verbose,
             logger=self.logger,

@@ -83,6 +83,7 @@ class PhylipReader(GenotypeData):
         exclude_pops: List[str] | None = None,
         include_pops: List[str] | None = None,
         plot_format: str | None = "png",
+        save_plots: bool = True,
         prefix: str = "snpio",
         verbose: bool = False,
         debug: bool = False,
@@ -108,6 +109,7 @@ class PhylipReader(GenotypeData):
             exclude_pops (List[str] | None): List of populations to exclude. Defaults to None.
             include_pops (List[str] | None): List of populations to include. Defaults to None.
             plot_format (str | None): Format for saving plots. Default is 'png'. Defaults to 'png'.
+            save_plots (bool): If False, skip rendering static plot images (PNG/PDF/JPG). All data exports, MultiQC tables and interactive HTML panels are still written. Defaults to True.
             prefix (str): Prefix for output files. Defaults to 'snpio'.
             verbose (bool): If True, status updates are printed. Defaults to False.
             debug (bool): If True, debug messages are printed. Defaults to False.
@@ -138,6 +140,7 @@ class PhylipReader(GenotypeData):
             exclude_pops=exclude_pops,
             include_pops=include_pops,
             plot_format=pfmt,
+            save_plots=save_plots,
             prefix=prefix,
             verbose=verbose,
             logger=self.logger,

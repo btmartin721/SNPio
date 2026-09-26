@@ -1385,7 +1385,10 @@ class PopGenStatistics:
             # 8. Save
             out_base = output_dir / "pca_missingness"
             fig.write_html(out_base.with_suffix(".html"))
-            fig.write_image(out_base.with_suffix(f".{plot_format}"), format=plot_format)
+            if self.plotter.save_plots:
+                fig.write_image(
+                    out_base.with_suffix(f".{plot_format}"), format=plot_format
+                )
 
         self.snpio_mqc.queue_table(
             df=df_pca,

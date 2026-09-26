@@ -126,6 +126,7 @@ class GenotypeData(BaseGenotypeData):
         plot_dpi: int = 300,
         plot_despine: bool = True,
         show_plots: bool = False,
+        save_plots: bool = True,
         prefix: str = "snpio",
         verbose: bool = False,
         loci_indices: List[int] | np.ndarray | None = None,
@@ -151,6 +152,7 @@ class GenotypeData(BaseGenotypeData):
             plot_dpi (int): Resolution in dots per inch for plots. Defaults to 300.
             plot_despine (bool): If True, remove the top and right spines from plots. Defaults to True.
             show_plots (bool): If True, display plots in the console. Defaults to False.
+            save_plots (bool): If False, skip rendering static plot images (PNG/PDF/JPG). All data exports, MultiQC tables and interactive HTML panels are still written. Defaults to True.
             prefix (str): Prefix to use for output directory. Defaults to "gtdata".
             verbose (bool): If True, display verbose output. Defaults to False.
             loci_indices (np.ndarray): Column indices for retained loci in filtered alignment. Defaults to None.
@@ -186,6 +188,7 @@ class GenotypeData(BaseGenotypeData):
         self.plot_dpi = plot_dpi
         self.plot_despine = plot_despine
         self.show_plots = show_plots
+        self.save_plots = save_plots
         self.chunk_size = chunk_size
 
         self.supported_filetypes: set = {
@@ -218,6 +221,7 @@ class GenotypeData(BaseGenotypeData):
             "plot_dpi": plot_dpi,
             "plot_despine": plot_despine,
             "show_plots": show_plots,
+            "save_plots": save_plots,
             "prefix": prefix,
             "verbose": verbose,
             "logger": logger,
@@ -235,6 +239,7 @@ class GenotypeData(BaseGenotypeData):
             show=self.show_plots,
             verbose=self.verbose,
             debug=self.debug,
+            save_plots=self.save_plots,
         )
 
         self.io_config = IOConfig(

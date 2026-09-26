@@ -37,6 +37,7 @@ class GenePopReader(GenotypeData):
         exclude_pops: Optional[List[str]] = None,
         include_pops: Optional[List[str]] = None,
         plot_format: str = "png",
+        save_plots: bool = True,
         prefix: str = "snpio",
         verbose: bool = False,
         debug: bool = False,
@@ -53,6 +54,7 @@ class GenePopReader(GenotypeData):
             exclude_pops (Optional[List[str]]): List of populations to exclude.
             include_pops (Optional[List[str]]): List of populations to include.
             plot_format (str): Format for output plots (default: "png").
+            save_plots (bool): If False, skip rendering static plot images (PNG/PDF/JPG). All data exports, MultiQC tables and interactive HTML panels are still written. Defaults to True.
             prefix (str): Prefix for output files (default: "snpio").
             verbose (bool): Whether to enable verbose logging (default: False).
             debug (bool): Whether to enable debug mode (default: False).
@@ -89,6 +91,7 @@ class GenePopReader(GenotypeData):
             exclude_pops=exclude_pops,
             include_pops=include_pops,
             plot_format=pfmt,
+            save_plots=save_plots,
             prefix=prefix,
             verbose=verbose,
             logger=self.logger,
