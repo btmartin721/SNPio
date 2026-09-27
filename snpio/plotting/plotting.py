@@ -3249,7 +3249,7 @@ class Plotting:
         This method generates a series of bar plots and heatmaps to visualize the missing data statistics across individuals, loci, and populations. It calculates the missing proportions and creates visualizations to help identify patterns of missingness in the genotype data.
 
         Args:
-            df (pd.DataFrame): The input DataFrame containing genotype data.
+            df (pd.DataFrame): The input DataFrame containing genotype data (missing calls as NA), or a boolean missingness mask (True = missing).
             prefix (str, optional): Prefix for the output file names. Defaults to None.
             zoom (bool, optional): If True, zooms in on the missing proportions (0-1). Defaults to False.
             bar_color (str, optional): Color for the bar plots. Defaults to "gray".
