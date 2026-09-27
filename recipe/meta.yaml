@@ -34,15 +34,15 @@ requirements:
     - bokeh
     - h5py
     - holoviews
-    - python-kaleido
+    - python-kaleido >=0.2.1,<0.3
     - kneed
     - matplotlib
     - multiqc >=1.29
     - numba >=0.61.2
-    - numpy
-    - pandas
+    - numpy >=1.26,<3
+    - pandas >=2.0,<3
     - panel
-    - plotly
+    - plotly >=5.18,<7
     - requests
     - scikit-learn
     - scipy

@@ -7,6 +7,7 @@ from snpio.popgenstats.fst_distance import FstDistance
 from snpio.popgenstats.genetic_distance import GeneticDistance
 from snpio.utils.logging import LoggerManager
 from snpio.utils.numeric import safe_divide
+from snpio.utils.misc import fill_diagonal_df
 
 if TYPE_CHECKING:
     from snpio.plotting.plotting import Plotting
@@ -709,11 +710,10 @@ class SummaryStatistics:
         upper = pd.DataFrame(np.nan, index=pops, columns=pops, dtype=float)
         pvalues = pd.DataFrame(np.nan, index=pops, columns=pops, dtype=float)
 
-        np.fill_diagonal(observed.values, 0.0)
-        np.fill_diagonal(lower.values, 0.0)
-        np.fill_diagonal(upper.values, 0.0)
-        np.fill_diagonal(pvalues.values, 1.0)
-
+        observed = fill_diagonal_df(observed, 0.0)
+        lower = fill_diagonal_df(lower, 0.0)
+        upper = fill_diagonal_df(upper, 0.0)
+        pvalues = fill_diagonal_df(pvalues, 1.0)
         observed_found = False
         lower_found = False
         upper_found = False

@@ -2,14 +2,14 @@ import itertools
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, NamedTuple, cast
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
 from snpio.utils.logging import LoggerManager
-from snpio.utils.misc import IUPAC
+from snpio.utils.misc import IUPAC, fill_diagonal_df
 from snpio.utils.multiqc_reporter import SNPioMultiQC
 from snpio.utils.output_paths import OutputPaths
 
@@ -18,6 +18,47 @@ if TYPE_CHECKING:
     from snpio.read_input.genotype_data import GenotypeData
 
 phased_encoding = IUPAC().get_phased_encoding()
+
+# Per-process state for pool workers. The pool initializer sets it once per
+# worker, so large arrays are not pickled with every task.
+_WORKER_STATE: dict = {}
+
+
+def _set_worker_state(state: dict) -> None:
+    _WORKER_STATE.clear()
+    _WORKER_STATE.update(state)
+
+
+def _permutation_task(pair: tuple, n_reps: int, seed: int):
+    return FstDistance._permutation_worker(
+        pair, _WORKER_STATE["pop_indices"], _WORKER_STATE["encoded"], n_reps, seed
+    )
+
+
+def _bootstrap_task(seed: int):
+    return FstDistance._bootstrap_replicate(
+        seed,
+        _WORKER_STATE["pair_components"],
+        _WORKER_STATE["pop_pairs"],
+        _WORKER_STATE["n_loci"],
+    )
+
+
+class EncodedGenotypes(NamedTuple):
+    """Genotype matrix encoded as per-allele copy counts.
+
+    Attributes:
+        counts (np.ndarray): ``(n_alleles, n_individuals, n_loci)`` uint8 copy
+            number (0, 1 or 2) of each allele in each individual.
+        het (np.ndarray): ``counts == 1``; heterozygous for that allele.
+        valid (np.ndarray): ``(n_individuals, n_loci)`` bool; non-missing call.
+        alleles (tuple[str, ...]): Allele labels, in ``counts`` order.
+    """
+
+    counts: np.ndarray
+    het: np.ndarray
+    valid: np.ndarray
+    alleles: tuple
 
 
 class FstDistance:
@@ -563,15 +604,15 @@ class FstDistance:
             f"warning={iupac_audit['warning']}"
         )
 
-        n_loci = full_matrix.shape[1]
-        num_pops = len(pop_keys)
+        # Encode once; all pairs, permutations and bootstraps reuse it
+        encoded = FstDistance.encode_genotypes(full_matrix)
 
         if method == "observed":
             fst_mat = np.full((num_pops, num_pops), np.nan)
             for ia, ib in itertools.combinations(range(num_pops), 2):
                 p1_key, p2_key = pop_keys[ia], pop_keys[ib]
                 fst_val = self._compute_multilocus_fst(
-                    pop_indices[p1_key], pop_indices[p2_key], full_matrix
+                    pop_indices[p1_key], pop_indices[p2_key], encoded
                 )
                 fst_mat[ia, ib] = fst_mat[ib, ia] = fst_val
 
@@ -594,27 +635,34 @@ class FstDistance:
             }
 
             max_workers = mp.cpu_count() if n_jobs == -1 else n_jobs
+            max_workers = max(1, min(max_workers, len(pop_pairs)))
+            desc = f"Fst population pairs ({n_reps} permutations each)"
 
-            with ProcessPoolExecutor(max_workers=max_workers) as pool:
-                futures = [
-                    pool.submit(
-                        FstDistance._permutation_worker,
-                        pair,
-                        pop_indices,
-                        full_matrix,
-                        n_reps,
-                        pair_seeds[pair],
+            if max_workers == 1:
+                # No process pool for a single job: avoids process start-up and
+                # a copy of the genotype matrix.
+                for pair in tqdm(pop_pairs, desc=desc, total=len(pop_pairs)):
+                    pop_pair, res_dict = FstDistance._permutation_worker(
+                        pair, pop_indices, encoded, n_reps, pair_seeds[pair]
                     )
-                    for pair in pop_pairs
-                ]
-
-                for fut in tqdm(
-                    as_completed(futures),
-                    desc=f"Fst population pairs ({n_reps} permutations each)",
-                    total=len(futures),
-                ):
-                    pop_pair, res_dict = fut.result()
                     result[pop_pair] = res_dict
+            else:
+                with ProcessPoolExecutor(
+                    max_workers=max_workers,
+                    initializer=_set_worker_state,
+                    initargs=({"pop_indices": pop_indices, "encoded": encoded},),
+                ) as pool:
+                    futures = [
+                        pool.submit(_permutation_task, pair, n_reps, pair_seeds[pair])
+                        for pair in pop_pairs
+                    ]
+
+                    for fut in tqdm(as_completed(futures), desc=desc, total=len(futures)):
+                        pop_pair, res_dict = fut.result()
+                        result[pop_pair] = res_dict
+
+                # Completion order varies between runs; restore pair order
+                result = {pair: result[pair] for pair in pop_pairs}
 
             for (p1_key, p2_key), res_dict in result.items():
                 self.plotter.plot_permutation_dist(
@@ -636,29 +684,49 @@ class FstDistance:
                 pair: FstDistance._fst_variance_components_per_locus(
                     pop_indices[pair[0]],
                     pop_indices[pair[1]],
-                    full_matrix,
+                    encoded,
                 )
                 for pair in pop_pairs
             }
 
-            worker_func = partial(
-                FstDistance._bootstrap_replicate,
-                pair_components=pair_components,
-                pop_pairs=pop_pairs,
-                n_loci=n_loci,
-            )
-
             seeds = rng.integers(0, 1_000_000_000, size=n_reps)
+            max_workers = mp.cpu_count() if n_jobs == -1 else n_jobs
+            max_workers = max(1, min(max_workers, n_reps))
 
-            with ProcessPoolExecutor(
-                max_workers=(mp.cpu_count() if n_jobs == -1 else n_jobs)
-            ) as pool:
-                reps = pool.map(worker_func, seeds)
+            if max_workers == 1:
+                worker_func = partial(
+                    FstDistance._bootstrap_replicate,
+                    pair_components=pair_components,
+                    pop_pairs=pop_pairs,
+                    n_loci=n_loci,
+                )
+                reps = map(worker_func, seeds)
                 for i, rep_data in tqdm(
                     enumerate(reps), desc="Fst bootstraps", total=n_reps
                 ):
                     for pair, fst_val in rep_data.items():
                         result[pair][i] = fst_val
+            else:
+                state = {
+                    "pair_components": pair_components,
+                    "pop_pairs": pop_pairs,
+                    "n_loci": n_loci,
+                }
+                with ProcessPoolExecutor(
+                    max_workers=max_workers,
+                    initializer=_set_worker_state,
+                    initargs=(state,),
+                ) as pool:
+                    reps = pool.map(
+                        _bootstrap_task,
+                        seeds,
+                        chunksize=max(1, n_reps // (4 * max_workers)),
+                    )
+                    for i, rep_data in tqdm(
+                        enumerate(reps), desc="Fst bootstraps", total=n_reps
+                    ):
+                        for pair, fst_val in rep_data.items():
+                            result[pair][i] = fst_val
 
             self.logger.info("Fst bootstrapping complete!")
             return result
@@ -737,7 +805,7 @@ class FstDistance:
             pop_pairs = list(result_dict.keys())
             pops = all_populations_from_keys(pop_pairs)
             pop_indices = get_pop_indices()
-            full_matrix = self.genotype_data.snp_data
+            encoded = FstDistance.encode_genotypes(self.genotype_data.snp_data)
 
             df_obs = pd.DataFrame(np.nan, index=pops, columns=pops)
             df_lower = pd.DataFrame(np.nan, index=pops, columns=pops)
@@ -747,7 +815,7 @@ class FstDistance:
                 obs_val = self._compute_multilocus_fst(
                     pop_indices[p1],
                     pop_indices[p2],
-                    full_matrix,
+                    encoded,
                 )
 
                 arr_nonan = arr[~np.isnan(arr)]
@@ -763,10 +831,9 @@ class FstDistance:
                 df_lower.loc[p1, p2] = df_lower.loc[p2, p1] = lower_val
                 df_upper.loc[p1, p2] = df_upper.loc[p2, p1] = upper_val
 
-            np.fill_diagonal(df_obs.values, 0.0)
-            np.fill_diagonal(df_lower.values, 0.0)
-            np.fill_diagonal(df_upper.values, 0.0)
-
+            df_obs = fill_diagonal_df(df_obs, 0.0)
+            df_lower = fill_diagonal_df(df_lower, 0.0)
+            df_upper = fill_diagonal_df(df_upper, 0.0)
             df_ul_combined = self._combine_upper_lower_ci(
                 df_upper,
                 df_lower,
@@ -862,12 +929,11 @@ class FstDistance:
                     df_lower.loc[p1, p2] = df_lower.loc[p2, p1] = lower_val
                     df_upper.loc[p1, p2] = df_upper.loc[p2, p1] = upper_val
 
-            np.fill_diagonal(df_obs.values, 0.0)
-            np.fill_diagonal(df_pval.values, 1.0)
-            np.fill_diagonal(df_mean.values, 0.0)
-            np.fill_diagonal(df_lower.values, 0.0)
-            np.fill_diagonal(df_upper.values, 0.0)
-
+            df_obs = fill_diagonal_df(df_obs, 0.0)
+            df_pval = fill_diagonal_df(df_pval, 1.0)
+            df_mean = fill_diagonal_df(df_mean, 0.0)
+            df_lower = fill_diagonal_df(df_lower, 0.0)
+            df_upper = fill_diagonal_df(df_upper, 0.0)
             self.snpio_mqc.queue_heatmap(
                 df=df_obs,
                 panel_id="wc_fst_permutation_observed",
@@ -979,12 +1045,138 @@ class FstDistance:
         return pd.DataFrame(combined, index=df_upper.index, columns=df_upper.columns)
 
     @staticmethod
+    def encode_genotypes(full_matrix: "np.ndarray | EncodedGenotypes") -> EncodedGenotypes:
+        """Encode a genotype matrix as per-allele copy counts.
+
+        Each distinct genotype value is decoded once with
+        ``_decode_and_clean_phased_genotypes`` (IUPAC, phased or unphased
+        diploid strings; missing calls dropped), so the encoding follows exactly
+        the same rules as the per-locus string implementation.
+
+        Args:
+            full_matrix (np.ndarray | EncodedGenotypes): Genotype matrix with
+                individuals as rows and loci as columns, or an already-encoded
+                matrix (returned unchanged).
+
+        Returns:
+            EncodedGenotypes: Encoded matrix.
+        """
+        if isinstance(full_matrix, EncodedGenotypes):
+            return full_matrix
+
+        arr = np.asarray(full_matrix, dtype=object)
+        n_ind, n_loci = arr.shape
+        codes, uniques = pd.factorize(arr.ravel(), use_na_sentinel=True)
+
+        decoded = [
+            FstDistance._decode_and_clean_phased_genotypes([u]) for u in uniques
+        ]
+        alleles = sorted({a for d in decoded for g in d for a in g.split("/")})
+        allele_idx = {a: i for i, a in enumerate(alleles)}
+
+        # Extra trailing column absorbs the NA sentinel (code -1): zero copies, invalid
+        lut_counts = np.zeros((len(alleles), len(uniques) + 1), dtype=np.uint8)
+        lut_valid = np.zeros(len(uniques) + 1, dtype=bool)
+        for j, d in enumerate(decoded):
+            if d:
+                a1, a2 = d[0].split("/")
+                lut_counts[allele_idx[a1], j] += 1
+                lut_counts[allele_idx[a2], j] += 1
+                lut_valid[j] = True
+
+        counts = lut_counts[:, codes].reshape(len(alleles), n_ind, n_loci)
+        valid = lut_valid[codes].reshape(n_ind, n_loci)
+        return EncodedGenotypes(counts, counts == 1, valid, tuple(alleles))
+
+    @staticmethod
     def _fst_variance_components_per_locus(
+        pop1_inds: np.ndarray,
+        pop2_inds: np.ndarray,
+        full_matrix: "np.ndarray | EncodedGenotypes",
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Compute per-locus Weir-Cockerham Fst variance components.
+
+        Vectorised over loci and alleles; numerically equivalent to
+        ``_fst_variance_components_per_locus_python`` (HierFstat ``wc()``).
+
+        Args:
+            pop1_inds (np.ndarray): Population 1 sample indices.
+            pop2_inds (np.ndarray): Population 2 sample indices.
+            full_matrix (np.ndarray | EncodedGenotypes): Genotype matrix with
+                individuals as rows and loci as columns, or its encoding from
+                ``encode_genotypes`` (preferred when called repeatedly).
+
+        Returns:
+            tuple[np.ndarray, np.ndarray, np.ndarray]: Per-locus ``a``, ``b``, and
+                ``c`` component arrays. These correspond to HierFstat's ``lsiga``,
+                ``lsigb``, and ``lsigw`` per locus.
+        """
+        enc = FstDistance.encode_genotypes(full_matrix)
+        i1 = np.asarray(pop1_inds, dtype=int)
+        i2 = np.asarray(pop2_inds, dtype=int)
+        r = 2.0  # strictly pairwise
+
+        n1 = enc.valid[i1].sum(axis=0, dtype=np.int64).astype(float)
+        n2 = enc.valid[i2].sum(axis=0, dtype=np.int64).astype(float)
+        n_t = n1 + n2
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            n_c = (n_t - ((n1**2 + n2**2) / n_t)) / (r - 1.0)
+
+            # Per-allele counts: shape (n_alleles, n_loci)
+            ac1 = enc.counts[:, i1, :].sum(axis=1, dtype=np.int64).astype(float)
+            ac2 = enc.counts[:, i2, :].sum(axis=1, dtype=np.int64).astype(float)
+            h1 = enc.het[:, i1, :].sum(axis=1, dtype=np.int64).astype(float)
+            h2 = enc.het[:, i2, :].sum(axis=1, dtype=np.int64).astype(float)
+
+            p1 = ac1 / (2.0 * n1)
+            p2 = ac2 / (2.0 * n2)
+            p_bar = (ac1 + ac2) / (2.0 * n_t)
+            mhom1 = (ac1 - h1) / 2.0
+            mhom2 = (ac2 - h2) / 2.0
+
+            # HierFstat sums of squares (SSG, SSi, SSP) and mean squares
+            ssg = ((n1 * p1) - mhom1) + ((n2 * p2) - mhom2)
+            ssi = n1 * (p1 - 2.0 * p1**2) + mhom1 + n2 * (p2 - 2.0 * p2**2) + mhom2
+            ssp = 2.0 * (n1 * (p1 - p_bar) ** 2 + n2 * (p2 - p_bar) ** 2)
+            msg = ssg / n_t
+            msp = ssp / (r - 1.0)
+            msi = ssi / (n_t - r)
+
+            sigw = msg
+            sigb = 0.5 * (msi - msg)
+            siga = (msp - msi) / (2.0 * n_c)
+
+        # Sum over alleles observed at the locus, skipping non-finite terms
+        present = (ac1 + ac2) > 0
+
+        def allele_sum(x: np.ndarray) -> np.ndarray:
+            return np.where(present & np.isfinite(x), x, 0.0).sum(axis=0)
+
+        a_vals = allele_sum(siga)
+        b_vals = allele_sum(sigb)
+        c_vals = allele_sum(sigw)
+
+        # Monomorphic loci contribute zero variance
+        mono = present.sum(axis=0) < 2
+        a_vals[mono] = b_vals[mono] = c_vals[mono] = 0.0
+
+        # Loci where the components are undefined (missing population, N_T <= r, n_c <= 0)
+        undefined = (n1 == 0) | (n2 == 0) | (n_t <= r) | ~np.isfinite(n_c) | (n_c <= 0)
+        a_vals[undefined] = b_vals[undefined] = c_vals[undefined] = np.nan
+
+        return a_vals, b_vals, c_vals
+
+    @staticmethod
+    def _fst_variance_components_per_locus_python(
         pop1_inds: np.ndarray,
         pop2_inds: np.ndarray,
         full_matrix: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Compute per-locus Weir-Cockerham Fst variance components.
+        """Reference (pure-Python) per-locus Weir-Cockerham Fst components.
+
+        Kept for validation of the vectorised implementation; see
+        ``_fst_variance_components_per_locus``.
 
         Args:
             pop1_inds (np.ndarray): Population 1 sample indices.

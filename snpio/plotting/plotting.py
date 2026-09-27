@@ -70,6 +70,9 @@ class Plotting:
         _plot_summary_statistics_per_population: Plot summary statistics per population. If an axis is provided, the plot is drawn on that axis.
     """
 
+    # Class default so instances created without __init__ still render plots
+    save_plots: bool = True
+
     def __init__(
         self,
         genotype_data: "GenotypeData",
@@ -82,6 +85,7 @@ class Plotting:
         verbose: bool = False,
         debug: bool = False,
         force_nremover: bool = False,
+        save_plots: bool = True,
     ) -> None:
         """Initialize the Plotting class.
 
@@ -100,6 +104,9 @@ class Plotting:
             force_nremover (bool): Route filtering-operation plots beneath the
                 ``plots/nremover`` scope even if the source dataset itself has
                 not yet been replaced by its filtered copy.
+            save_plots (bool): If False, skip rendering static plot images
+                (PNG/PDF/JPG). Data exports, MultiQC tables and interactive
+                HTML panels are still written. Defaults to True.
 
         Note:
             - The `show`, `plot_format`, `dpi`, `plot_fontsize`, `plot_title_fontsize`, `despine`, `verbose`, and `debug` attributes are set based on the provided values, the `genotype_data` object, or default values.
@@ -112,6 +119,7 @@ class Plotting:
         """
         self.genotype_data = genotype_data
         self.prefix: str = getattr(genotype_data, "prefix", "plot")
+        self.save_plots: bool = bool(save_plots)
 
         self.output_paths = OutputPaths.from_genotype_data(
             genotype_data,
@@ -308,6 +316,8 @@ class Plotting:
         Returns:
             Mapping from plot identifiers to the generated output paths.
         """
+        if not self.save_plots:
+            return {}
 
         from snpio.plotting.linkage_disequilibrium import (
             LinkageDisequilibriumPlotter,
@@ -499,15 +509,34 @@ class Plotting:
             pop2_label (str): Label for the second population.
             dist_type (str): Type of distance metric used (default: "fst"). Other option: "nei".
         """
-
-        sns.set_style("white")
-        sns.despine()
-
         if dist.size == 0:
             self.logger.warning(
                 f"No permutation distribution data available for {pop1_label} vs {pop2_label}. Skipping plot."
             )
             return
+
+        operation = self._distance_operation(dist_type)
+        dist_data = {
+            "Permutation Fst": dist.tolist(),
+            "Observed Fst": obs_fst,
+            "Mean Permuted Fst": dist.mean(),
+            "Population 1": pop1_label,
+            "Population 2": pop2_label,
+            "Distance Type": dist_type,
+        }
+
+        with open(
+            self._report_dir(operation)
+            / f"{dist_type}_permutation_dist_{pop1_label}_{pop2_label}.json",
+            "w",
+        ) as f:
+            json.dump(dist_data, f, indent=4)
+
+        if not self.save_plots:
+            return
+
+        sns.set_style("white")
+        sns.despine()
 
         try:
             sns.histplot(
@@ -543,29 +572,12 @@ class Plotting:
             f"{dist_type}_permutation_dist_{pop1_label}_{pop2_label}.{self.plot_format}"
         )
 
-        operation = self._distance_operation(dist_type)
         plt.savefig(self._plot_dir(operation) / out_file)
 
         if self.show:
             plt.show()
 
         plt.close()
-
-        dist_data = {
-            "Permutation Fst": dist.tolist(),
-            "Observed Fst": obs_fst,
-            "Mean Permuted Fst": dist.mean(),
-            "Population 1": pop1_label,
-            "Population 2": pop2_label,
-            "Distance Type": dist_type,
-        }
-
-        with open(
-            self._report_dir(operation)
-            / f"{dist_type}_permutation_dist_{pop1_label}_{pop2_label}.json",
-            "w",
-        ) as f:
-            json.dump(dist_data, f, indent=4)
 
     def _plot_fst_heatmap(
         self,
@@ -591,6 +603,9 @@ class Plotting:
             title (str): Title for the heatmap.
             dist_type (str): Type of distance metric used (default: "fst"). Other option: "nei".
         """
+        if not self.save_plots:
+            return
+
         if isinstance(df_fst_mean, pd.DataFrame):
             df_fst_mean = df_fst_mean.copy()
         elif isinstance(df_fst_mean, dict):
@@ -631,19 +646,14 @@ class Plotting:
         mode = "fst"
 
         if df_fst_lower is not None and df_fst_upper is not None:
+            # Lower CI in the lower triangle, upper CI in the upper triangle.
+            # Built on a NumPy copy: writing through ``DataFrame.values`` fails
+            # under pandas copy-on-write.
+            ci_arr = np.full(df_fst_lower.shape, np.nan)
+            ci_arr[mask_lower] = df_fst_lower.to_numpy()[mask_lower]
+            ci_arr[mask_upper] = df_fst_upper.to_numpy()[mask_upper]
             df_fst_ci = pd.DataFrame(
-                np.full(df_fst_lower.shape, np.nan),
-                index=df_fst_lower.index,
-                columns=df_fst_lower.columns,
-            )
-
-            # Create a mask for the lower triangle
-            df_fst_ci.values[mask_lower] = (
-                df_fst_lower.values[mask_lower] if df_fst_lower is not None else None
-            )
-
-            df_fst_ci.values[mask_upper] = (
-                df_fst_upper.values[mask_upper] if df_fst_upper is not None else None
+                ci_arr, index=df_fst_lower.index, columns=df_fst_lower.columns
             )
 
             # Set the diagonal to NaN to avoid displaying self-comparisons
@@ -1223,40 +1233,42 @@ class Plotting:
         }[method_name]
         counts_df = self._get_significance_counts_df(df, d_stats, method_name)
 
-        method_title = method_name.title()
-        if method_name == "patterson":
-            fig, ax = plt.subplots(figsize=(10, 6))
-            sns.barplot(
-                data=counts_df, x="Correction", y="Count", hue="Significance", ax=ax
-            )
-            ax.set_title(f"{method_title} D-Statistics Significance Counts")
-            ax.legend(loc="best")
-            plt.tight_layout()
-        else:
-            g = sns.catplot(
-                data=counts_df,
-                x="Statistic",
-                y="Count",
-                hue="Significance",
-                col="Correction",
-                kind="bar",
-                height=6,
-                aspect=0.8,
-                sharey=False,
-            )
-            g.fig.suptitle(f"{method_title} D-Statistics Significance Counts", y=1.03)
-            g.set_axis_labels("Statistic", "Count").tight_layout(rect=[0, 0, 1, 0.97])  # type: ignore
-            fig = g.fig  # unify handle
-
         output_path = (
             self._plot_dir("d_statistics")
             / f"d_statistics_significance_counts_{method_name}.html"
         )
-        img_path = Path(str(output_path).replace(".html", f".{self.plot_format}"))
-        fig.savefig(str(img_path), dpi=150, bbox_inches="tight")  # save static image
-        if self.show:
-            plt.show()
-        plt.close(fig)
+
+        method_title = method_name.title()
+        if self.save_plots:
+            if method_name == "patterson":
+                fig, ax = plt.subplots(figsize=(10, 6))
+                sns.barplot(
+                    data=counts_df, x="Correction", y="Count", hue="Significance", ax=ax
+                )
+                ax.set_title(f"{method_title} D-Statistics Significance Counts")
+                ax.legend(loc="best")
+                plt.tight_layout()
+            else:
+                g = sns.catplot(
+                    data=counts_df,
+                    x="Statistic",
+                    y="Count",
+                    hue="Significance",
+                    col="Correction",
+                    kind="bar",
+                    height=6,
+                    aspect=0.8,
+                    sharey=False,
+                )
+                g.fig.suptitle(f"{method_title} D-Statistics Significance Counts", y=1.03)
+                g.set_axis_labels("Statistic", "Count").tight_layout(rect=[0, 0, 1, 0.97])  # type: ignore
+                fig = g.fig  # unify handle
+
+            img_path = Path(str(output_path).replace(".html", f".{self.plot_format}"))
+            fig.savefig(str(img_path), dpi=150, bbox_inches="tight")  # save static image
+            if self.show:
+                plt.show()
+            plt.close(fig)
 
         interactive_fig = px.bar(
             counts_df,
@@ -1690,46 +1702,47 @@ class Plotting:
             fst_pivot = fst_pivot.head(max_outliers_to_plot)
 
         # Plot the heatmap
-        fig, ax = plt.subplots(1, 1, figsize=(15, max(8, len(fst_pivot) // 2)))
+        if self.save_plots:
+            fig, ax = plt.subplots(1, 1, figsize=(15, max(8, len(fst_pivot) // 2)))
 
-        sns.set_style("white")
+            sns.set_style("white")
 
-        cmap = sns.diverging_palette(220, 20, as_cmap=True)
+            cmap = sns.diverging_palette(220, 20, as_cmap=True)
 
-        sns.heatmap(
-            fst_pivot,
-            cmap=cmap,
-            vmin=0.0,
-            vmax=1.0,
-            linewidths=0.5,
-            linecolor="grey",
-            cbar_kws={"label": "Fst"},
-            square=False,
-            xticklabels=True,
-            yticklabels=True,
-            ax=ax,
-        )
+            sns.heatmap(
+                fst_pivot,
+                cmap=cmap,
+                vmin=0.0,
+                vmax=1.0,
+                linewidths=0.5,
+                linecolor="grey",
+                cbar_kws={"label": "Fst"},
+                square=False,
+                xticklabels=True,
+                yticklabels=True,
+                ax=ax,
+            )
 
-        # Plot title and axis labels
-        ax.set_title(
-            "Fst Values for Outlier SNPs\nContributing Populations Highlighted"
-        )
-        ax.set_xlabel("Population Pairs")
-        ax.set_ylabel("SNPs")
+            # Plot title and axis labels
+            ax.set_title(
+                "Fst Values for Outlier SNPs\nContributing Populations Highlighted"
+            )
+            ax.set_xlabel("Population Pairs")
+            ax.set_ylabel("SNPs")
 
-        # Rotate x-axis labels
-        ax.set_xticks(ax.get_xticks())
-        ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
-        ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
+            # Rotate x-axis labels
+            ax.set_xticks(ax.get_xticks())
+            ax.set_xticklabels(ax.get_xticklabels(), rotation=90)
+            ax.set_yticklabels(ax.get_yticklabels(), rotation=0)
 
-        # Save the plot
-        of = f"outlier_snps_heatmap_{method}.{self.plot_format}"
-        outpath = self._plot_dir("fst_outliers") / of
-        fig.savefig(outpath, bbox_inches="tight")
+            # Save the plot
+            of = f"outlier_snps_heatmap_{method}.{self.plot_format}"
+            outpath = self._plot_dir("fst_outliers") / of
+            fig.savefig(outpath, bbox_inches="tight")
 
-        if self.show:
-            plt.show()
-        plt.close()
+            if self.show:
+                plt.show()
+            plt.close()
 
         method_pretty = "DBSCAN" if method == "dbscan" else "Permutation"
         if max_outliers_to_plot is None:
@@ -1779,46 +1792,47 @@ class Plotting:
             summary_statistics (Dict[str, pd.DataFrame | pd.Series | dict]): Dictionary containing summary statistics for plotting.
             use_pvalues (bool): If True, display p-values for Fst values. Defaults to False.
         """
-        fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=False)
-
         if isinstance(summary_statistics["overall"], dict):
             summary_statistics["overall"] = pd.DataFrame(summary_statistics["overall"])
 
-        self._plot_summary_statistics_per_sample(
-            summary_statistics["overall"], ax=axes[0]
-        )
+        if self.save_plots:
+            fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=False)
 
-        per_pop_vals = summary_statistics.get("per_population", None)
-
-        if self.genotype_data.has_popmap and per_pop_vals is not None:
-            sumstats = {}
-            if isinstance(
-                summary_statistics["per_population"], (pd.DataFrame, pd.Series)
-            ):
-                sumstats["per_population"] = summary_statistics[
-                    "per_population"
-                ].to_dict()
-            elif isinstance(summary_statistics["per_population"], dict):
-                sumstats["per_population"] = summary_statistics["per_population"]
-            else:
-                msg = f"Unexpected data type for 'per_population' summary statistics: {type(summary_statistics['per_population'])}. Expected dict, DataFrame, or Series."
-                self.logger.error(msg)
-                raise TypeError(msg)
-
-            self._plot_summary_statistics_per_population(
-                sumstats["per_population"], ax=axes[1]
+            self._plot_summary_statistics_per_sample(
+                summary_statistics["overall"], ax=axes[0]
             )
 
-        fig.suptitle("Summary Statistics Overview", fontsize=16, y=1.05)
-        fig.tight_layout()
-        of: str = f"summary_statistics.{self.plot_format}"
-        outpath: Path = self._plot_dir("summary_statistics") / of
-        fig.savefig(outpath)
+            per_pop_vals = summary_statistics.get("per_population", None)
 
-        if self.show:
-            plt.show()
+            if self.genotype_data.has_popmap and per_pop_vals is not None:
+                sumstats = {}
+                if isinstance(
+                    summary_statistics["per_population"], (pd.DataFrame, pd.Series)
+                ):
+                    sumstats["per_population"] = summary_statistics[
+                        "per_population"
+                    ].to_dict()
+                elif isinstance(summary_statistics["per_population"], dict):
+                    sumstats["per_population"] = summary_statistics["per_population"]
+                else:
+                    msg = f"Unexpected data type for 'per_population' summary statistics: {type(summary_statistics['per_population'])}. Expected dict, DataFrame, or Series."
+                    self.logger.error(msg)
+                    raise TypeError(msg)
 
-        plt.close()
+                self._plot_summary_statistics_per_population(
+                    sumstats["per_population"], ax=axes[1]
+                )
+
+            fig.suptitle("Summary Statistics Overview", fontsize=16, y=1.05)
+            fig.tight_layout()
+            of: str = f"summary_statistics.{self.plot_format}"
+            outpath: Path = self._plot_dir("summary_statistics") / of
+            fig.savefig(outpath)
+
+            if self.show:
+                plt.show()
+
+            plt.close()
 
         # Save summary statistics per sample and per population in JSON format
         json_overall: dict = self._make_json_serializable(summary_statistics)
@@ -2363,32 +2377,34 @@ class Plotting:
         cnts["Genotype"] = cnts["Genotype Int"].map(int_iupac_dict)
         cnts.columns = [col[0].upper() + col[1:] for col in cnts.columns]
 
-        fig, ax = plt.subplots(1, 1, figsize=(15, 15))
-        g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax, color="orange")
-        g.set_xlabel("Genotype")
-        g.set_ylabel("Count")
-        g.set_title("Genotype Counts")
-        g.tick_params(axis="both", labelsize=self.plot_fontsize)
-        for p in g.patches:
-            # Type narrowing for the linter
-            if isinstance(p, Rectangle):
-                height = p.get_height()
-                g.annotate(
-                    f"{int(height)}",
-                    (p.get_x() + 0.075, height + 0.01),
-                    xytext=(0, 1),
-                    textcoords="offset points",
-                    va="bottom",
-                    fontsize=annotation_size,
-                )
+        if self.save_plots:
+            fig, ax = plt.subplots(1, 1, figsize=(15, 15))
+            g = sns.barplot(x="Genotype", y="Count", data=cnts, ax=ax, color="orange")
+            g.set_xlabel("Genotype")
+            g.set_ylabel("Count")
+            g.set_title("Genotype Counts")
+            g.tick_params(axis="both", labelsize=self.plot_fontsize)
+            for p in g.patches:
+                # Type narrowing for the linter
+                if isinstance(p, Rectangle):
+                    height = p.get_height()
+                    g.annotate(
+                        f"{int(height)}",
+                        (p.get_x() + 0.075, height + 0.01),
+                        xytext=(0, 1),
+                        textcoords="offset points",
+                        va="bottom",
+                        fontsize=annotation_size,
+                    )
 
-        of: str = f"genotype_distribution.{self.plot_format}"
-        outpath: Path = self._plot_dir("genotype_distribution", genotype=True) / of
-        fig.savefig(outpath)
+            of: str = f"genotype_distribution.{self.plot_format}"
+            outpath: Path = self._plot_dir("genotype_distribution", genotype=True) / of
+            fig.savefig(outpath)
+            self.logger.info(f"Genotype distribution plot saved to: {outpath}")
 
-        if self.show:
-            plt.show()
-        plt.close()
+            if self.show:
+                plt.show()
+            plt.close()
 
         self.snpio_mqc.queue_barplot(
             df=cnts,
@@ -2399,7 +2415,6 @@ class Plotting:
             index_label="Genotype Int",
         )
 
-        self.logger.info(f"Genotype distribution plot saved to: {outpath}")
 
     def plot_search_results(self, df_combined: pd.DataFrame) -> None:
         """Plot and save the filtering results based on the available data.
@@ -2486,43 +2501,44 @@ class Plotting:
             self.logger.info("Plotting global per-locus filtering results.")
             self.logger.debug(f"Missing data: {df}")
 
-            fig, axs = plt.subplots(1, 2, figsize=(10, 6))
+            if self.save_plots:
+                fig, axs = plt.subplots(1, 2, figsize=(10, 6))
 
-            for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
-                    x="Missing_Threshold",
-                    y=ycol,
-                    hue="Filter_Method",
-                    palette="Dark2",
-                    markers=False,
-                    data=df,
-                    ax=ax,
-                )
+                for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
+                    ax = sns.lineplot(
+                        x="Missing_Threshold",
+                        y=ycol,
+                        hue="Filter_Method",
+                        palette="Dark2",
+                        markers=False,
+                        data=df,
+                        ax=ax,
+                    )
 
-                ylab: str = ycol.split("_")[0].capitalize()
+                    ylab: str = ycol.split("_")[0].capitalize()
 
-                ax.set_xlabel("Filtering Threshold")
-                ax.set_ylabel(f"{ylab} Proportion")
-                ax.set_title(f"{ylab} Data")
-                ax.legend(title="Filter Method")
-                ax.set_ylim(-0.05, 1.12)
-                ax.set_xlim(0, 1)
+                    ax.set_xlabel("Filtering Threshold")
+                    ax.set_ylabel(f"{ylab} Proportion")
+                    ax.set_title(f"{ylab} Data")
+                    ax.legend(title="Filter Method")
+                    ax.set_ylim(-0.05, 1.12)
+                    ax.set_xlim(0, 1)
 
-                ax.set_xticks(
-                    df["Missing_Threshold"].astype(float).unique(), minor=False
-                )
+                    ax.set_xticks(
+                        df["Missing_Threshold"].astype(float).unique(), minor=False
+                    )
 
-                ax.legend(
-                    title="Filter Method", bbox_to_anchor=(0.5, 1.2), loc="center"
-                )
+                    ax.legend(
+                        title="Filter Method", bbox_to_anchor=(0.5, 1.2), loc="center"
+                    )
 
-            of: str = f"filtering_results_missing_loci_samples.{self.plot_format}"
-            fig.savefig(self._plot_dir("filtering", genotype=True) / of)
+                of: str = f"filtering_results_missing_loci_samples.{self.plot_format}"
+                fig.savefig(self._plot_dir("filtering", genotype=True) / of)
 
-            if self.show:
-                plt.show()
+                if self.show:
+                    plt.show()
 
-            plt.close()
+                plt.close()
 
             outpath = self._plot_combined_missing_plotly(df)
 
@@ -2658,39 +2674,40 @@ class Plotting:
             self.logger.info("Plotting population-level missing data.")
             self.logger.debug(f"Population-level missing data: {df}")
 
-            fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+            if self.save_plots:
+                fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
-            for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
-                    x="Missing_Threshold",
-                    y=ycol,
-                    data=df,
-                    ax=ax,
-                    color=sns.color_palette("Dark2")[0],
-                    markers=False,
-                    linewidth=2,
-                    linestyle="-",
-                    legend=False,
-                )
+                for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
+                    ax = sns.lineplot(
+                        x="Missing_Threshold",
+                        y=ycol,
+                        data=df,
+                        ax=ax,
+                        color=sns.color_palette("Dark2")[0],
+                        markers=False,
+                        linewidth=2,
+                        linestyle="-",
+                        legend=False,
+                    )
 
-                ylab: str = ycol.split("_")[0].capitalize()
+                    ylab: str = ycol.split("_")[0].capitalize()
 
-                ax.set_xlabel("Filtering Threshold")
-                ax.set_ylabel(f"{ylab} Proportion")
-                ax.set_title(f"{ylab} Data")
-                ax.set_ylim(0, 1.12)
-                ax.set_xticks(
-                    df["Missing_Threshold"].astype(float).unique(), minor=False
-                )
+                    ax.set_xlabel("Filtering Threshold")
+                    ax.set_ylabel(f"{ylab} Proportion")
+                    ax.set_title(f"{ylab} Data")
+                    ax.set_ylim(0, 1.12)
+                    ax.set_xticks(
+                        df["Missing_Threshold"].astype(float).unique(), minor=False
+                    )
 
-            of: str = f"filtering_results_missing_population.{self.plot_format}"
-            outpath: Path = self._plot_dir("filtering", genotype=True) / of
-            fig.savefig(outpath)
+                of: str = f"filtering_results_missing_population.{self.plot_format}"
+                outpath: Path = self._plot_dir("filtering", genotype=True) / of
+                fig.savefig(outpath)
 
-            if self.show:
-                plt.show()
+                if self.show:
+                    plt.show()
 
-            plt.close()
+                plt.close()
 
             outfile = self._plot_missing_pop_plotly(df)
 
@@ -2789,74 +2806,76 @@ class Plotting:
         if not df.empty:
             self.logger.info("Plotting minor allele frequency data.")
 
-            fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+            if self.save_plots:
+                fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
-            for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
-                    x="MAF_Threshold",
-                    y=ycol,
-                    data=df,
-                    color=sns.color_palette("Dark2")[0],
-                    markers=False,
-                    linewidth=2,
-                    linestyle="-",
-                    legend=False,
-                    ax=ax,
-                )
+                for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
+                    ax = sns.lineplot(
+                        x="MAF_Threshold",
+                        y=ycol,
+                        data=df,
+                        color=sns.color_palette("Dark2")[0],
+                        markers=False,
+                        linewidth=2,
+                        linestyle="-",
+                        legend=False,
+                        ax=ax,
+                    )
 
-                ylab: str = ycol.split("_")[0].capitalize()
+                    ylab: str = ycol.split("_")[0].capitalize()
 
-                ax.set_xlabel("Filtering Threshold")
-                ax.set_ylabel(f"{ylab} Proportion")
-                ax.set_title(f"{ylab} Data")
-                ax.set_ylim(-0.05, 1.12)
-                ax.set_xticks(df["MAF_Threshold"].astype(float).unique(), minor=False)
+                    ax.set_xlabel("Filtering Threshold")
+                    ax.set_ylabel(f"{ylab} Proportion")
+                    ax.set_title(f"{ylab} Data")
+                    ax.set_ylim(-0.05, 1.12)
+                    ax.set_xticks(df["MAF_Threshold"].astype(float).unique(), minor=False)
 
-            of: str = f"filtering_results_maf.{self.plot_format}"
-            outpath: Path = self._plot_dir("filtering", genotype=True) / of
-            fig.savefig(outpath)
+                of: str = f"filtering_results_maf.{self.plot_format}"
+                outpath: Path = self._plot_dir("filtering", genotype=True) / of
+                fig.savefig(outpath)
 
-            if self.show:
-                plt.show()
+                if self.show:
+                    plt.show()
 
-            plt.close()
+                plt.close()
         else:
             self.logger.info("MAF data is empty.")
 
         if not df_mac.empty:
             self.logger.info("Plotting minor allele count data.")
 
-            fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+            if self.save_plots:
+                fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
-            for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
-                ax = sns.lineplot(
-                    x="MAC_Threshold",
-                    y=ycol,
-                    data=df_mac,
-                    color=sns.color_palette("Dark2")[0],
-                    markers=False,
-                    linewidth=2,
-                    linestyle="-",
-                    legend=False,
-                    ax=ax,
-                )
+                for ax, ycol in zip(axs, ["Removed_Prop", "Kept_Prop"]):
+                    ax = sns.lineplot(
+                        x="MAC_Threshold",
+                        y=ycol,
+                        data=df_mac,
+                        color=sns.color_palette("Dark2")[0],
+                        markers=False,
+                        linewidth=2,
+                        linestyle="-",
+                        legend=False,
+                        ax=ax,
+                    )
 
-                ylab = ycol.split("_")[0].capitalize()
+                    ylab = ycol.split("_")[0].capitalize()
 
-                ax.set_xlabel("Filtering Threshold")
-                ax.set_ylabel(f"{ylab} Count")
-                ax.set_title(f"{ylab} Data")
-                ax.set_ylim(-0.05, 1.12)
-                ax.set_xticks(df_mac["MAC_Threshold"].astype(int).unique(), minor=False)
+                    ax.set_xlabel("Filtering Threshold")
+                    ax.set_ylabel(f"{ylab} Count")
+                    ax.set_title(f"{ylab} Data")
+                    ax.set_ylim(-0.05, 1.12)
+                    ax.set_xticks(df_mac["MAC_Threshold"].astype(int).unique(), minor=False)
 
-            of: str = f"filtering_results_mac.{self.plot_format}"
-            outpath: Path = self._plot_dir("filtering", genotype=True) / of
-            fig.savefig(outpath)
+                of: str = f"filtering_results_mac.{self.plot_format}"
+                outpath: Path = self._plot_dir("filtering", genotype=True) / of
+                fig.savefig(outpath)
 
-            if self.show:
-                plt.show()
+                if self.show:
+                    plt.show()
 
-            plt.close()
+                plt.close()
         else:
             self.logger.info("MAC data is empty.")
 
@@ -2999,45 +3018,46 @@ class Plotting:
         if not df.empty:
             self.logger.info("Plotting boolean filtering data.")
 
-            fig, axs = plt.subplots(1, 2, figsize=(8, 6))
+            if self.save_plots:
+                fig, axs = plt.subplots(1, 2, figsize=(8, 6))
 
-            for ax, ycol in zip(axs, ["Kept_Prop", "Removed_Prop"]):
-                ax = sns.lineplot(
-                    x="Bool_Threshold",
-                    y=ycol,
-                    data=df,
-                    hue="Filter_Method",
-                    palette="Dark2",
-                    markers=False,
-                    linewidth=2,
-                    linestyle="-",
-                    ax=ax,
-                )
+                for ax, ycol in zip(axs, ["Kept_Prop", "Removed_Prop"]):
+                    ax = sns.lineplot(
+                        x="Bool_Threshold",
+                        y=ycol,
+                        data=df,
+                        hue="Filter_Method",
+                        palette="Dark2",
+                        markers=False,
+                        linewidth=2,
+                        linestyle="-",
+                        ax=ax,
+                    )
 
-                ylab: str = ycol.split("_")[0].capitalize()
+                    ylab: str = ycol.split("_")[0].capitalize()
 
-                ax.set_xlabel("Heterozygous Genotypes")
-                ax.set_ylabel(f"{ylab} Proportion")
-                ax.set_title(f"{ylab} Data")
-                ax.set_ylim(-0.05, 1.12)
-                ax.set_xlim(0, 1)
-                ax.set_xticks([0.0, 1.0], minor=False)
-                ax.set_xticklabels(
-                    labels=["Included", "Excluded"], rotation=45, minor=False
-                )
+                    ax.set_xlabel("Heterozygous Genotypes")
+                    ax.set_ylabel(f"{ylab} Proportion")
+                    ax.set_title(f"{ylab} Data")
+                    ax.set_ylim(-0.05, 1.12)
+                    ax.set_xlim(0, 1)
+                    ax.set_xticks([0.0, 1.0], minor=False)
+                    ax.set_xticklabels(
+                        labels=["Included", "Excluded"], rotation=45, minor=False
+                    )
 
-                ax.legend(
-                    title="Filter Method", loc="center", bbox_to_anchor=(0.5, 1.3)
-                )
+                    ax.legend(
+                        title="Filter Method", loc="center", bbox_to_anchor=(0.5, 1.3)
+                    )
 
-            of: str = f"filtering_results_bool.{self.plot_format}"
-            outpath: Path = self._plot_dir("filtering", genotype=True) / of
-            fig.savefig(outpath)
+                of: str = f"filtering_results_bool.{self.plot_format}"
+                outpath: Path = self._plot_dir("filtering", genotype=True) / of
+                fig.savefig(outpath)
 
-            if self.show:
-                plt.show()
+                if self.show:
+                    plt.show()
 
-            plt.close()
+                plt.close()
 
             # Melt the DataFrame for combined Removed_Prop and Kept_Prop plots
             outpath = self._bool_filter_summary_plotly(df)
@@ -3131,7 +3151,6 @@ class Plotting:
             ValueError: Raised if the input data is not a pandas Series or list.
         """
         # Create the countplot
-        fig, axs = plt.subplots(1, 2, figsize=(16, 9))
 
         if not isinstance(populations, pd.Series):
             populations = pd.Series(populations)
@@ -3186,34 +3205,36 @@ class Plotting:
             },
         )
 
-        for ax, data, ylabel, median, color, median_color in zip(
-            axs,
-            [counts, proportions],
-            ["Count", "Proportion"],
-            [median_count, median_proportion],
-            [colors[1], colors[0]],
-            [colors[0], colors[1]],
-        ):
-            ax = sns.barplot(x=data.index, y=data.values, color=color, ax=ax)
-            median_line = ax.axhline(median, color=median_color, linestyle="--")
+        if self.save_plots:
+            fig, axs = plt.subplots(1, 2, figsize=(16, 9))
+            for ax, data, ylabel, median, color, median_color in zip(
+                axs,
+                [counts, proportions],
+                ["Count", "Proportion"],
+                [median_count, median_proportion],
+                [colors[1], colors[0]],
+                [colors[0], colors[1]],
+            ):
+                ax = sns.barplot(x=data.index, y=data.values, color=color, ax=ax)
+                median_line = ax.axhline(median, color=median_color, linestyle="--")
 
-            ax.set_xticks(ax.get_xticks())
-            ax.set_xticklabels(labels=ax.get_xticklabels(), minor=False, rotation=90)
-            ax.set_title("Population Counts")
-            ax.set_xlabel("Population ID")
-            ax.set_ylabel(ylabel)
-            ax.legend([median_line], ["Median"], loc="upper right")
+                ax.set_xticks(ax.get_xticks())
+                ax.set_xticklabels(labels=ax.get_xticklabels(), minor=False, rotation=90)
+                ax.set_title("Population Counts")
+                ax.set_xlabel("Population ID")
+                ax.set_ylabel(ylabel)
+                ax.legend([median_line], ["Median"], loc="upper right")
 
-        of: Path = (
-            self._plot_dir("population_counts", genotype=True)
-            / f"population_counts.{self.plot_format}"
-        )
-        fig.savefig(of)
+            of: Path = (
+                self._plot_dir("population_counts", genotype=True)
+                / f"population_counts.{self.plot_format}"
+            )
+            fig.savefig(of)
 
-        if self.show:
-            plt.show()
+            if self.show:
+                plt.show()
 
-        plt.close()
+            plt.close()
 
     def visualize_missingness(
         self,
@@ -3228,7 +3249,7 @@ class Plotting:
         This method generates a series of bar plots and heatmaps to visualize the missing data statistics across individuals, loci, and populations. It calculates the missing proportions and creates visualizations to help identify patterns of missingness in the genotype data.
 
         Args:
-            df (pd.DataFrame): The input DataFrame containing genotype data.
+            df (pd.DataFrame): The input DataFrame containing genotype data (missing calls as NA), or a boolean missingness mask (True = missing).
             prefix (str, optional): Prefix for the output file names. Defaults to None.
             zoom (bool, optional): If True, zooms in on the missing proportions (0-1). Defaults to False.
             bar_color (str, optional): Color for the bar plots. Defaults to "gray".
@@ -3246,6 +3267,9 @@ class Plotting:
 
         has_popmap = self.genotype_data.has_popmap
         stats = self.genotype_data.calc_missing(df, use_pops=has_popmap)
+
+        if not self.save_plots:
+            return stats
 
         ncol = 3
         nrow = 2 if has_popmap else 1
@@ -3458,98 +3482,99 @@ class Plotting:
         if missing:
             raise ValueError(f"plot_allele_summary: missing keys {missing}")
 
-        sns.set_theme(style="whitegrid", font_scale=1.2)
-        # keep width, double the height for a 2×2 grid
-        fig, axs = plt.subplots(
-            2, 2, figsize=(figsize[0], figsize[1] * 2), constrained_layout=True
-        )
+        if self.save_plots:
+            sns.set_theme(style="whitegrid", font_scale=1.2)
+            # keep width, double the height for a 2×2 grid
+            fig, axs = plt.subplots(
+                2, 2, figsize=(figsize[0], figsize[1] * 2), constrained_layout=True
+            )
 
-        # 1) Missingness
-        miss_keys = [
-            "Overall Missing Prop.",
-            "Median Sample Missing",
-            "Median Locus Missing",
-            "Pct Samples with Missing",
-            "Pct Loci with Missing",
-        ]
-        sns.barplot(
-            y=miss_keys,
-            x=summary[miss_keys].values,
-            ax=axs[0, 0],
-            palette="Blues_d",
-            hue=miss_keys,
-            legend=False,
-        )
-        axs[0, 0].set(title="Missingness", xlim=(0, 1))
+            # 1) Missingness
+            miss_keys = [
+                "Overall Missing Prop.",
+                "Median Sample Missing",
+                "Median Locus Missing",
+                "Pct Samples with Missing",
+                "Pct Loci with Missing",
+            ]
+            sns.barplot(
+                y=miss_keys,
+                x=summary[miss_keys].values,
+                ax=axs[0, 0],
+                palette="Blues_d",
+                hue=miss_keys,
+                legend=False,
+            )
+            axs[0, 0].set(title="Missingness", xlim=(0, 1))
 
-        # 2) Heterozygosity
-        het_keys = [
-            "Overall Heterozygosity Prop.",
-            "Mean Sample Heterozygosity Prop.",
-            "Mean Locus Heterozygosity Prop.",
-        ]
-        sns.barplot(
-            y=het_keys,
-            x=summary[het_keys].values,
-            ax=axs[0, 1],
-            hue=het_keys,
-            palette="Greens_d",
-            legend=False,
-        )
-        axs[0, 1].set(title="Heterozygosity", xlim=(0, 1))
+            # 2) Heterozygosity
+            het_keys = [
+                "Overall Heterozygosity Prop.",
+                "Mean Sample Heterozygosity Prop.",
+                "Mean Locus Heterozygosity Prop.",
+            ]
+            sns.barplot(
+                y=het_keys,
+                x=summary[het_keys].values,
+                ax=axs[0, 1],
+                hue=het_keys,
+                palette="Greens_d",
+                legend=False,
+            )
+            axs[0, 1].set(title="Heterozygosity", xlim=(0, 1))
 
-        # 3) Allelic spectrum & HWE
-        spec_keys = [
-            "Prop. Monomorphic",
-            "Prop. Biallelic",
-            "Prop. Triallelic",
-            "Prop. Quadallelic",
-            "Mean Alleles per Locus",
-            "Mean Effective Alleles",
-            "Mean Expected Heterozygosity",
-            "Mean F_IS",
-        ]
-        sns.barplot(
-            y=spec_keys,
-            x=summary[spec_keys].values,
-            ax=axs[1, 0],
-            palette="Purples_d",
-            hue=spec_keys,
-            legend=False,
-        )
-        axs[1, 0].set(title="Allelic Spectrum & HWE", xlim=(0, 1))
+            # 3) Allelic spectrum & HWE
+            spec_keys = [
+                "Prop. Monomorphic",
+                "Prop. Biallelic",
+                "Prop. Triallelic",
+                "Prop. Quadallelic",
+                "Mean Alleles per Locus",
+                "Mean Effective Alleles",
+                "Mean Expected Heterozygosity",
+                "Mean F_IS",
+            ]
+            sns.barplot(
+                y=spec_keys,
+                x=summary[spec_keys].values,
+                ax=axs[1, 0],
+                palette="Purples_d",
+                hue=spec_keys,
+                legend=False,
+            )
+            axs[1, 0].set(title="Allelic Spectrum & HWE", xlim=(0, 1))
 
-        # 4) MAF summary & spectrum
-        maf_keys = [
-            "Prop. Singleton Loci",
-            "MAF Mean",
-            "MAF Median",
-            "Prop. Rare Variants",
-            "MAF < 0.01",
-            "0.01 ≤ MAF < 0.05",
-            "0.05 ≤ MAF < 0.10",
-            "0.10 ≤ MAF < 0.20",
-            "MAF ≥ 0.20",
-        ]
-        sns.barplot(
-            y=maf_keys,
-            x=summary[maf_keys].values,
-            ax=axs[1, 1],
-            palette="Oranges_d",
-            hue=maf_keys,
-            legend=False,
-        )
-        axs[1, 1].set(title="MAF Summary & Spectrum", xlim=(0, 1))
+            # 4) MAF summary & spectrum
+            maf_keys = [
+                "Prop. Singleton Loci",
+                "MAF Mean",
+                "MAF Median",
+                "Prop. Rare Variants",
+                "MAF < 0.01",
+                "0.01 ≤ MAF < 0.05",
+                "0.05 ≤ MAF < 0.10",
+                "0.10 ≤ MAF < 0.20",
+                "MAF ≥ 0.20",
+            ]
+            sns.barplot(
+                y=maf_keys,
+                x=summary[maf_keys].values,
+                ax=axs[1, 1],
+                palette="Oranges_d",
+                hue=maf_keys,
+                legend=False,
+            )
+            axs[1, 1].set(title="MAF Summary & Spectrum", xlim=(0, 1))
 
-        # save & (optionally) show
-        savepath: Path = (
-            self._plot_dir("allele_summary", genotype=True)
-            / f"allele_summary.{self.plot_format}"
-        )
-        fig.savefig(savepath)
-        if self.show:
-            plt.show()
-        plt.close(fig)
+            # save & (optionally) show
+            savepath: Path = (
+                self._plot_dir("allele_summary", genotype=True)
+                / f"allele_summary.{self.plot_format}"
+            )
+            fig.savefig(savepath)
+            if self.show:
+                plt.show()
+            plt.close(fig)
 
         # 1. Mapping from original keys → prettier, more intuitive labels
         pretty_names = {

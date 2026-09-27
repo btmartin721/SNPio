@@ -34,6 +34,10 @@ from snpio.utils.missing_stats import MissingStats
 from snpio.utils.multiqc_reporter import SNPioMultiQC
 from snpio.utils.output_paths import OutputPaths
 
+# Above this many loci, per-locus missingness is reported to MultiQC as a
+# histogram: MultiQC stores and renders every point of a violin plot.
+MAX_VIOLIN_LOCI = 5000
+
 
 class GenotypeData(BaseGenotypeData):
     """A class for handling and analyzing genotype data.
@@ -126,6 +130,7 @@ class GenotypeData(BaseGenotypeData):
         plot_dpi: int = 300,
         plot_despine: bool = True,
         show_plots: bool = False,
+        save_plots: bool = True,
         prefix: str = "snpio",
         verbose: bool = False,
         loci_indices: List[int] | np.ndarray | None = None,
@@ -151,6 +156,7 @@ class GenotypeData(BaseGenotypeData):
             plot_dpi (int): Resolution in dots per inch for plots. Defaults to 300.
             plot_despine (bool): If True, remove the top and right spines from plots. Defaults to True.
             show_plots (bool): If True, display plots in the console. Defaults to False.
+            save_plots (bool): If False, skip rendering static plot images (PNG/PDF/JPG). All data exports, MultiQC tables and interactive HTML panels are still written. Defaults to True.
             prefix (str): Prefix to use for output directory. Defaults to "gtdata".
             verbose (bool): If True, display verbose output. Defaults to False.
             loci_indices (np.ndarray): Column indices for retained loci in filtered alignment. Defaults to None.
@@ -186,6 +192,7 @@ class GenotypeData(BaseGenotypeData):
         self.plot_dpi = plot_dpi
         self.plot_despine = plot_despine
         self.show_plots = show_plots
+        self.save_plots = save_plots
         self.chunk_size = chunk_size
 
         self.supported_filetypes: set = {
@@ -218,6 +225,7 @@ class GenotypeData(BaseGenotypeData):
             "plot_dpi": plot_dpi,
             "plot_despine": plot_despine,
             "show_plots": show_plots,
+            "save_plots": save_plots,
             "prefix": prefix,
             "verbose": verbose,
             "logger": logger,
@@ -235,6 +243,7 @@ class GenotypeData(BaseGenotypeData):
             show=self.show_plots,
             verbose=self.verbose,
             debug=self.debug,
+            save_plots=self.save_plots,
         )
 
         self.io_config = IOConfig(
@@ -1180,10 +1189,9 @@ class GenotypeData(BaseGenotypeData):
         # Create a dictionary of the parameters.
         params = dict(zip(keys, values))
 
-        # Create a DataFrame from snp_data and replace missing values
-        # with NA.
-        df = pd.DataFrame(self.snp_data)
-        df = df.replace(to_replace=self.missing_vals, value=pd.NA)
+        # Boolean missingness mask (True = missing). Building it directly
+        # avoids an object-dtype copy of the whole genotype matrix.
+        df = pd.DataFrame(np.isin(self.snp_data, self.missing_vals))
 
         # Update plot_kwargs and params with the appropriate values.
         kwargs = self.plot_kwargs
@@ -1292,8 +1300,11 @@ class GenotypeData(BaseGenotypeData):
         df_perloc = _format_for_multiqc(stats.per_locus) * 100
         df_perloc = df_perloc.rename(columns={"missing_prop": "Percent Missing"})
 
-        self.snpio_mqc.queue_violin(
+        self._queue_locus_distribution(
             df=df_perloc,  # Convert to percentage
+            export_path=report_root / "locus_missingness.tsv.gz",
+            description_prefix=description_prefix,
+            series_name="All loci",
             panel_id="locus_missingness",
             section="missing_data",
             title=f"SNPio: {description_prefix}Percent Per-locus Missingness",
@@ -1341,8 +1352,10 @@ class GenotypeData(BaseGenotypeData):
                 columns={"missing_prop": "Percent Missingness"}
             )
 
-            self.snpio_mqc.queue_violin(
+            self._queue_locus_distribution(
                 df=df_poploc,
+                export_path=report_root / "population_locus_missingness.tsv.gz",
+                description_prefix=description_prefix,
                 panel_id="population_locus_missingness",
                 section="missing_data",
                 title=f"SNPio: {description_prefix}Percent Missingness for each Population",
@@ -1357,6 +1370,66 @@ class GenotypeData(BaseGenotypeData):
             )
 
         self.logger.info(f"Missingness reports written to: {report_root}")
+
+    def _queue_locus_distribution(
+        self,
+        df: pd.DataFrame,
+        *,
+        export_path: Path,
+        description_prefix: str,
+        series_name: str | None = None,
+        **violin_kwargs: Any,
+    ) -> None:
+        """Queue per-locus missingness as a violin plot, or as a histogram for large data.
+
+        With more than ``MAX_VIOLIN_LOCI`` loci, the distribution is queued as a histogram (2% bins, one line per column of ``df``) and the per-locus values are written to ``export_path`` instead, because MultiQC stores and renders every point of a violin plot.
+
+        Args:
+            df (pd.DataFrame): Percent missing, with loci as rows.
+            export_path (Path): Tab-separated output for the per-locus values when a histogram is used.
+            description_prefix (str): Pre- or post-filtering label for the panel description.
+            series_name (str, optional): Histogram label for a single-column ``df``. Defaults to the column names.
+            **violin_kwargs: Arguments for ``SNPioMultiQC.queue_violin``.
+        """
+        if len(df) <= MAX_VIOLIN_LOCI:
+            self.snpio_mqc.queue_violin(df=df, **violin_kwargs)
+            return
+
+        df.to_csv(export_path, sep="\t", index_label="Locus ID", float_format="%.2f")
+
+        edges = np.linspace(0, 100, 51)
+        centres = (edges[:-1] + edges[1:]) / 2
+        data = {}
+        for col in df.columns:
+            # Round away floating-point noise so values on a bin edge fall in the upper bin
+            values = df[col].dropna().to_numpy(dtype=float).round(6)
+            counts, _ = np.histogram(values, bins=edges)
+            name = series_name if series_name and df.shape[1] == 1 else str(col)
+            data[name] = {float(x): int(c) for x, c in zip(centres, counts)}
+
+        panel_id = violin_kwargs["panel_id"]
+        self.snpio_mqc.queue_linegraph(
+            data,
+            panel_id=panel_id,
+            section=violin_kwargs["section"],
+            title=violin_kwargs["title"],
+            index_label="Percent Missing",
+            description=(
+                f"{description_prefix.capitalize()}Number of loci by percentage of missing data "
+                f"({len(df)} loci, 2% bins). Shown as a histogram instead of a violin plot above "
+                f"{MAX_VIOLIN_LOCI} loci; per-locus values are written to {export_path.name}."
+            ),
+            pconfig={
+                "id": panel_id,
+                "title": violin_kwargs["title"],
+                "xlab": "Percent missing (2% bins)",
+                "ylab": "Number of loci",
+                "xmin": 0,
+                "xmax": 100,
+                "ymin": 0,
+                "tt_decimals": 0,
+            },
+        )
 
     def _genotype_to_iupac(self, genotype: str) -> str:
         """Convert a genotype string to its corresponding IUPAC code.
@@ -1478,7 +1551,8 @@ class GenotypeData(BaseGenotypeData):
         """Compute missing-value statistics with proper locus + sample names.
 
         Args:
-            df (pd.DataFrame): DataFrame with genotype data, where columns are loci
+            df (pd.DataFrame): DataFrame with genotype data (missing calls as NA),
+                or a boolean missingness mask (True = missing), where columns are loci
                 and rows are individuals.
             use_pops (bool, optional): If True, compute population-level missingness
                 stats. Defaults to True.
@@ -1551,13 +1625,18 @@ class GenotypeData(BaseGenotypeData):
         df.columns = locus_names
         df.index = self.samples
 
-        loc_prop = (df.isna().sum(axis=0) / self.num_inds).round(4)
-        ind_prop = (df.isna().sum(axis=1) / self.num_snps).round(4)
+        # Accept a boolean missingness mask as well as genotypes with NA for
+        # missing calls.
+        is_mask = bool((df.dtypes == bool).all())
+        miss = df if is_mask else df.isna()
+
+        loc_prop = (miss.sum(axis=0) / self.num_inds).round(4)
+        ind_prop = (miss.sum(axis=1) / self.num_snps).round(4)
 
         poploc = poptot = indpop = None
 
         if use_pops and self.has_popmap:
-            indpop = df.isna()
+            indpop = miss.copy() if is_mask else miss
 
             indpop.index = pd.MultiIndex.from_arrays(
                 [self._populations, df.index],
