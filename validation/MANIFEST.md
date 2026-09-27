@@ -43,6 +43,9 @@ than an automatic test for physical linkage.
 The snapshot is
 [`linkage_disequilibrium/results/20260717T003026Z_ea14ecf/`](linkage_disequilibrium/results/20260717T003026Z_ea14ecf/).
 Its `tables/`, `plots/`, `provenance/`, and `logs/` directories contain the machine-readable evidence and figures. `SHA256SUMS.txt` covers every promoted artifact.
+On 2026-09-25, the Ne-only comparison table, its status file, and its figures
+were renamed with an `_ne` marker. Their data and figure bytes were unchanged;
+the checksum manifest and status path were updated for the new filenames.
 
 ### Provenance boundary
 

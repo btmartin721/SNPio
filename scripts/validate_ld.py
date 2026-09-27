@@ -387,7 +387,7 @@ def _published(args: argparse.Namespace) -> bool:
         result.summary, relative_tolerance=args.relative_tolerance
     )
     result.summary.to_csv(output / "snpio_island_fox_summary.csv", index=False)
-    passed = _write_status(output, comparison, name="published_comparison")
+    passed = _write_status(output, comparison, name="published_comparison_ne")
     plot_files = plot_published_island_fox_comparison(
         comparison,
         output / "plots",

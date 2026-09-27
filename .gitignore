@@ -315,3 +315,7 @@ Benchmarking.zip
 Validations.zip
 test.vcf
 fullruntest*_output/
+validation/
+validation*.zip
+LD_Ne_results/
+.codex/

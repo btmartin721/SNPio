@@ -102,7 +102,7 @@ Frozen independent reference
 Published island-fox benchmark
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. figure:: ../../../validation/linkage_disequilibrium/results/20260717T003026Z_ea14ecf/plots/published_island_fox/published_island_fox_comparison.png
+.. figure:: ../../../validation/linkage_disequilibrium/results/20260717T003026Z_ea14ecf/plots/published_island_fox/published_island_fox_comparison_ne.png
    :align: center
    :width: 95%
    :alt: Published and SNPio recent effective population size estimates for six island fox populations
@@ -161,7 +161,7 @@ validation command also writes a 300-DPI PNG and a vector PDF beneath its own
   ├── golden_reference/plots/golden_reference_errors.{png,pdf}
   ├── simulation/plots/simulation_calibration.{png,pdf}
   ├── published_island_fox/plots/
-  │   └── published_island_fox_comparison.{png,pdf}
+  │   └── published_island_fox_comparison_ne.{png,pdf}
   └── convergence/plots/pair_convergence.{png,pdf}
 
 Use the global ``--plot-formats`` and ``--plot-dpi`` options before the

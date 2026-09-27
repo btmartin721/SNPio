@@ -298,7 +298,7 @@ def plot_published_island_fox_comparison(
     return _save_figure(
         figure,
         output_directory,
-        "published_island_fox_comparison",
+        "published_island_fox_comparison_ne",
         formats=formats,
         dpi=dpi,
     )
