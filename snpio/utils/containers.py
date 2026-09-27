@@ -14,6 +14,7 @@ class PlotConfig:
         show (bool): Whether to display plots interactively.
         verbose (bool): Whether to enable verbose logging.
         debug (bool): Whether to enable debug mode.
+        save_plots (bool): Whether to render static plot images.
     """
 
     plot_format: Literal["png", "jpeg", "jpg", "pdf"]
@@ -23,6 +24,7 @@ class PlotConfig:
     show: bool
     verbose: bool
     debug: bool
+    save_plots: bool = True
 
     def __post_init__(self):
         valid_formats = {"png", "jpeg", "jpg", "pdf"}
@@ -49,6 +51,9 @@ class PlotConfig:
         if not isinstance(self.debug, bool):
             raise ValueError("Debug must be a boolean value.")
 
+        if not isinstance(self.save_plots, bool):
+            raise ValueError("save_plots must be a boolean value.")
+
     def to_dict(self) -> dict:
         """Convert the PlotConfig to a dictionary."""
         return {
@@ -59,6 +64,7 @@ class PlotConfig:
             "show": self.show,
             "verbose": self.verbose,
             "debug": self.debug,
+            "save_plots": self.save_plots,
         }
 
 

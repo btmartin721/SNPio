@@ -578,3 +578,22 @@ def build_dataframe(  # feel free to make this @staticmethod inside your class
         df = df.loc[:, column_order]
 
     return df
+
+
+def fill_diagonal_df(df: pd.DataFrame, value: float) -> pd.DataFrame:
+    """Return a copy of ``df`` with its diagonal set to ``value``.
+
+    ``np.fill_diagonal(df.values, ...)`` writes into the frame's underlying
+    buffer, which is read-only under pandas copy-on-write (the default from
+    pandas 3.0) and raises ``ValueError: underlying array is read-only``.
+
+    Args:
+        df (pd.DataFrame): Square DataFrame.
+        value (float): Value to place on the diagonal.
+
+    Returns:
+        pd.DataFrame: New DataFrame with the same index and columns.
+    """
+    arr = df.to_numpy(copy=True)
+    np.fill_diagonal(arr, value)
+    return pd.DataFrame(arr, index=df.index, columns=df.columns)

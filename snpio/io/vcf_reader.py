@@ -115,6 +115,7 @@ class VCFReader(GenotypeData):
         plot_dpi: int = 300,
         plot_despine: bool = True,
         show_plots: bool = False,
+        save_plots: bool = True,
         prefix: str = "snpio",
         verbose: bool = False,
         sample_indices: np.ndarray | None = None,
@@ -139,6 +140,7 @@ class VCFReader(GenotypeData):
             plot_dpi (int): The DPI for the plots. Defaults to 300.
             plot_despine (bool): Whether to remove the spines from the plots. Defaults to True.
             show_plots (bool): Whether to show the plots. Defaults to False.
+            save_plots (bool): If False, skip rendering static plot images (PNG/PDF/JPG). All data exports, MultiQC tables and interactive HTML panels are still written. Defaults to True.
             prefix (str): The prefix to use for the output files. Defaults to "snpio".
             verbose (bool): Whether to print verbose output. Defaults to False.
             sample_indices (np.ndarray | None): The indices of the samples to read. Defaults to None.
@@ -186,6 +188,7 @@ class VCFReader(GenotypeData):
             plot_dpi=plot_dpi,
             plot_despine=plot_despine,
             show_plots=show_plots,
+            save_plots=save_plots,
             prefix=prefix,
             verbose=verbose,
             sample_indices=sample_indices,
