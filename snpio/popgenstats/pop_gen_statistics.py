@@ -787,6 +787,7 @@ class PopGenStatistics:
         n_jobs: int = 1,
         save_plots: bool = True,
         include_nei: bool = False,
+        seed: int | None = None,
     ) -> tuple[dict, pd.DataFrame | pd.Series]:
         """Calculate a suite of summary statistics for SNP data.
 
@@ -801,6 +802,7 @@ class PopGenStatistics:
             n_jobs (int): Number of parallel jobs (-1 for all cores).
             save_plots (bool): Whether to save plots of the summary statistics.
             include_nei (bool): Whether to include Nei's genetic distance in the summary statistics. Defaults to False.
+            seed (int | None): Random seed for the permutation or bootstrap replicates, for reproducible p-values and confidence intervals. Defaults to None (not reproducible).
 
         Returns:
             tuple[dict, pd.DataFrame | pd.Series]: A tuple containing a DataFrame with allele-based summary statistics and a dictionary with all other summary statistics.
@@ -825,6 +827,7 @@ class PopGenStatistics:
             n_jobs=n_jobs,
             save_plots=save_plots,
             include_nei=include_nei,
+            seed=seed,
         )
 
         return sumstats, allele_sumstats_df
@@ -879,6 +882,7 @@ class PopGenStatistics:
         n_jobs: int = 1,
         palette: str = "viridis",
         suppress_plot: bool = False,
+        seed: int | None = None,
     ) -> Dict[str, pd.DataFrame]:
         """Estimate Weir & Cockerham's Fst, optionally run statistical tests.
 
@@ -890,12 +894,17 @@ class PopGenStatistics:
             n_jobs (int): Number of parallel jobs (-1 for all cores).
             palette (str): Color palette for the distance matrix heatmap.
             suppress_plot (bool): If True, suppresses plotting the heatmap.
+            seed (int | None): Random seed for the permutation or bootstrap replicates, for reproducible p-values and confidence intervals. Defaults to None (not reproducible).
 
         Returns:
             Dict[str, pd.DataFrame]: A dictionary containing the resulting DataFrames. Keys may include 'observed', 'pvalues', 'lower_ci', 'upper_ci'.
         """
         fst = FstDistance(
-            self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
+            self.genotype_data,
+            self.plotter,
+            verbose=self.verbose,
+            debug=self.debug,
+            seed=seed,
         )
         self.logger.info(f"Calculating Weir & Cockerham Fst (method: '{method}')...")
 
@@ -996,6 +1005,7 @@ class PopGenStatistics:
         n_jobs: int = 1,
         palette: str = "magma",
         suppress_plot: bool = False,
+        seed: int | None = None,
     ) -> Dict[str, pd.DataFrame | None] | None:
         """Calculate Nei's genetic distance and optionally run statistical tests.
 
@@ -1007,12 +1017,17 @@ class PopGenStatistics:
             n_jobs (int): Number of parallel jobs (-1 for all cores).
             palette (str): Color palette for the distance matrix heatmap.
             suppress_plot (bool): If True, suppresses plotting the heatmap.
+            seed (int | None): Random seed for the permutation or bootstrap replicates, for reproducible p-values and confidence intervals. Defaults to None (not reproducible).
 
         Returns:
             Dict[str, pd.DataFrame | None] | None: A dictionary containing the resulting DataFrames. Keys may include 'observed', 'pvalues', 'lower_ci', 'upper_ci'.
         """
         gd = GeneticDistance(
-            self.genotype_data, self.plotter, verbose=self.verbose, debug=self.debug
+            self.genotype_data,
+            self.plotter,
+            verbose=self.verbose,
+            debug=self.debug,
+            seed=seed,
         )
         self.logger.info(f"Calculating Nei's genetic distance (method: '{method}')...")
 
