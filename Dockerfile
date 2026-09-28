@@ -52,12 +52,15 @@ RUN conda run -n "$CONDA_ENV" python -m pip install --no-cache-dir \
     rm /tmp/snpio-${SNPIO_VERSION}-py3-none-any.whl && \
     conda clean -afy
 
-# Create a non-root user and set home directory
+# Create a non-root user and set home directory. useradd -m makes the home
+# private (0700) on current Debian; keep it readable so the image also works
+# when run as another user (e.g. docker -u, as Nextflow does).
 RUN useradd -ms /bin/bash snpiouser && \
     mkdir -p /home/snpiouser/.cache/numba \
     /home/snpiouser/.config/matplotlib \
     /app/results /app/docs /app/example_data && \
-    chown -R snpiouser:snpiouser /app /home/snpiouser
+    chown -R snpiouser:snpiouser /app /home/snpiouser && \
+    chmod 755 /home/snpiouser
 
 # Set working directory
 WORKDIR /app
@@ -74,12 +77,15 @@ COPY --chown=snpiouser:snpiouser scripts_and_notebooks/.bashrc_snpio /home/snpio
 # Switch to non-root user
 USER snpiouser
 ENV HOME=/home/snpiouser
-ENV MPLCONFIGDIR=$HOME/.config/matplotlib
-ENV NUMBA_CACHE_DIR=$HOME/.cache/numba
-RUN chmod -R u+w "$MPLCONFIGDIR" "$NUMBA_CACHE_DIR"
+# numba and matplotlib default to $HOME/.cache/numba and
+# $HOME/.config/matplotlib. They are not pinned here, so they follow HOME
+# when a runtime sets its own (e.g. Singularity/Apptainer).
 
 # Validate the installed release before publishing the image.
 RUN conda run -n "$CONDA_ENV" python -m pytest -q
+
+# Let any user reuse and update the caches written above.
+RUN chmod -R a+rwX "$HOME/.cache" "$HOME/.config"
 
 # Default container command
 CMD ["bash"]
