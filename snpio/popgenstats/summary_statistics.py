@@ -244,6 +244,7 @@ class SummaryStatistics:
         n_jobs: int = 1,
         save_plots: bool = True,
         include_nei: bool = True,
+        seed: int | None = None,
     ) -> dict:
         """Calculate a suite of summary statistics for SNP data.
 
@@ -256,6 +257,8 @@ class SummaryStatistics:
             save_plots: Whether to save summary-statistic plots.
             include_nei: Whether to include Nei's genetic distance in the returned
                 summary-statistics dictionary.
+            seed: Random seed for the permutation or bootstrap replicates of
+                Fst and Nei's distance. None (default) is not reproducible.
 
         Returns:
             Dictionary containing calculated summary statistics.
@@ -305,6 +308,7 @@ class SummaryStatistics:
                 self.plotter,
                 verbose=self.verbose,
                 debug=self.debug,
+                seed=seed,
             )
 
             if include_nei:
@@ -313,6 +317,7 @@ class SummaryStatistics:
                     self.plotter,
                     verbose=self.verbose,
                     debug=self.debug,
+                    seed=seed,
                 )
 
             fst_results = fst.weir_cockerham_fst(
