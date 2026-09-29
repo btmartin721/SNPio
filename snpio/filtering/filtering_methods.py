@@ -994,7 +994,10 @@ class FilteringMethods:
                 continue
             mask = aln == code
             col_sum = mask.sum(axis=0)
-            for base in alleles:
+            # Homozygote codes list their base twice (e.g. 'A': ('A', 'A')),
+            # so count each distinct base once: 2 per homozygote, 1 per allele
+            # of a heterozygote.
+            for base in set(alleles):
                 if base in base_to_idx:
                     add = col_sum if len(set(alleles)) > 1 else 2 * col_sum
                     counts[base_to_idx[base]] += add
@@ -1280,7 +1283,10 @@ class FilteringMethods:
             mask = aln == code
             col_sum = mask.sum(axis=0)
 
-            for base in alleles:
+            # Homozygote codes list their base twice (e.g. 'A': ('A', 'A')),
+            # so count each distinct base once: 2 per homozygote, 1 per allele
+            # of a heterozygote.
+            for base in set(alleles):
                 if base in base_to_idx:
                     add = col_sum if len(set(alleles)) > 1 else 2 * col_sum
                     counts[base_to_idx[base]] += add
@@ -1325,7 +1331,10 @@ class FilteringMethods:
             mask = arr == code
             col_sum = mask.sum(axis=0)
 
-            for base in alleles:
+            # Homozygote codes list their base twice (e.g. 'A': ('A', 'A')),
+            # so count each distinct base once: 2 per homozygote, 1 per allele
+            # of a heterozygote.
+            for base in set(alleles):
                 if base in base_to_idx:
                     add = col_sum if len(set(alleles)) > 1 else 2 * col_sum
                     counts[base_to_idx[base]] += add
