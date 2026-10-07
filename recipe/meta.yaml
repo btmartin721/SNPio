@@ -1,5 +1,5 @@
 {% set name = "snpio" %}
-{% set version = "1.7.6" %}
+{% set version = "1.7.7" %}
 {% set license = "GPL-3.0-or-later" %}
 {% set github_url = "https://github.com/btmartin721/SNPio" %}
 
@@ -9,7 +9,7 @@ package:
 
 source:
   git_url: {{ github_url }}
-  git_rev: v{{ version }}
+  git_rev: {{ environ.get('SNPIO_SOURCE_REV', 'v' ~ version) }}
 
 build:
   number: 0
@@ -50,6 +50,12 @@ requirements:
     - seaborn
     - toytree
     - tqdm
+
+test:
+  imports:
+    - snpio
+  commands:
+    - python -c "from importlib.metadata import version; assert version('snpio') == '{{ version }}'"
 
 about:
   home: {{ github_url }}

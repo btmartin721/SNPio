@@ -51,7 +51,24 @@ jobs:
         shell: bash -el {0}
         env:
           CI: "1"
+          # Build the exact checkout, including reconciled release metadata.
+          # An existing version tag may predate its metadata commit.
+          SNPIO_SOURCE_REV: ${{ github.sha }}
         run: |
+          python - <<'PY'
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          recipe_version = re.search(r'set version = "([^"]+)"', Path("recipe/meta.yaml").read_text()).group(1)
+          assert version == recipe_version, (version, recipe_version)
+          ref = os.environ["GITHUB_REF_NAME"]
+          if os.environ["GITHUB_REF_TYPE"] == "tag":
+              assert ref in {f"v{version}", f"conda-v{version}"}, (ref, version)
+          print(f"Building SNPio {version} from {os.environ['SNPIO_SOURCE_REV']}")
+          PY
           conda install --yes --override-channels -c conda-forge \
             conda-build anaconda-client
           set -o pipefail
@@ -59,7 +76,7 @@ jobs:
           # https://github.com/conda/conda-build/issues/5823
           conda-build recipe/ \
             --output-folder conda_build_artifacts \
-            --python ${{ matrix.python-version }} --no-test 2>&1 |
+            --python ${{ matrix.python-version }} 2>&1 |
             sed '/^WARNING: Number of parsed outputs does not match detected raw metadata blocks\./d'
 
       - name: Upload to Anaconda.org
@@ -74,4 +91,4 @@ jobs:
         run: |
           anaconda -t $ANACONDA_API_TOKEN upload \
             conda_build_artifacts/**/snpio-*.conda \
-            --user btmartin721 --label main --force
+            --user btmartin721 --label main

@@ -7,6 +7,27 @@ This document outlines the changes made to the project with each release.
 Unreleased
 ----------
 
+Version 1.7.7 (2026-10-07)
+--------------------------
+
+Bug Fixes
+~~~~~~~~~
+
+- Corrected homozygote allele counting in MAF, MAC, and singleton filters
+  (PR #51). Each homozygous sample contributes two allele copies; each
+  heterozygous sample contributes one copy of each allele.
+- The MAF/MAC counting defect affects versions 1.6.0 through 1.7.6.
+  Recheck filtering results produced with affected versions.
+
+Release Engineering
+~~~~~~~~~~~~~~~~~~~
+
+- Completed the stable GitHub and Conda release while preserving the
+  existing ``v1.7.7`` tag and published PyPI and Docker artifacts.
+- Synchronized source version metadata and pinned Conda CI builds to the
+  validated checkout. Conda publication now refuses to overwrite an
+  existing artifact and tests the installed package version.
+
 Version 1.7.3 (2026-07-23)
 --------------------------
 

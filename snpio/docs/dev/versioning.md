@@ -134,6 +134,21 @@ CI uses GitVersion to:
 The publishing workflows release the version to PyPI, Anaconda.org, and
 Docker Hub.
 
+### Completing an already-published release
+
+If a version tag and package artifacts already exist, preserve the tag and
+immutable artifacts. Verify their source commit and publishing run before
+reconciling source metadata with `scripts/update_versions.py`. Validate the
+reconciliation commit with a manual dispatch of `ci.yml`, which also runs
+strict documentation and distribution checks. Create the stable GitHub
+Release at the existing tag once validation succeeds.
+
+For a missing Conda package, push the established `conda-vX.Y.Z` tag at the
+validated reconciliation commit. Conda CI pins its source to that exact
+commit, checks version metadata, tests the installed version, and uploads
+without overwriting existing artifacts. Do not rerun the PyPI/Docker
+publisher when its versioned artifacts are already valid.
+
 ---
 
 ## 🔍 Debugging Version Bumps
