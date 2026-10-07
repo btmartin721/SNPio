@@ -9,6 +9,11 @@ on:
         description: 'Manually specify a version tag (e.g., 1.5.3). Leave blank to auto-generate.'
         required: false
         default: ''
+      complete_existing_release:
+        description: 'Complete a stable GitHub release for a verified existing tag without republishing packages.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   actions: write
@@ -60,6 +65,18 @@ jobs:
           echo "SemVer:     ${{ steps.set_version.outputs.version }}"
           echo "Tag:        v${{ steps.set_version.outputs.version }}"
 
+      - name: Verify existing release source
+        if: inputs.complete_existing_release
+        env:
+          VERSION: ${{ steps.set_version.outputs.version }}
+        run: |
+          test "$GITHUB_REF_NAME" = master
+          git rev-parse --verify "refs/tags/v$VERSION"
+          git merge-base --is-ancestor "v$VERSION" HEAD
+          git diff --exit-code "v$VERSION" HEAD -- \
+            snpio ':(exclude)snpio/docs' tests Dockerfile requirements.txt
+          test -f "etc/releases/$VERSION.md"
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
         with:
@@ -96,6 +113,7 @@ jobs:
           python scripts/verify_distributions.py dist/*
 
       - name: Push version commit and tag atomically
+        if: '!inputs.complete_existing_release'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -114,6 +132,44 @@ jobs:
             HEAD:master "refs/tags/v${{ steps.set_version.outputs.version }}"
           echo "v${{ steps.set_version.outputs.version }}" > .version_tag
 
+      - name: Prepare verified existing release artifacts
+        if: inputs.complete_existing_release
+        env:
+          VERSION: ${{ steps.set_version.outputs.version }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import urllib.request
+          import zipfile
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          with urllib.request.urlopen(f"https://pypi.org/pypi/snpio/{version}/json") as response:
+              release = json.load(response)
+          assert release["info"]["version"] == version
+          assert not release["info"]["yanked"]
+          assets = Path("release_assets")
+          assets.mkdir()
+          for artifact in release["urls"]:
+              assert not artifact["yanked"]
+              filename = artifact["filename"]
+              assert Path(filename).name == filename
+              with urllib.request.urlopen(artifact["url"]) as response:
+                  data = response.read()
+              assert hashlib.sha256(data).hexdigest() == artifact["digests"]["sha256"]
+              (assets / filename).write_bytes(data)
+              if filename.endswith(".whl"):
+                  with zipfile.ZipFile(assets / filename) as wheel:
+                      for name in wheel.namelist():
+                          if name.startswith("snpio/") and name.endswith(".py") and not name.startswith("snpio/docs/"):
+                              assert wheel.read(name) == Path(name).read_bytes(), name
+              print(f"Verified existing PyPI artifact: {filename}")
+          Path(".version_tag").write_text(f"v{version}\n")
+          PY
+          python scripts/verify_distributions.py release_assets/*
+
       - name: Set tag name output
         id: read_tag
         run: echo "tag_name=$(cat .version_tag)" >> "$GITHUB_OUTPUT"
@@ -123,11 +179,17 @@ jobs:
         with:
           tag_name: ${{ steps.read_tag.outputs.tag_name }}
           name: Release ${{ steps.read_tag.outputs.tag_name }}
-          generate_release_notes: true
+          generate_release_notes: ${{ !inputs.complete_existing_release }}
+          body_path: ${{ inputs.complete_existing_release && format('etc/releases/{0}.md', steps.set_version.outputs.version) || '' }}
+          files: ${{ inputs.complete_existing_release && 'release_assets/*' || '' }}
+          draft: false
+          prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Dispatch package publishing workflows
+        if: '!inputs.complete_existing_release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

@@ -141,7 +141,13 @@ immutable artifacts. Verify their source commit and publishing run before
 reconciling source metadata with `scripts/update_versions.py`. Validate the
 reconciliation commit with a manual dispatch of `ci.yml`, which also runs
 strict documentation and distribution checks. Create the stable GitHub
-Release at the existing tag once validation succeeds.
+Release at the existing tag once validation succeeds. Dispatch
+`version-and-release.yml` with the version and `complete_existing_release=true`
+to repeat the release gates and publish the stable GitHub Release using the
+workflow's existing scoped token. Put reviewed release notes in
+`etc/releases/X.Y.Z.md`. This mode verifies unchanged runtime source and
+copies the checksum-verified existing PyPI artifacts to the GitHub Release;
+it does not push tags or dispatch package publishers.
 
 For a missing Conda package, push the established `conda-vX.Y.Z` tag at the
 validated reconciliation commit. Conda CI pins its source to that exact
